@@ -1,0 +1,175 @@
+{
+  "date": "2026-11-26",
+  "baseline_commit": "d756111467926f5acf11bd1188ec6f899864c953",
+  "platform": "Windows x64 / MSVC / Release / Qt 6.11 / OCCT 8.0.1",
+  "gui_configuration": {
+    "QT_QPA_PLATFORM": "windows",
+    "QT_STYLE_OVERRIDE": "Fusion",
+    "ZIMA_VERIFY_HIDDEN_WINDOWS": "1",
+    "language": "en",
+    "theme": "dark"
+  },
+  "source_hash_normalization": "UTF-8 source bytes with CRLF normalized to LF",
+  "source_sha256": {
+    "config/localization/cs.qt.json": "149fd5fa3d3e304cfb6b6f712ee0b4fd867a2a566233a2c1a9265a5f0d03721e",
+    "config/localization/en.qt.json": "be93d9c491a7e39566ba66a7707d8b6e251835ca690c462c4a3b01fb3c300ccd",
+    "config/localization/de.qt.json": "d2c25d2096a57024153c3f9cc18695c6dd0d6af0f43c5714ab5c60f0f64cc919",
+    "config/localization/fr.qt.json": "c5df00ff197e0f979972eae68d9749a4950ba5985f1698511e8473a66028a2ee",
+    "config/localization/ru.qt.json": "d9ced85df45bb563c511de15d5f3fbf52fede867f27c724d1a234b05d2f58a53",
+    "cpp/CMakeLists.txt": "926664ee0ae065ee9685dec6efbef668486a5876de5095e71c182906fd592051",
+    "cpp/app/assembly_workspace_window.hpp": "96005a941e1948f6719997a6d5d4e8b0320a434ef68079379f098e997940c153",
+    "cpp/app/main_workspace.cpp": "04e488f834b65c6490e7ee8284af0c1af7e44a1bdd7892c13e55d2e5ed7223c1",
+    "cpp/app/sketch_contour_ui_verification.inc": "1393224c573e4de46acf7b0fd8c007eb49d1e927df9ca8e493568defb4acd115",
+    "cpp/app/workspace/layout.cpp": "fb839e542ac03f04caad07915c7b3341d599da2f0a0576aa419e887391acb1a0",
+    "cpp/app/workspace/sketch_drag.cpp": "04f6bf164475bed3a18031e0496f560af0f2861c2a36ad37c4d1662419a5d049",
+    "cpp/app/workspace/view_events.cpp": "d9d68a912d53a808adfb0e7dfd79a9b22f985637722e603e223e8322b65df212",
+    "cpp/modules/sketcher/include/zima/sketcher/sketch.hpp": "bcdfa5041a8cd72377f24f19efeb762207fb8abcb46be35a938ac049871cbda7",
+    "cpp/modules/sketcher/src/sketch.cpp": "17bb372b612176cab231f489776479d1789d511acd763e017c8f7949f195560a",
+    "cpp/modules/viewer/src/mesh_view.cpp": "6e9698d1d2478fcadd5c168825a4b50d3e5fdf7e20ea94787765bbb99d538e02",
+    "cpp/tests/sketch_contour_drag_tests.cpp": "3252c00f01b2f7cac11011539b31aa3ff11cb64d29bed93be1ed7d1c8a420ccd",
+    "cpp/tests/translation_contract.cpp": "d38cf871575cf3ce07b79f6b895019229318d6ad1d5cf1a079cf6a1fad6edd74"
+  },
+  "suites": [
+    {
+      "name": "contour",
+      "exit_code": 0,
+      "seconds": 1.9243,
+      "binary_sha256": "c1b5d8619388eab14376d407f45232381da90df277db6034480973c7f8cfd57d",
+      "options": {},
+      "directory": "build/sketch-contour-20261126/contour-edf0zv9e",
+      "summary_output": [
+        "Contour translation synthetic 1 curves: 0.005332 ms/gesture (including caller copy)",
+        "Contour translation synthetic 200 curves: 0.322589 ms/gesture (including caller copy)",
+        "Contour matrix: 862 cases, 2562 gestures, 2016 point drags, 1512 dimension edits, 103723 checks, 1.86135 s"
+      ]
+    },
+    {
+      "name": "translations",
+      "exit_code": 0,
+      "seconds": 12.5637,
+      "binary_sha256": "63743ede1ef311aae42ef53f4f6433aeeb3ea75b99a971a4ed52842c436dae16",
+      "options": {
+        "ZIMA_VERIFY_TRANSLATIONS_ONLY": "1"
+      },
+      "directory": "build/sketch-contour-20261126/translations-z5r_7ebj",
+      "summary_output": [
+        "Translations verified: cs",
+        "Translations verified: en",
+        "Translations verified: de",
+        "Translations verified: fr",
+        "Translations verified: ru"
+      ]
+    },
+    {
+      "name": "mechanism",
+      "exit_code": 0,
+      "seconds": 16.4067,
+      "binary_sha256": "39935b27eb32dacb85d6c58ebacc84b412ce8aa5fad9083ddb3205fb6a3fbe82",
+      "options": {},
+      "directory": "build/sketch-contour-20261126/mechanism-mdj4t88a",
+      "summary_output": [
+        "Mechanism study: 324 passed, 0 failed; 4176 angle edits, 2400 moving drags, 1800 projected drags, 324 native reopen and Undo/Redo cases",
+        "Tangent slider: 432 scale/orientation/order/support/lock cases, 864 successive edits, 864 moving drags passed"
+      ]
+    },
+    {
+      "name": "trim-contact",
+      "exit_code": 0,
+      "seconds": 57.4591,
+      "binary_sha256": "fdc71d6ef8513bbb2ea82fa689f613be198c39efb98270aef530e0d43f995597",
+      "options": {},
+      "directory": "build/sketch-contour-20261126/trim-contact-hi7dj37q",
+      "summary_output": [
+        "Trim contact matrix: 32 passed, 0 failed; 1920 numeric edits, 2688 moving drags; R/D, distance/X/Y/angle, both orders, driving/reference/locked states, mirrored internal/external contacts, finite domains, Undo/Redo and reopen"
+      ]
+    },
+    {
+      "name": "trim-fragment",
+      "exit_code": 0,
+      "seconds": 4.235,
+      "binary_sha256": "60fb3c861f8869d2d3e4b5940558cfe01919b9ed42acd7daa3af2f89eb02a4ff",
+      "options": {},
+      "directory": "build/sketch-contour-20261126/trim-fragment-yh6hsnwp",
+      "summary_output": [
+        "Trim fragment study: 96 circular, 144 Parallel and 16 point-H/V variants passed, 0 failed; 300 numeric edits and 378 moving drags; native/external supports, both selection orders, split/end Trim, alignment-safe endpoint transfer, three orientations, driving/reference and lock/DOF states, Undo/Redo and reopen covered"
+      ]
+    },
+    {
+      "name": "native-contact",
+      "exit_code": 0,
+      "seconds": 1.7263,
+      "binary_sha256": "18d38639b6034b480220a3cff9fef1e5d4b9b3c166cffd2c6348541ab34b2283",
+      "options": {
+        "ZIMA_CPP_VERIFY_NATIVE_CURVE_CONTACT": "1"
+      },
+      "directory": "build/sketch-contour-20261126/native-contact-x8z2f3eg",
+      "summary_output": [
+        "Native contact initial/edit matrix cases=108 failures=0"
+      ]
+    },
+    {
+      "name": "gui-contour",
+      "exit_code": 0,
+      "seconds": 78.2842,
+      "binary_sha256": "98ec86f2375e60787b000a6f184dcb86c7558b4beac044d15e0e1681fe3070af",
+      "options": {
+        "ZIMA_VERIFY_SKETCH_CONTOUR_ONLY": "1"
+      },
+      "directory": "build/sketch-contour-20261126/gui-contour-a5y5eop7",
+      "summary_output": [
+        "Contour GUI: 78 actual drags, 6827 checks passed"
+      ]
+    },
+    {
+      "name": "gui-fillet",
+      "exit_code": 0,
+      "seconds": 132.4918,
+      "binary_sha256": "98ec86f2375e60787b000a6f184dcb86c7558b4beac044d15e0e1681fe3070af",
+      "options": {
+        "ZIMA_VERIFY_CURVE_FILLET_ONLY": "1"
+      },
+      "directory": "build/sketch-contour-20261126/gui-fillet-dclq6nao",
+      "summary_output": [
+        "38 curve fillet GUI cases passed: Part/Assembly, five languages, shared reference replacement/inspection, resizing, both selection orders, Cancel, native/virtual creation, manual R/diameter, repeated edits/drags, Undo/Redo and reopen"
+      ]
+    },
+    {
+      "name": "gui-mechanism",
+      "exit_code": 0,
+      "seconds": 17.3099,
+      "binary_sha256": "98ec86f2375e60787b000a6f184dcb86c7558b4beac044d15e0e1681fe3070af",
+      "options": {
+        "ZIMA_VERIFY_SKETCH_MECHANISM_ONLY": "1"
+      },
+      "directory": "build/sketch-contour-20261126/gui-mechanism-bk3ynzrh",
+      "summary_output": [
+        "Mechanism GUI: 30 actual mouse drags, 15 inline edits, Undo/Redo and native Save/fresh reopen passed"
+      ]
+    },
+    {
+      "name": "gui-trim",
+      "exit_code": 0,
+      "seconds": 9.6816,
+      "binary_sha256": "98ec86f2375e60787b000a6f184dcb86c7558b4beac044d15e0e1681fe3070af",
+      "options": {
+        "ZIMA_VERIFY_SKETCH_KEYPOINT_CONTACT_ONLY": "1",
+        "ZIMA_VERIFY_NATIVE_CURVE_CONTACT_ONLY": "1",
+        "ZIMA_VERIFY_TRIM_CONTACT_UI_ONLY": "1"
+      },
+      "directory": "build/sketch-contour-20261126/gui-trim-p534pa7z",
+      "summary_output": [
+        "Trim contact GUI case 1 passed",
+        "Trim contact GUI case 2 passed"
+      ]
+    }
+  ],
+  "limitations": [
+    "Finite synthetic matrix, not every constraint graph or user document.",
+    "GUI: Part and Assembly in XY/XZ/YZ; embedded Sweep profile in XY only.",
+    "Arbitrarily nested active Part occurrences were not tested by this matrix.",
+    "Timings are local observations; the translation benchmark is not end-to-end GUI latency.",
+    "Linux was not built or tested on this Windows host.",
+    "No native format, start template or factory library change.",
+    "No Windows release archive updated by this development build."
+  ]
+}

@@ -1790,9 +1790,10 @@ void AssemblyWorkspaceWindow::create_layout() {
     });
     viewer_->set_candidate_drag_callbacks(
         [this](const auto& candidate, const auto& origin, const auto& direction) {
-            return begin_placement_reference_drag(candidate) ||
-                   begin_component_drag(candidate, origin, direction) ||
-                   begin_sketch_point_drag(candidate);
+            if (begin_placement_reference_drag(candidate) ||
+                begin_component_drag(candidate, origin, direction)) return true;
+            const auto [local_origin, local_direction] = active_part_local_ray(origin, direction);
+            return begin_sketch_point_drag(candidate, local_origin, local_direction);
         },
         [this](const auto& origin, const auto& direction) {
             if (placement_reference_drag_document_) {

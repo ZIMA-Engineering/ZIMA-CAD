@@ -54,6 +54,12 @@ void AssemblyWorkspaceWindow::paste_copied_opening() {
 
 
 void AssemblyWorkspaceWindow::keyPressEvent(QKeyEvent* event) {
+    if (event->key() == Qt::Key_Escape && sketch_contour_drag_source_) {
+        sketch_drag_changed_ = false;
+        end_sketch_point_drag();
+        event->accept();
+        return;
+    }
     if(event->key()==Qt::Key_Delete && tree_->hasFocus() && !properties_dialog_ &&
        workspace_.open_drawing(workspace_.displayed_document_id())) {
         drawing_workspace_->erase_selected_entities();event->accept();return;

@@ -1,4 +1,8 @@
 {
+  "Obrys nelze přesunout mimo vazby nebo absolutní meze.": "The outline cannot move beyond its constraints or absolute limits.",
+  "Tažení obrysu: změna se uloží po puštění levého tlačítka.": "Dragging outline: release the left button to save the change.",
+  "Změna obrysu byla uložena jako jedna revize.": "The outline change was saved as one revision.",
+  "Obrys se nezměnil.": "The outline did not change.",
   "Add pocket": "Add pocket",
   "Add contour": "Add contour",
   "Pocket": "Pocket",

@@ -1,4 +1,8 @@
 {
+  "Obrys nelze přesunout mimo vazby nebo absolutní meze.": "Le contour ne peut pas dépasser ses contraintes ou ses limites absolues.",
+  "Tažení obrysu: změna se uloží po puštění levého tlačítka.": "Déplacement du contour : relâchez le bouton gauche pour enregistrer la modification.",
+  "Změna obrysu byla uložena jako jedna revize.": "La modification du contour a été enregistrée en une seule révision.",
+  "Obrys se nezměnil.": "Le contour n’a pas été modifié.",
   "Add pocket": "Ajouter une poche",
   "Add contour": "Ajouter un contour",
   "Pocket": "Poche",

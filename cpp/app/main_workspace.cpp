@@ -8894,6 +8894,7 @@ int verify_standalone_trim_preview(QApplication& application, const std::filesys
 using zima::test::check_coupled_equations;
 #include "sketch_coupled_dimension_ui_verification.inc"
 #include "sketch_mechanism_ui_verification.inc"
+#include "sketch_contour_ui_verification.inc"
 #include "sketch_arc_size_ui_verification.inc"
 #include "sketch_curve_fillet_ui_verification.inc"
 #include "sketch_offset_tangent_ui_verification.inc"
@@ -12668,6 +12669,8 @@ int verify_startup_contract(
         return verify_sketch_coupled_dimension_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_MECHANISM_ONLY"))
         return verify_sketch_mechanism_ui(application,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_CONTOUR_ONLY"))
+        return verify_sketch_contour_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_ARC_SIZE_ONLY"))
         return verify_sketch_arc_size_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_ASSEMBLY_PRESENTATION_ONLY"))

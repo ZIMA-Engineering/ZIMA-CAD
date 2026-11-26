@@ -145,6 +145,10 @@ int verify_translations(QApplication& application, QWidget& parent) {
         check(settings.translations.contains("global.language") &&
             !settings.translations.contains("Zamknout hodnotu"), "INI sections were mixed");
         app::apply_application_translations(application, settings);
+        for(const auto* key:{"Obrys nelze přesunout mimo vazby nebo absolutní meze.",
+                "Tažení obrysu: změna se uloží po puštění levého tlačítka.",
+                "Změna obrysu byla uložena jako jedna revize.","Obrys se nezměnil."})
+            check(QObject::tr(key)==settings.qt_translations.value(key),"Sketch contour feedback is not localized");
         for(unsigned kind=0;kind<3;++kind) {
             auto sketch=sketcher::Sketch::create_default();
             app::SketchPropertiesDialog dialog(sketch,{},false,{},[](auto,auto,bool){},&parent);

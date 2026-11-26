@@ -841,6 +841,9 @@ private:
     // movement instead of being rebuilt for every pointer event.
     bool sketch_drag_overlay_active_{};
     std::string sketch_drag_point_id_;
+    std::string sketch_drag_geometry_id_;
+    std::optional<zima::sketcher::Sketch> sketch_contour_drag_source_;
+    std::array<double, 2> sketch_contour_drag_press_{};
     std::string sketch_drag_dimension_id_;
     bool sketch_drag_changed_{};
     // Drag-to-adjust for an embedded placement_references row's dimension
@@ -1328,7 +1331,8 @@ private:
         const zima::viewer::ViewerCandidate& candidate);
     void toggle_selected_sketch_point_fixed();
     [[nodiscard]] bool begin_sketch_point_drag(
-        const zima::viewer::ViewerCandidate& candidate);
+        const zima::viewer::ViewerCandidate& candidate,
+        const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction);
     void update_sketch_point_drag(
         const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction);
     void end_sketch_point_drag();

@@ -8,7 +8,8 @@ using namespace workspace_detail;
 
 
 bool AssemblyWorkspaceWindow::begin_sketch_point_drag(
-    const zima::viewer::ViewerCandidate& candidate) {
+    const zima::viewer::ViewerCandidate& candidate,
+    const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction) {
     if (qEnvironmentVariableIsSet("ZIMA_SKETCH_TRACE")) {
         QStringList workspace_selected;
         for (const auto& id : selected_sketch_geometry_ids_) {
@@ -143,11 +144,20 @@ bool AssemblyWorkspaceWindow::begin_sketch_point_drag(
             return false;
         }
     }
-    if (candidate.kind != zima::viewer::CandidateKind::SketchPoint ||
-        !candidate.semantic_key.starts_with("point:")) return false;
-    const auto point_id = candidate.semantic_key.substr(6);
-    const auto* point = sketch->find_point(point_id);
-    if (point == nullptr || point->fixed) {
+    std::string point_id, geometry_id;
+    const auto press = sketch->intersect_ray(origin, direction);
+    const bool line = candidate.kind == zima::viewer::CandidateKind::SketchSegment && candidate.semantic_key.starts_with("segment:");
+    const bool circle = candidate.kind == zima::viewer::CandidateKind::SketchCurve && candidate.semantic_key.starts_with("circle:");
+    if (line || circle) {
+        if (!press) return false;
+        geometry_id = candidate.semantic_key.substr(line ? 8 : 7);
+        if (line && std::ranges::find(sketch->segments, geometry_id, &zima::sketcher::SketchSegment::id) == sketch->segments.end()) return false;
+        if (circle && std::ranges::find(sketch->circles, geometry_id, &zima::sketcher::SketchCircle::id) == sketch->circles.end()) return false;
+    } else if (candidate.kind == zima::viewer::CandidateKind::SketchPoint && candidate.semantic_key.starts_with("point:")) {
+        point_id = candidate.semantic_key.substr(6);
+    } else return false;
+    const auto* point = point_id.empty() ? nullptr : sketch->find_point(point_id);
+    if (geometry_id.empty() && (point == nullptr || point->fixed)) {
         state_->setText(tr("Fixovaný bod nelze táhnout."));
         return false;
     }
@@ -161,6 +171,11 @@ bool AssemblyWorkspaceWindow::begin_sketch_point_drag(
         return false;
     }
     sketch_drag_point_id_ = point_id;
+    sketch_drag_geometry_id_ = geometry_id;
+    if (!geometry_id.empty()) {
+        sketch_contour_drag_source_ = *sketch;
+        sketch_contour_drag_press_ = *press;
+    }
     if (qEnvironmentVariableIsSet("ZIMA_SKETCH_TRACE")) {
         qInfo().noquote() << "SKETCH_TRACE|BRANCH|MOVE_POINT|point="
             << QString::fromStdString(point_id)
@@ -277,6 +292,34 @@ void AssemblyWorkspaceWindow::update_sketch_point_drag(
         return;
     }
     if (next_sketch == sketches.end()) return;
+    if (sketch_contour_drag_source_) {
+        auto draft = *sketch_contour_drag_source_;
+        // Ray unprojection uses the View's floating-point matrices. Treat a
+        // hundredth of a pixel as returning to the original gesture, without
+        // rounding the geometry or changing the solver's tolerances.
+        const double return_tolerance = std::max(1e-9,
+            viewer_->world_tolerance_for_pixels(0.01 * viewer_->devicePixelRatioF()));
+        bool returned_to_press = std::hypot((*position)[0]-sketch_contour_drag_press_[0],
+            (*position)[1]-sketch_contour_drag_press_[1]) <= return_tolerance;
+        if (const auto circle = std::ranges::find(draft.circles, sketch_drag_geometry_id_, &zima::sketcher::SketchCircle::id);
+            circle != draft.circles.end()) {
+            const auto* center = draft.find_point(circle->center_point_id);
+            returned_to_press = std::abs(std::hypot((*position)[0]-center->x, (*position)[1]-center->y) -
+                std::hypot(sketch_contour_drag_press_[0]-center->x, sketch_contour_drag_press_[1]-center->y)) <= return_tolerance;
+        }
+        if (!returned_to_press && !draft.drag_contour(sketch_drag_geometry_id_, sketch_contour_drag_press_, *position)) {
+            state_->setText(tr("Obrys nelze přesunout mimo vazby nebo absolutní meze."));
+            return;
+        }
+        *next_sketch = std::move(draft);
+        sketch_drag_changed_ = next_sketch->points != sketch_contour_drag_source_->points ||
+            next_sketch->circles != sketch_contour_drag_source_->circles;
+        profile_phase("solver");
+        show_sketch_drag_preview(*next_sketch);
+        profile_phase("view");
+        state_->setText(tr("Tažení obrysu: změna se uloží po puštění levého tlačítka."));
+        return;
+    }
     bool moved = false;
     moved = next_sketch->move_point(
         sketch_drag_point_id_, (*position)[0], (*position)[1]);
@@ -294,6 +337,8 @@ void AssemblyWorkspaceWindow::update_sketch_point_drag(
 void AssemblyWorkspaceWindow::end_sketch_point_drag() {
     if (!sketch_drag_document_ && !assembly_sketch_drag_document_ && section_drag_sketches_.empty()) return;
     const bool corner_radius_drag = sketch_corner_drag_source_.has_value();
+    const auto dragged_geometry_id = sketch_drag_geometry_id_;
+    const bool restore_contour_scene = !dragged_geometry_id.empty() && sketch_drag_overlay_active_;
     const std::string dragged_point_id = sketch_drag_point_id_;
     sketch_drag_point_id_.clear();
     const bool changed = sketch_drag_changed_;
@@ -315,6 +360,8 @@ void AssemblyWorkspaceWindow::end_sketch_point_drag() {
     sketch_drag_document_.reset();
     assembly_sketch_drag_document_.reset();
     section_drag_sketches_.clear();
+    sketch_drag_geometry_id_.clear();
+    sketch_contour_drag_source_.reset();
     sketch_corner_drag_source_.reset();
     sketch_corner_drag_first_segment_id_.clear();
     sketch_corner_drag_second_segment_id_.clear();
@@ -325,13 +372,17 @@ void AssemblyWorkspaceWindow::end_sketch_point_drag() {
     // ordinary one-click selection, not a scene-changing operation. Rebuilding
     // here used to clear the freshly synchronized Tree/View selection and made
     // the point unavailable to the immediately following Delete key.
-    if (changed) refresh_scene();
-    if (!dragged_point_id.empty()) {
+    if (changed || restore_contour_scene) {
+        preserve_view_on_refresh_ = true;
+        refresh_scene();
+    }
+    if (!dragged_point_id.empty() || !dragged_geometry_id.empty()) {
         const auto* sketch = active_sketch();
-        if (sketch != nullptr && sketch->find_point(dragged_point_id) != nullptr) {
+        const auto selected_id = dragged_geometry_id.empty() ? dragged_point_id : dragged_geometry_id;
+        if (sketch != nullptr && (!dragged_geometry_id.empty() || sketch->find_point(dragged_point_id) != nullptr)) {
             clear_selected_sketch_geometry();
             selected_sketch_point_id_ = dragged_point_id;
-            selected_sketch_geometry_ids_ = {dragged_point_id};
+            selected_sketch_geometry_ids_ = {selected_id};
             {
                 // Rebuild selection as one atomic application-side state. The
                 // ordinary Tree callback would otherwise clear the point on
@@ -344,7 +395,7 @@ void AssemblyWorkspaceWindow::end_sketch_point_drag() {
                     if (item->data(0, Qt::UserRole + 3).toString() ==
                             QStringLiteral("sketch-geometry") &&
                         item->data(0, Qt::UserRole).toString() ==
-                            QString::fromStdString(dragged_point_id) &&
+                            QString::fromStdString(selected_id) &&
                         item->data(0, Qt::UserRole + 4).toString() ==
                             QString::fromStdString(active_sketch_id_)) {
                         item->setSelected(true);
@@ -355,11 +406,17 @@ void AssemblyWorkspaceWindow::end_sketch_point_drag() {
                     ++iterator;
                 }
             }
+            const bool line = std::ranges::find(sketch->segments, selected_id, &zima::sketcher::SketchSegment::id) != sketch->segments.end();
             viewer_->confirm_reference(active_sketch_id_,
-                "point:" + dragged_point_id, {},
-                zima::viewer::CandidateKind::SketchPoint);
-            sketch_fix_point_action_->setEnabled(true);
+                (dragged_geometry_id.empty() ? "point:" : line ? "segment:" : "circle:") + selected_id, {},
+                dragged_geometry_id.empty() ? zima::viewer::CandidateKind::SketchPoint :
+                line ? zima::viewer::CandidateKind::SketchSegment : zima::viewer::CandidateKind::SketchCurve);
+            sketch_fix_point_action_->setEnabled(dragged_geometry_id.empty());
         }
+    }
+    if (!dragged_geometry_id.empty()) {
+        state_->setText(changed ? tr("Změna obrysu byla uložena jako jedna revize.") : tr("Obrys se nezměnil."));
+        return;
     }
     state_->setText(changed
         ? corner_radius_drag

@@ -1,4 +1,8 @@
 {
+  "Obrys nelze přesunout mimo vazby nebo absolutní meze.": "Die Kontur kann nicht über ihre Bedingungen oder absoluten Grenzen hinaus bewegt werden.",
+  "Tažení obrysu: změna se uloží po puštění levého tlačítka.": "Kontur ziehen: Zum Speichern die linke Maustaste loslassen.",
+  "Změna obrysu byla uložena jako jedna revize.": "Die Konturänderung wurde als eine Revision gespeichert.",
+  "Obrys se nezměnil.": "Die Kontur wurde nicht verändert.",
   "Add pocket": "Tasche hinzufügen",
   "Add contour": "Kontur hinzufügen",
   "Pocket": "Tasche",

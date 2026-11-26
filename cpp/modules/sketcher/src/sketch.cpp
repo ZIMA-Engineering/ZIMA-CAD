@@ -4806,6 +4806,217 @@ bool Sketch::move_point(const std::string& point_id, double x, double y) {
     return true;
 }
 
+bool Sketch::drag_contour(const std::string& geometry_id,
+    const std::array<double, 2>& press, const std::array<double, 2>& target) {
+    for (double value : {press[0], press[1], target[0], target[1]})
+        if (!std::isfinite(value)) return false;
+    const double dx = target[0] - press[0], dy = target[1] - press[1];
+    if (std::hypot(dx, dy) <= 1e-9) return false;
+    const auto segment = std::ranges::find(segments, geometry_id, &SketchSegment::id);
+    if (segment != segments.end()) {
+        const auto a = *find_point(segment->first_point_id);
+        const auto b = *find_point(segment->second_point_id);
+        const double vx = b.x-a.x, vy = b.y-a.y, length = std::hypot(vx, vy);
+        if (length <= 1e-9) return false;
+        const double u = std::clamp(((press[0]-a.x)*vx+(press[1]-a.y)*vy)/(length*length), 0., 1.);
+        const std::array goal{a.x+u*vx+dx, a.y+u*vy+dy};
+        const auto linked = externally_linked_point_ids(*this);
+        const auto anchored = [&](const SketchPoint& p) {
+            return p.fixed || linked.contains(p.id) || std::ranges::any_of(constraints, [&](const auto& ref) {
+                return !ref.suppressed && ref.kind == ConstraintKind::PointReference && ref.first_point_id == p.id;
+            });
+        };
+        const bool has_pin = std::ranges::any_of(constraints, [&](const auto& c) {
+            const auto* p = find_point(c.first_point_id);
+            return !c.suppressed && (c.kind == ConstraintKind::PointOnLine || c.kind == ConstraintKind::Midpoint) && c.geometry_id == geometry_id &&
+                p && p->id != a.id && p->id != b.id && anchored(*p);
+        });
+        // The ordinary group move is exact and cheap when translation is free.
+        auto translated = *this;
+        const bool has_editable_symmetry = std::ranges::any_of(dimensions, [](const auto& d) {
+            return !d.suppressed && d.driving && !d.locked &&
+                (d.kind == DimensionKind::DistanceSymmetric || d.kind == DimensionKind::DistanceLineSymmetric || d.kind == DimensionKind::AngleSymmetric);
+        });
+        bool translation_ok = !has_pin && translated.translate_selection({}, {geometry_id}, dx, dy);
+        if (translation_ok && has_editable_symmetry) {
+            const auto restored = translated.solve_impl(100, false);
+            translation_ok = restored.status != SolveStatus::Conflicting && restored.status != SolveStatus::Invalid;
+            if (translation_ok) {
+                const auto* na = translated.find_point(a.id);
+                const auto* nb = translated.find_point(b.id);
+                translation_ok = std::hypot((na->x-a.x)-(nb->x-b.x),(na->y-a.y)-(nb->y-b.y)) <= 1e-8 &&
+                    std::hypot(na->x-a.x,na->y-a.y) > 1e-9 && refresh_reference_dimensions(translated);
+            }
+        }
+        if (translation_ok) {
+            try {
+                translated.refresh_curve_dependencies();
+                translated.validate();
+            } catch (const std::exception&) { return false; }
+            *this = std::move(translated);
+            return true;
+        }
+        // Reuse point manipulation's native constraint/path projection. A
+        // disposable length driver makes an outline drag a rigid-line gesture;
+        // it is never part of the persisted definition or the Undo snapshot.
+        auto source = *this;
+        auto extent = source.create_segment_dimension(geometry_id);
+        extent.locked = true;
+        const auto extent_id = extent.id;
+        source.dimensions.push_back(extent);
+        std::set<std::string> temporary_dimensions{extent_id};
+        std::optional<SketchPoint> pivot;
+        for (const auto& c : constraints) {
+            if (c.suppressed || (c.kind != ConstraintKind::PointOnLine && c.kind != ConstraintKind::Midpoint) || c.geometry_id != geometry_id) continue;
+            const auto* p = find_point(c.first_point_id);
+            if (!p || p->id == a.id || p->id == b.id) continue;
+            if (!anchored(*p)) continue;
+            // C leaves sliding along the supporting line free. For an outline
+            // gesture prefer a lever rotating around its existing anchored
+            // contact, retaining both arms instead of sliding through the pin.
+            if (c.kind == ConstraintKind::PointOnLine) {
+                auto arm = source.create_point_dimension(p->id, a.id);
+                arm.locked = true;
+                temporary_dimensions.insert(arm.id);
+                source.dimensions.push_back(arm);
+            }
+            pivot = *p;
+        }
+        if (pivot && std::hypot(a.x+u*vx-pivot->x, a.y+u*vy-pivot->y) <= 1e-9) return false;
+        if (!pivot && !anchored(a) && !anchored(b)) {
+            // A blocked normal component may still leave a whole-line slide.
+            // Seed both ends together so a singular aligned configuration is
+            // not asked to discover that translation from one moving end.
+            auto slide = source;
+            for (const auto& id : {a.id,b.id}) { auto* p=slide.find_point(id); p->x+=dx; p->y+=dy; }
+            const auto result = slide.solve_impl(100,false);
+            const auto* na=slide.find_point(a.id); const auto* nb=slide.find_point(b.id);
+            const double tx=na->x-a.x,ty=na->y-a.y;
+            if (result.status!=SolveStatus::Conflicting && result.status!=SolveStatus::Invalid &&
+                std::hypot(tx,ty)>1e-9 && std::hypot(tx-(nb->x-b.x),ty-(nb->y-b.y))<=1e-8 &&
+                std::hypot(dx-tx,dy-ty)<std::hypot(dx,dy) && refresh_reference_dimensions(slide)) {
+                std::erase_if(slide.dimensions,[&](const auto& d){return temporary_dimensions.contains(d.id);});
+                try { slide.refresh_curve_dependencies(); slide.validate(); }
+                catch(const std::exception&) { return false; }
+                *this=std::move(slide);return true;
+            }
+        }
+        std::optional<Sketch> best;
+        double best_error = std::hypot(dx, dy);
+        for (const auto& [point, weight] : {std::pair{a, 1.-u}, std::pair{b, u}}) {
+            if (anchored(point) || weight <= 1e-6) continue;
+            const double influence = anchored(point.id == a.id ? b : a) || pivot ? weight : 1.;
+            double x = point.x + dx/influence, y = point.y + dy/influence;
+            if (pivot) {
+                const double t = ((pivot->x-a.x)*vx+(pivot->y-a.y)*vy)/(length*length);
+                const double ratio = ((point.id == a.id ? 0. : 1.)-t)/(u-t);
+                x = pivot->x + (goal[0]-pivot->x)*ratio;
+                y = pivot->y + (goal[1]-pivot->y)*ratio;
+            }
+            // Bounded correction keeps the original grabbed fraction under the
+            // cursor where possible, even when the opposite end is constrained.
+            // Every candidate starts from the same branch and is independently
+            // accepted by move_point; no intermediate failed solve is retained.
+            for (unsigned iteration = 0; iteration < 4; ++iteration) {
+                auto next = source;
+                if (!next.move_point(point.id, x, y)) break;
+                const auto* na = next.find_point(a.id);
+                const auto* nb = next.find_point(b.id);
+                const double ex = goal[0] - ((1.-u)*na->x+u*nb->x);
+                const double ey = goal[1] - ((1.-u)*na->y+u*nb->y);
+                const double error = std::hypot(ex, ey);
+                // A constrained normal component can dominate this distance.
+                // Do not use a geometric tolerance on its improvement: that
+                // would discard meaningful small tangential corrections.
+                if (error >= best_error - 1e-14*std::max(1.,best_error)) break;
+                best_error = error;
+                const double tx = na->x-a.x, ty = na->y-a.y, displacement = std::hypot(tx,ty);
+                if (displacement > 1e-9 && std::hypot((nb->x-b.x)-tx,(nb->y-b.y)-ty) <= 1e-8) {
+                    // For a permitted translation refine only its free cursor
+                    // component. Accumulating the blocked normal component
+                    // merely increases the projection distance and its noise.
+                    const double correction = (ex*tx+ey*ty)/(displacement*displacement*influence);
+                    x += correction*tx;
+                    y += correction*ty;
+                } else {
+                    x = next.find_point(point.id)->x + ex/influence;
+                    y = next.find_point(point.id)->y + ey/influence;
+                }
+                std::erase_if(next.dimensions, [&](const auto& d) { return temporary_dimensions.contains(d.id); });
+                best = std::move(next);
+                if (error <= 1e-8) break;
+            }
+        }
+        if (!best) return false;
+        *this = std::move(*best);
+        return true;
+    }
+    const auto circle = std::ranges::find(circles, geometry_id, &SketchCircle::id);
+    if (circle == circles.end()) return false; // external and derived curves are read-only
+    if (externally_linked_point_ids(*this).contains(circle->center_point_id)) return false;
+    const auto* center = find_point(circle->center_point_id);
+    const double radius = circle->radius + std::hypot(target[0]-center->x, target[1]-center->y)
+        - std::hypot(press[0]-center->x, press[1]-center->y);
+    if (radius <= 1e-9 || std::abs(radius-circle->radius) <= 1e-9) return false;
+    auto next = *this;
+    std::unordered_set<std::string> relaxed;
+    std::unordered_set<std::string> parallels;
+    for (auto& d : next.dimensions) {
+        if (d.suppressed || !d.driving || d.locked) continue;
+        relaxed.insert(d.id);
+        d.driving = false;
+        // Retain the structural part of a freely editable line distance, just
+        // as point dragging does; only its scalar value becomes a measurement.
+        if (d.kind == DimensionKind::DistanceLine || d.kind == DimensionKind::DistanceLineSymmetric)
+            for (const auto& id : {d.second_geometry_id, d.third_geometry_id}) {
+                if (id.empty()) continue;
+                SketchConstraint c;
+                c.id = make_id(); c.kind = ConstraintKind::Parallel;
+                c.geometry_id = d.geometry_id; c.second_geometry_id = id;
+                parallels.insert(c.id); next.constraints.push_back(std::move(c));
+            }
+    }
+    auto driver = next.create_circle_radius_dimension(geometry_id);
+    driver.locked = true;
+    const auto driver_id = driver.id;
+    // Editing this transient existing driver uses the established radial
+    // dimension solver without computing a new constraint rank per mouse move.
+    next.dimensions.push_back(driver);
+    if (!next.set_dimension_value(driver_id, radius)) return false;
+    std::erase_if(next.constraints, [&](const auto& c) { return parallels.contains(c.id); });
+    for (auto& d : next.dimensions) if (relaxed.contains(d.id)) {
+        if (d.kind == DimensionKind::DistanceSymmetric && !d.second_point_id.empty()) {
+            // The radial solve moved one participant before its symmetric
+            // partner. Restore the editable distance from that participant,
+            // not the average of its new distance and its partner's old one.
+            double largest_change = -1.;
+            for (const auto& point : {d.first_point_id, d.second_point_id}) {
+                const double previous = create_point_line_dimension(point, d.geometry_id).value;
+                const double current = next.create_point_line_dimension(point, d.geometry_id).value;
+                if (std::abs(current-previous) > largest_change) {
+                    largest_change = std::abs(current-previous); d.value = 2*current;
+                }
+            }
+        }
+        const double displayed = dimension_display_value(d, next.plane);
+        if ((d.lower_limit && displayed < *d.lower_limit) || (d.upper_limit && displayed > *d.upper_limit)) return false;
+        d.driving = true;
+    }
+    if (std::ranges::any_of(next.dimensions, [&](const auto& d) { return relaxed.contains(d.id) &&
+        (d.kind == DimensionKind::DistanceSymmetric || d.kind == DimensionKind::DistanceLineSymmetric || d.kind == DimensionKind::AngleSymmetric); })) {
+        const auto restored = next.solve_impl(100, false);
+        if (restored.status == SolveStatus::Conflicting || restored.status == SolveStatus::Invalid) return false;
+    }
+    std::erase_if(next.dimensions, [&](const auto& d) { return d.id == driver_id; });
+    if (!refresh_reference_dimensions(next)) return false;
+    try {
+        next.refresh_curve_dependencies();
+        next.validate();
+    } catch (const std::exception&) { return false; }
+    *this = std::move(next);
+    return true;
+}
+
 bool Sketch::translate_selection(
     const std::vector<std::string>& point_ids,
     const std::vector<std::string>& geometry_ids,

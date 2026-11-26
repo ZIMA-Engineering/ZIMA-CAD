@@ -544,6 +544,10 @@ public:
     void set_segment_centerline(const std::string& segment_id, bool centerline);
     [[nodiscard]] bool move_point(
         const std::string& point_id, double x, double y);
+    // Outline gesture in the Sketch frame. Segments retain their length;
+    // circles change radius. Rejected and unchanged gestures are atomic.
+    [[nodiscard]] bool drag_contour(const std::string& geometry_id,
+        const std::array<double, 2>& press, const std::array<double, 2>& target);
     [[nodiscard]] bool translate_selection(
         const std::vector<std::string>& point_ids,
         const std::vector<std::string>& geometry_ids,

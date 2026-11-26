@@ -1,4 +1,8 @@
 {
+  "Obrys nelze přesunout mimo vazby nebo absolutní meze.": "Контур нельзя переместить за пределы связей или абсолютных ограничений.",
+  "Tažení obrysu: změna se uloží po puštění levého tlačítka.": "Перетаскивание контура: отпустите левую кнопку для сохранения изменения.",
+  "Změna obrysu byla uložena jako jedna revize.": "Изменение контура сохранено одной редакцией.",
+  "Obrys se nezměnil.": "Контур не изменился.",
   "Add pocket": "Добавить карман",
   "Add contour": "Добавить контур",
   "Pocket": "Карман",

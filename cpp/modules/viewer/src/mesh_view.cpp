@@ -7497,11 +7497,15 @@ void MeshView::mousePressEvent(QMouseEvent* event) {
         // A dimension click also opens its value editor on double click.
         // Defer the modeling gesture until the pointer crosses the drag
         // threshold, so click jitter cannot change a value or rebuild the scene.
-        const bool defer_dimension_drag = pressed_candidate.kind == CandidateKind::Dimension;
+        const bool contour_drag =
+            (pressed_candidate.kind == CandidateKind::SketchSegment && pressed_candidate.semantic_key.starts_with("segment:")) ||
+            (pressed_candidate.kind == CandidateKind::SketchCurve && pressed_candidate.semantic_key.starts_with("circle:"));
+        const bool defer_dimension_drag = pressed_candidate.kind == CandidateKind::Dimension ||
+            (contour_drag && !additive_sketch_click);
         impl_->pending_dimension_drag = defer_dimension_drag
             ? std::optional{pressed_candidate} : std::nullopt;
         impl_->dimension_drag_press_position = event->position();
-        const bool drag_started = !defer_dimension_drag && impl_->drag_begin_callback && drag_ray
+        const bool drag_started = !defer_dimension_drag && !(contour_drag && additive_sketch_click) && impl_->drag_begin_callback && drag_ray
             ? impl_->drag_begin_callback(
                   pressed_candidate, drag_ray->first, drag_ray->second)
             : false;
@@ -8084,6 +8088,7 @@ void MeshView::wheelEvent(QWheelEvent* event) {
 }
 
 void MeshView::keyPressEvent(QKeyEvent* event) {
+    if(event->key()==Qt::Key_Escape)impl_->pending_dimension_drag.reset();
     if(event->key()==Qt::Key_Escape){impl_->symbol_drag.reset();impl_->symbol_contact_drag=false;}
     if(event->key()==Qt::Key_Escape&&impl_->layout_drag){auto drag=*impl_->layout_drag;impl_->layout_drag.reset();const auto i=drag.candidate.geometry_index;if(i<impl_->mesh.dimensions.size())impl_->mesh.dimensions[i]=drag.shown;else if(i-impl_->mesh.dimensions.size()<impl_->transient_dimensions.size())impl_->transient_dimensions[i-impl_->mesh.dimensions.size()]=drag.shown;update();event->accept();return;}
     if (!impl_->fly_navigation_enabled) {
