@@ -1,5 +1,16 @@
 # Native versioned distribution
 
+Signed Windows [2026112602](releases/2026112602.md#distribution-verification) was
+published at `2026-11-26T19:57:58Z` from immutable source
+`75dfd269a573cb104dbe109805ecfe5cfde38395`. It adds retained DXF/SVG/font profiles, constrained origin dragging,
+consistent plane selection, sphere-center mates, component creation, exact
+Assembly reference curves and one-bend K-factor calibration. Candidate/signed
+smoke, 1,190 factory native loads, twelve sheet gates and thirteen packaged GUI
+scenarios pass. The 407 changed factory definitions match verified bytes.
+Anonymous downloads, publisher signature, safe extraction and production updater
+trusted/current status pass. [Publication evidence](verification/20261126-windows-2602-publication.json)
+records finite coverage and the separate native Linux verification gap.
+
 Signed Windows [2026112601](releases/2026112601.md#distribution-verification) was
 published at `2026-11-26T11:50:47Z` from immutable source
 `b3126a72dddfe15ce73bdf53312861140c1836f3`. It adds three-point Arc creation, image insertion anchors,

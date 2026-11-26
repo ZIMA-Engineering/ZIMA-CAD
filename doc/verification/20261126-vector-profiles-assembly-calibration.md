@@ -136,7 +136,8 @@ verified again after reference-curve regeneration and missing-source retention.
 The separate proposed Sketcher Take geometry command was explicitly deferred by
 the user and is outside this release. Work-plane fields remain plane selectors.
 
-A committed-source portable build, signed-package validation and GitHub publication are still required.
+Committed-source packaging, signed Windows validation and public verification
+are complete. See [publication evidence](20261126-windows-2602-publication.json).
 
 ## Committed-package gate follow-up
 

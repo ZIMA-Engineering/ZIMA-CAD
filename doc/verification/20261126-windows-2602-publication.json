@@ -1,0 +1,202 @@
+{
+  "version": "2026112602",
+  "commit": "75dfd269a573cb104dbe109805ecfe5cfde38395",
+  "tag": "ZIMA-CAD-2026112602",
+  "release_url": "https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026112602",
+  "published_at": "2026-11-26T19:57:58Z",
+  "assets": [
+    {
+      "name": "ZIMA-CAD-2026112602.zip",
+      "size": 1012679541,
+      "sha256": "eae1b26d66d2947bf6cc0b1129f0de5ef730c618d87e025e0979d52960f4cee3",
+      "github_digest_matches": true,
+      "anonymous_download_matches": true
+    },
+    {
+      "name": "update-manifest.json",
+      "size": 704,
+      "sha256": "f2ea8f6899f4310dee04cda0beed8fb0e4b0025b5dce84f56d8057c48f365e0c",
+      "github_digest_matches": true,
+      "anonymous_download_matches": true
+    },
+    {
+      "name": "update-manifest.sig",
+      "size": 176,
+      "sha256": "b0de620d71a482a6fca461a29ca952cf80d8829ac3c6872736049f46f9441b24",
+      "github_digest_matches": true,
+      "anonymous_download_matches": true
+    }
+  ],
+  "publisher_signature": {
+    "key_id": "zcp-8fa1f825cbde5d81",
+    "verification": "passed"
+  },
+  "safe_extraction": "passed",
+  "candidate_smoke": "passed",
+  "signed_smoke": "passed",
+  "sheet_branch_tests": {
+    "log_sha256": "2946aadafa0e5e91375a52891e0b722bef0bd650533fcf5554a11c3531471a7a",
+    "result": "passed",
+    "tests": [
+      "zima_cpp_bend_end_constraints_contract",
+      "zima_cpp_sheet_branch_common-parent",
+      "zima_cpp_sheet_branch_contained",
+      "zima_cpp_sheet_branch_edge-contact",
+      "zima_cpp_sheet_branch_face-contact",
+      "zima_cpp_sheet_branch_gui",
+      "zima_cpp_sheet_branch_line-bend",
+      "zima_cpp_sheet_branch_overlap",
+      "zima_cpp_sheet_branch_point-contact",
+      "zima_cpp_sheet_branch_separated",
+      "zima_cpp_sheet_exchange_tests",
+      "zima_cpp_sheet_transition_command_tests"
+    ]
+  },
+  "factory": {
+    "version": "2026112602",
+    "commit": "75dfd269a573cb104dbe109805ecfe5cfde38395",
+    "affected_factory_assets": 407,
+    "exact_verified_hashes": true,
+    "packaged_native_assets": 1190,
+    "packaged_native_loads_passed": true
+  },
+  "packaged_application": {
+    "version": "2026112602",
+    "commit": "75dfd269a573cb104dbe109805ecfe5cfde38395",
+    "identities": {
+      "zima-cad-cpp.exe": {
+        "product": "ZIMA-CAD",
+        "version": "2026112602",
+        "commit": "75dfd269a573cb104dbe109805ecfe5cfde38395",
+        "source_modified": false,
+        "platform": "windows-x64",
+        "qt": "6.11.0",
+        "occt": "8.0.1",
+        "compiler": "MSVC 19.51.36248.0",
+        "configuration": "Release"
+      },
+      "zima-cad-cli.exe": {
+        "product": "ZIMA-CAD",
+        "version": "2026112602",
+        "commit": "75dfd269a573cb104dbe109805ecfe5cfde38395",
+        "source_modified": false,
+        "platform": "windows-x64",
+        "qt": "6.11.0",
+        "occt": "8.0.1",
+        "compiler": "MSVC 19.51.36248.0",
+        "configuration": "Release"
+      }
+    },
+    "cases": [
+      {
+        "name": "templates-mm",
+        "exit_code": 0,
+        "seconds": 39.776,
+        "log_sha256": "77462d7baf66b621ab4d8766eee52c2e7cd53f373ad58df46ff242789b3485db"
+      },
+      {
+        "name": "templates-in",
+        "exit_code": 0,
+        "seconds": 39.89,
+        "log_sha256": "77462d7baf66b621ab4d8766eee52c2e7cd53f373ad58df46ff242789b3485db"
+      },
+      {
+        "name": "vector-profiles",
+        "exit_code": 0,
+        "seconds": 3.913,
+        "log_sha256": "f2886e9a3eb1e58c47e0315ec93a79e0ecb489683af5e9b8b482a247074d400a"
+      },
+      {
+        "name": "placement-origin",
+        "exit_code": 0,
+        "seconds": 42.272,
+        "log_sha256": "c7ecf836e25ba9725316135ad2b842488c6d255229f5dbfd64b7cea28f1b22bc"
+      },
+      {
+        "name": "work-plane",
+        "exit_code": 0,
+        "seconds": 28.933,
+        "log_sha256": "1aa22adb1076ceac87cfbac5c3c0bb2ef9eef9c3e85f3cda1d9ef91d19b87e24"
+      },
+      {
+        "name": "sphere-mate",
+        "exit_code": 0,
+        "seconds": 2.115,
+        "log_sha256": "cf4378d20b07e8ac34357f80b2fb7ca1a17d5665b067a04853d20e24248d6efe"
+      },
+      {
+        "name": "create-component",
+        "exit_code": 0,
+        "seconds": 3.291,
+        "log_sha256": "6e869a4038d25c959ace7d428e9f6b767da403c78eafeb09e8d5de1fa4027d25"
+      },
+      {
+        "name": "sheet-calibration",
+        "exit_code": 0,
+        "seconds": 2.282,
+        "log_sha256": "c12f3195e9b81e897e9403c00054b77e641e62920b29cf78f2b4a3c577bd8b25"
+      },
+      {
+        "name": "assembly-curves",
+        "exit_code": 0,
+        "seconds": 4.055,
+        "log_sha256": "2741ec55ae45ff89c9c616e11a17ea7ed198417379c6cd8f43e1869c3fcfc238"
+      },
+      {
+        "name": "derived-copy",
+        "exit_code": 0,
+        "seconds": 82.74,
+        "log_sha256": "90767bc1be66e3f0dcb54e3db5ea2372640aa9c6a189375908cdbffb37c981e2"
+      },
+      {
+        "name": "sweep2d",
+        "exit_code": 0,
+        "seconds": 19.803,
+        "log_sha256": "3961e8ef15c2f679a2c75dc21c7947faf6367d1185094fd75b0805b23fec71f5"
+      },
+      {
+        "name": "helical",
+        "exit_code": 0,
+        "seconds": 30.551,
+        "log_sha256": "39b9abfc7370973e811e4d2b8eb76428c5ce9ae038787f591c6249f61f73ad03"
+      },
+      {
+        "name": "loft",
+        "exit_code": 0,
+        "seconds": 28.092,
+        "log_sha256": "d55ef64f38ec96aebe978526891167b31d373d3880966a8280790f572ce01352"
+      }
+    ],
+    "binary_sha256": {
+      "zima-cad-cpp.exe": "2e8bb55141cd8012ec5062d1475f6930277509f9e17986e0b9d555dc9f6a5231",
+      "zima-cad-cli.exe": "806d1fb3fa321c59af9c88236165228f5396e8fcdd11859956ee1e35be49d78f",
+      "zima-cad-update.exe": "085a4d2cb8e2ba420f114e2f412b9bfc36930911c89f6768413c6408f4f4a02a"
+    }
+  },
+  "public_updater": {
+    "status": {
+      "event": "result",
+      "installedVersion": "2026112602",
+      "schemaVersion": 1,
+      "status": "idle",
+      "trusted": true
+    },
+    "check": {
+      "event": "result",
+      "installedVersion": "2026112602",
+      "schemaVersion": 1,
+      "status": "current"
+    }
+  },
+  "limitations": [
+    "Native Linux execution is not verified.",
+    "SVG supports the documented filled-vector subset; this is not a full SVG painting engine.",
+    "Every custom-font dimension and container-drag variant is not covered by the finite new-feature GUI matrix.",
+    "View-based DXF explosion and multi-face external Wrap are not established by the focused new-feature checks.",
+    "The separate Sketcher Take geometry command was deferred by the user."
+  ],
+  "local_log_sha256": {
+    "committed-native.log": "58a41d023a7ab67766d28c8334b6df736ceae37d58d0c74a116b1f3d5ffaf2eb",
+    "committed-fonts.log": "4420d26afe961534771745f3d14506c7b30abe89a86ba5a9130866c4c38788fe"
+  }
+}
