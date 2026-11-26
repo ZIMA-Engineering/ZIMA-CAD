@@ -16,6 +16,7 @@ namespace zima::app {
 class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
   public:
     bool finishing_command() const { return finishing_command_; }
+    bool placement_commits() const { return creating_ && (automatic_type_ || value_.kind == drawing::DrawingDimensionKind::Linear); }
     using ViewResolver = std::function<const drawing::DrawingView *(const std::string &)>;
     DrawingDimensionDialog(drawing::DrawingDimension initial, bool creating, ViewResolver view,
                            std::function<void(drawing::DrawingDimension)> commit, QWidget *parent)
@@ -38,6 +39,7 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
         type_ = new QComboBox(binding);
         type_->setObjectName("drawingDimensionType");
         type_->addItems({tr("Lineární"), tr("Poloměr"), tr("Průměr"), tr("Řetězová"), tr("Úhlová")});
+        if(creating_)type_->addItem(tr("Automaticky"));
         type_->setCurrentIndex(int(value_.kind));
         form->addRow(tr("Typ kóty"), type_);
         direction_ = new QComboBox(binding);
@@ -126,45 +128,8 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
             publish();
         });
         connect(type_, &QComboBox::currentIndexChanged, this, [this](int index) {
-            branch_entry_=false;
-            read_fields();
-            const bool was = radial(),was_angular=angular();
-            value_.kind = drawing::DrawingDimensionKind(index);
-            value_.chain_datum_only=false;
-            value_.chain_direction.reset();
-            if (radial() != was) {
-                value_.attachments.assign(radial() ? 1 : 2, {});
-                value_.segments.clear();
-                value_.parallel_reference = {};
-                value_.anchor_attachment = 0;
-                active_ = 0;
-            }
-            if (value_.kind == drawing::DrawingDimensionKind::Linear && value_.attachments.size() > 2) {
-                value_.attachments.resize(2);
-                value_.anchor_attachment = 0;
-            }
-            if(angular()) {
-                value_.attachments.resize(2);value_.anchor_attachment=0;value_.direction=drawing::DimensionDirection::Automatic;value_.parallel_reference={};
-                {QSignalBlocker block(direction_);direction_->setCurrentIndex(0);}
-                for(auto& attachment:value_.attachments)if(attachment.kind!=drawing::DimensionAttachmentKind::Line)attachment={};
-            }
-            if(angular()!=was_angular) {
-                text_->set_angular_quantity(angular());
-                for(auto& segment:value_.segments){segment.layout={};segment.last_presentation.reset();segment.last_angular_leaders=false;}
-                auto* suffix=text_->findChild<QLineEdit*>("sketchDimensionSuffix");
-                if(suffix&&(suffix->text().isEmpty()||suffix->text()=="mm"||suffix->text()=="cm"||suffix->text()=="m"||suffix->text()=="in"||suffix->text()=="rad"||suffix->text()==QString::fromUtf8("°"))){QSignalBlocker block(suffix);suffix->setText(angular()?QString::fromUtf8("°"):QString{});}
-            }
-            drawing::resize_dimension_segments(value_);
-            modes_.resize(value_.attachments.size(), -1);
-            if(angular()) {
-                std::fill(modes_.begin(),modes_.end(),int(drawing::DimensionAttachmentKind::Line));active_=-1;
-                for(std::size_t i=0;i<value_.attachments.size();++i)if(!value_.attachments[i].reference.valid()){active_=int(i)*2;break;}
-                placing_=active_<0&&creating_;
-            }
-            segment_ = 0;
-            inspected_.clear();
-            rebuild();
-            publish();
+            automatic_type_ = index == 5;
+            change_kind(automatic_type_ ? drawing::DrawingDimensionKind::Linear : drawing::DrawingDimensionKind(index));
         });
         connect(direction_, &QComboBox::currentIndexChanged, this, [this](int index) {
             if(branch_entry_){branch_entry_=false;active_=-1;}
@@ -245,6 +210,11 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
             request.lines_only = true;
             return request;
         }
+        if(automatic_type_) {
+            request.mode = row==draft_row_?-1:modes_[row];
+            request.automatic_dimension = row == 0 && request.mode < 0;
+            return request;
+        }
         if(angular()){request.lines_only=true;request.mode=int(drawing::DimensionAttachmentKind::Line);return request;}
         request.mode = row==draft_row_?-1:modes_[row];
         request.circles_only = radial();
@@ -314,6 +284,13 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
     void accept_candidate(const std::string &view_id, const drawing::MeasurementCandidate &candidate) {
         if (active_ < 0 || (!value_.view_id.empty() && value_.view_id != view_id))
             return;
+        if(automatic_type_)if(const auto* view=view_(view_id)) {
+            const auto kind=active_/2==0
+                ? (candidate.point_target ? drawing::DrawingDimensionKind::Linear
+                   : drawing::automatic_dimension_kind(*view,candidate.attachment))
+                : drawing::automatic_dimension_kind(*view,value_.attachments.front(),&candidate.attachment);
+            if(kind!=value_.kind)change_kind(kind);
+        }
         if(angular()&&candidate.attachment.kind!=drawing::DimensionAttachmentKind::Line)return;
         if(branch_entry_&&active_/2==draft_row_)extend(false);
         read_fields();
@@ -394,6 +371,42 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
             }
             drawing::place_drawing_dimension(*view, value_, segment_, point);
             if(placement_&&segment_<int(value_.segments.size()))placement_->set_value(value_.segments[segment_].layout);
+        }
+        if (finish && placement_commits()) {
+            // Use the same placement-field values as explicit OK, so opening
+            // Properties does not alter the just-created annotation layout.
+            read_fields();
+            const auto* view = view_(value_.view_id);
+            if (!view || !bindings_complete()) return;
+            const auto evaluation = drawing::evaluate_drawing_dimension(*view, value_);
+            if (evaluation.state != drawing::MeasurementState::Resolved) {
+                publish();
+                return;
+            }
+            try {
+                drawing::refresh_drawing_dimension(*view, value_);
+                commit_(value_);
+            } catch (const std::exception& error) {
+                status_->setText(tr(error.what()));
+                return;
+            }
+            // Each placement owns one transaction. The next draft has fresh
+            // identities and no references, while retaining the user's style.
+            const auto style = value_.style;
+            value_ = drawing::make_drawing_dimension({}, drawing::DrawingDimensionKind::Linear);
+            value_.style = style;
+            if(automatic_type_) {
+                text_->set_angular_quantity(false);
+                auto* suffix=text_->findChild<QLineEdit*>("sketchDimensionSuffix");
+                if(suffix&&suffix->text()==QString::fromUtf8("°")){QSignalBlocker block(suffix);suffix->clear();value_.style=text_->value();}
+            }
+            value_.direction = drawing::DimensionDirection(direction_->currentIndex());
+            automatic_placement_ = value_.direction == drawing::DimensionDirection::Automatic;
+            active_ = 0; segment_ = 0; placing_ = false; extended_ = false;
+            inspected_.clear(); inspected_witness_.clear();
+            modes_.assign(value_.attachments.size(), -1);
+            rebuild(); publish();
+            return;
         }
         if (finish)
             placing_ = false;
@@ -500,6 +513,7 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
         return PropertiesSubWindow::eventFilter(watched, event);
     }
     bool submit() override {
+        if (placement_commits()) { finishing_command_ = true; return true; }
         if(seed_adopted_&&value_.chain_datum_only)return true;
         read_fields();
         if(!bindings_complete())return false;
@@ -515,6 +529,47 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
     }
 
   private:
+    void change_kind(drawing::DrawingDimensionKind kind) {
+            branch_entry_=false;
+            read_fields();
+            const bool was = radial(),was_angular=angular();
+            value_.kind = kind;
+            value_.chain_datum_only=false;
+            value_.chain_direction.reset();
+            if (radial() != was) {
+                value_.attachments.assign(radial() ? 1 : 2, {});
+                value_.segments.clear();
+                value_.parallel_reference = {};
+                value_.anchor_attachment = 0;
+                active_ = 0;
+            }
+            if (value_.kind == drawing::DrawingDimensionKind::Linear && value_.attachments.size() > 2) {
+                value_.attachments.resize(2);
+                value_.anchor_attachment = 0;
+            }
+            if(angular()) {
+                value_.attachments.resize(2);value_.anchor_attachment=0;value_.direction=drawing::DimensionDirection::Automatic;value_.parallel_reference={};
+                {QSignalBlocker block(direction_);direction_->setCurrentIndex(0);}
+                for(auto& attachment:value_.attachments)if(attachment.kind!=drawing::DimensionAttachmentKind::Line)attachment={};
+            }
+            if(angular()!=was_angular) {
+                text_->set_angular_quantity(angular());
+                for(auto& segment:value_.segments){segment.layout={};segment.last_presentation.reset();segment.last_angular_leaders=false;}
+                auto* suffix=text_->findChild<QLineEdit*>("sketchDimensionSuffix");
+                if(suffix&&(suffix->text().isEmpty()||suffix->text()=="mm"||suffix->text()=="cm"||suffix->text()=="m"||suffix->text()=="in"||suffix->text()=="rad"||suffix->text()==QString::fromUtf8("°"))){QSignalBlocker block(suffix);suffix->setText(angular()?QString::fromUtf8("°"):QString{});}
+            }
+            drawing::resize_dimension_segments(value_);
+            modes_.resize(value_.attachments.size(), -1);
+            if(angular()) {
+                std::fill(modes_.begin(),modes_.end(),int(drawing::DimensionAttachmentKind::Line));active_=-1;
+                for(std::size_t i=0;i<value_.attachments.size();++i)if(!value_.attachments[i].reference.valid()){active_=int(i)*2;break;}
+                placing_=active_<0&&creating_;
+            }
+            segment_ = 0;
+            inspected_.clear();
+            rebuild();
+            publish();
+    }
     bool bindings_complete() const {
         return !value_.view_id.empty()&&
             std::ranges::all_of(value_.attachments,[](const auto& a){return a.reference.valid()&&
@@ -564,7 +619,8 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
             }
         }
         if (placing_)
-            message += tr(" — LMB umístí kótu.");
+            message += placement_commits()?tr(" — LMB uloží kótu a připraví další. OK ukončí příkaz."):tr(" — LMB umístí kótu.");
+        if(automatic_type_)message=tr("Automaticky")+" → "+type_->itemText(int(value_.kind))+" · "+message;
         status_->setText(message);
         refresh_states();
         if (changed_)
@@ -744,7 +800,7 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
         rebuild();publish();
     }
     void refresh_states() {
-        buttons()->button(QDialogButtonBox::Ok)->setEnabled(bindings_complete());
+        buttons()->button(QDialogButtonBox::Ok)->setEnabled(placement_commits() || bindings_complete());
         std::erase_if(inspected_, [&](int slot) { return !reference(slot).valid(); });
         const auto *view = view_(value_.view_id);
         std::optional<drawing::DimensionEvaluation> evaluation;
@@ -772,6 +828,7 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
     bool creating_{}, extended_{}, placing_{}, rebuilding_{}, branch_entry_{}, chain_command_{}, seed_adopted_{};
     bool finishing_command_{};
     bool automatic_placement_{true};
+    bool automatic_type_{};
     int active_{-1}, segment_{}, draft_row_{-1};
     std::vector<int> modes_;
     std::set<int> inspected_;

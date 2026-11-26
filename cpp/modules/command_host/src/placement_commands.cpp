@@ -87,7 +87,7 @@ void Host::register_placement_commands() {
             source.use_angle=args.contains("angle_degrees");
             if(source.use_angle) {
                 if(args.contains("offset_mm") || source.use_axis || args.at("index")>=3) invalid();
-                source.offset=args.at("angle_degrees").get<double>();
+                source.offset=document::placement_reference_stored_value(source,args.at("angle_degrees").get<double>());
             }
             const auto index=args.at("index").get<std::size_t>();const auto derive=args.value("derive_orientation",true);bool changed{};
             if(info.kind=="body")changed=workspace::set_body_placement_reference(workspace_,kernel_,id,object,index,std::move(source),derive);

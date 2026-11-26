@@ -43,7 +43,19 @@ void cylindrical_angle_model() {
             const auto dimension=std::ranges::find_if(dimensions,[](const auto& d){return d.reference.semantic_key=="parameter:placement:reference_offset:2";});
             require(dimension!=dimensions.end() && dimension->kind==kernel::ViewerDimensionKind::Angular &&
                 dimension->value_lock_key=="placement:reference_offset:2","Angle dimension lost kind/key/lock");
-            near(dimension->sweep_degrees,degrees,"Directed dimension changed authored angle");
+            near(dimension->sweep_degrees,degrees-90.,"Directed dimension changed the plane-relative sweep");
+            near(dimension->value,degrees-90.,"Dimension and field values disagree");
+            near(dot(add(dimension->line_first,dimension->witness_first,-1.),zero_plane->axis),0.,
+                "First angular witness does not follow the selected plane");
+            const auto u=add(dimension->line_first,dimension->witness_first,-1.);
+            const auto v=cross(axis,u);
+            const double shown=(degrees-90.)*std::acos(-1.)/180.;
+            const auto end=add(add(dimension->witness_first,u,std::cos(shown)),v,std::sin(shown));
+            near(end.x,dimension->line_second.x,"Displayed arc endpoint X disagrees with placement");
+            near(end.y,dimension->line_second.y,"Displayed arc endpoint Y disagrees with placement");
+            near(end.z,dimension->line_second.z,"Displayed arc endpoint Z disagrees with placement");
+            near(document::placement_dimension_stored_value(p.references,dimension->reference.semantic_key,dimension->value),degrees,
+                "Inline angular conversion changed the stored sweep");
             auto reopened=nlohmann::json(p).get<document::Placement>();
             require(reopened==p && document::resolve_placement(reopened,geometry),"Angle native reference round trip failed");
             near(reopened.x,p.x,"Angle regeneration drifted");
@@ -120,19 +132,19 @@ void cylindrical_angle_widget() {
     require(field() && field()->suffix().contains(QString::fromUtf8("°")),"Angular row still displays a length unit");
     const auto* orientation=section.reference_table()->cellWidget(2,5)->findChild<QCheckBox*>();
     require(orientation && !orientation->isEnabled(),"Angle row offers unrelated FRONT orientation");
-    field()->setValue(90.);near(resolved.x,0.,"Widget angle X incorrect");near(resolved.y,10.,"Widget angle Y incorrect");
+    field()->setValue(90.);near(resolved.x,-10.,"Widget angle X incorrect");near(resolved.y,0.,"Widget angle Y incorrect");
     field()->setValue(-45.);near(resolved.x,std::sqrt(50.),"Successive widget angle X incorrect");
     field()->setValue(90.);
     auto* lock=field()->findChild<QToolButton*>("numericValueLockButton");
     require(lock,"Angular value lacks shared numeric lock");lock->click();
     auto next=section.prepare_reference(2,plane("replacement"));
     require(next.use_angle && next.offset_locked,"Replacement dropped angular mode or lock");
-    near(next.offset,0.,"Locked angular replacement captured a length instead of an angle");
+    near(next.offset,90.,"Locked angular replacement captured a length instead of an angle");
     require(section.set_reference(2,next,QStringLiteral("Replacement plane"),nullptr),"Angular replacement failed");
-    near(resolved.y,10.,"Locked angular replacement moved the origin");
+    near(resolved.x,-10.,"Locked angular replacement moved the origin");
     require(field()->isReadOnly(),"Angular numeric lock is not enforced");
     field()->findChild<QToolButton*>("numericValueLockButton")->click();
-    field()->setValue(30.);near(resolved.x,-5.,"Unlocked angle no longer edits the origin");
+    field()->setValue(30.);near(resolved.x,-std::sqrt(75.),"Unlocked angle no longer edits the origin");
     const auto before=resolved;
     type()->setCurrentIndex(type()->findData(0));
     require(!section.references()[2].use_angle && field()->suffix().contains("mm"),"Face mode retained degrees");

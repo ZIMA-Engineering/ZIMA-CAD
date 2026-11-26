@@ -66,7 +66,7 @@ int verify_cylindrical_angle_ui(QApplication& application,const std::filesystem:
         check(dialog()->pending_value().placement.references[2].use_angle&&
             !dialog()->pending_value().placement.references[2].orientation_drives_rotation,"Angle picked up a FRONT/TOP role");
         const auto equations=[&](double angle,const document::Placement& value) {
-            const double radians=angle*std::acos(-1.)/180.;
+            const double radians=(angle+90.)*std::acos(-1.)/180.;
             check(std::hypot(value.x-10*std::cos(radians),value.y-face->surface->axis.z*10*std::sin(radians),value.z-8)<1e-6,
                 "Angular GUI placement violates radius/angle/axial equations");
         };

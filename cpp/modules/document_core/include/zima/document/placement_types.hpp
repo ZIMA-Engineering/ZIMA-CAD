@@ -4,6 +4,8 @@
 #include <optional>
 #include <vector>
 #include <array>
+#include <charconv>
+#include <string_view>
 
 namespace zima::document {
 
@@ -67,6 +69,33 @@ struct ConstructionReference {
     bool use_angle{};
     bool operator==(const ConstructionReference&) const = default;
 };
+
+// Native angular offsets retain their normal-based coordinate, including full
+// turns. Interactive angles start on axis x oriented-plane-normal instead: this
+// ray lies in the plane's direction. Keep the affine conversion at the editing
+// boundary so existing frames, Relations and Family definitions do not move.
+[[nodiscard]] inline double placement_reference_display_value(const ConstructionReference& reference) {
+    return reference.offset - (reference.use_angle ? 90. : 0.);
+}
+[[nodiscard]] inline double placement_reference_stored_value(const ConstructionReference& reference, double displayed) {
+    return displayed + (reference.use_angle ? 90. : 0.);
+}
+[[nodiscard]] inline double placement_dimension_stored_value(
+    const std::vector<ConstructionReference>& references, std::string_view key, double displayed) {
+    if (key.starts_with("parameter:")) key.remove_prefix(10);
+    if (key.starts_with("placement:")) key.remove_prefix(10);
+    constexpr std::string_view prefix{"reference_offset:"};
+    if (!key.starts_with(prefix)) return displayed;
+    key.remove_prefix(prefix.size());
+    std::size_t index{};
+    const auto [end, error] = std::from_chars(key.data(), key.data()+key.size(), index);
+    if (error != std::errc{} || end != key.data()+key.size()) return displayed;
+    for (const auto& reference : references) {
+        if (reference.orientation_only || (reference.owner_id.empty() && reference.semantic_key.empty())) continue;
+        if (index-- == 0) return placement_reference_stored_value(reference, displayed);
+    }
+    return displayed;
+}
 
 struct Placement {
     // Resolved container origin, either entered directly (no references) or

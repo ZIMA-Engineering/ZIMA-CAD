@@ -28,6 +28,13 @@ using namespace workspace_detail;
 
 namespace {
 
+double owned_placement_input(const document::HistoryContainer& parent,
+        const std::string& owner,std::string_view key,double displayed) {
+    for(const auto& item:parent.loft.sketches)
+        if(item.sketch_feature&&item.sketch_feature->id==owner)
+            return document::placement_dimension_stored_value(item.sketch_feature->placement.references,key,displayed);
+    return displayed;
+}
 
 // Same interaction as a numeric inline dimension: choose to commit, dismiss
 // to cancel, then continue editing dimensions in View without Properties.
@@ -455,7 +462,7 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
                     auto* stored=draft.find_container(loft->pending.id);
                     if(stored)*stored=loft->pending;
                     else {draft.insert_history_entry(document::PartHistoryKind::Feature,loft->pending.id);draft.history.push_back(loft->pending);}
-                    if(!workspace::assign_driving_dimension(draft,{"dimension",candidate.owner_id,candidate.semantic_key},next_value))throw std::runtime_error("This dimension is not directly editable");
+                    if(!workspace::assign_driving_dimension(draft,{"dimension",candidate.owner_id,candidate.semantic_key},owned_placement_input(loft->pending,candidate.owner_id,candidate.semantic_key,next_value)))throw std::runtime_error("This dimension is not directly editable");
                     loft->pending=*draft.find_container(loft->pending.id);loft->refresh();loft->changed();
                     guarded->hide();guarded->deleteLater();return;
                 }
@@ -496,7 +503,7 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
                     if (construction->kind ==
                             zima::document::ConstructionKind::Point ||
                         placement_key) {
-                        if (!workspace::assign_placement_dimension(*construction, geometry,
+                        if (!workspace::assign_displayed_placement_dimension(*construction, geometry,
                                 construction_key, next_value)) return false;
                     } else if (construction->kind ==
                                    zima::document::ConstructionKind::Axis &&
@@ -556,7 +563,8 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
                     cut->definition.feature.type == document::FeatureType::Point) {
                     const auto key = candidate.semantic_key.substr(placement_key_prefix.size());
                     static_cast<void>(workspace::set_placement_values(
-                        workspace_, kernel_, document_id, candidate.owner_id, {{key, next_value}}));
+                        workspace_, kernel_, document_id, candidate.owner_id, {{key,
+                            document::placement_dimension_stored_value(cut->definition.placement.references,key,next_value)}}));
                     guarded->hide();
                     guarded->deleteLater();
                     refresh_tabs();
@@ -598,7 +606,7 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
             if(!properties_dialog_)for(const auto& parent:part->session.document().history)if(parent.feature_kind==document::FeatureKind::Loft) {
                 const bool owned=std::ranges::any_of(parent.loft.sketches,[&](const auto& item){return item.sketch_feature&&(item.sketch_feature->id==candidate.owner_id||item.sketch_feature->feature.sketch_id==candidate.owner_id);});
                 if(!owned)continue;
-                if(!workspace::assign_driving_dimension(next,{"dimension",candidate.owner_id,candidate.semantic_key},next_value))throw std::runtime_error("This dimension is not directly editable");
+                if(!workspace::assign_driving_dimension(next,{"dimension",candidate.owner_id,candidate.semantic_key},owned_placement_input(parent,candidate.owner_id,candidate.semantic_key,next_value)))throw std::runtime_error("This dimension is not directly editable");
                 static_cast<void>(workspace::commit_loft(workspace_,kernel_,workspace_.active_document_id(),*next.find_container(parent.id)));
                 construction_dimension_object_id_=parent.id;guarded->hide();preserve_view_on_refresh_=true;refresh_tabs();refresh_scene();guarded->deleteLater();return;
             }
@@ -625,7 +633,7 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
                 auto& placement=updated.scope.placement;
                 const auto geometry=workspace::placement_edit_geometry(workspace_,workspace_.active_document_id(),candidate.owner_id);
                 const auto key=std::string_view(candidate.semantic_key).substr(std::string_view("parameter:placement:").size());
-                changed = workspace::assign_placement_dimension(placement, geometry, key, next_value);
+                changed = workspace::assign_displayed_placement_dimension(placement, geometry, key, next_value);
                 if(changed)next.body_history.update_body(std::move(updated));
             } else if (candidate.semantic_key.starts_with("dimension:")) {
                 const auto sketch = std::find_if(next.sketches.begin(),
@@ -679,7 +687,7 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
                     // dimensions, including Body Origins in the owner's frame.
                     const auto geometry = workspace::placement_edit_geometry(
                         workspace_, workspace_.active_document_id(), candidate.owner_id);
-                    changed = workspace::assign_placement_dimension(
+                    changed = workspace::assign_displayed_placement_dimension(
                         *container, geometry, placement_key, next_value);
                 } else if(container->feature_kind==FeatureKind::Bend&&
                         (key=="corner_first"||key=="corner_last")) {

@@ -159,7 +159,7 @@ int verify_measurement_dimension_ui() {
             placement.setAttribute(Qt::WA_DeleteOnClose, false);
             auto* reference_table=placement.findChild<QTableWidget*>("drawingDimensionReferences");
             require(!reference_table->isRowHidden(0)&&reference_table->isRowHidden(1),"Empty dimension exposes more than its first reference row");
-            require(!placement.findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->isEnabled(),"Empty references can be committed");
+            require(placement.findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->isEnabled(),"Empty linear entry cannot be closed with OK");
             MeasurementCandidate a, b;
             a.attachment = {DimensionAttachmentKind::CurvePoint, mesh.edges[0].reference};
             b.attachment = {DimensionAttachmentKind::CurvePoint, mesh.edges[1].reference};
@@ -171,8 +171,8 @@ int verify_measurement_dimension_ui() {
             placement.position({15,30}, false);
             placement.position({40,10}, false);
             placement.position(cursor, true);
-            require(placement.value().direction == expected, "Drawing drag chose a different direction than Sketcher");
-            const auto evaluated = evaluate_drawing_dimension(view, placement.value());
+            require(committed.direction == expected, "Drawing drag chose a different direction than Sketcher");
+            const auto evaluated = evaluate_drawing_dimension(view, committed);
             require(evaluated.state == MeasurementState::Resolved &&
                     std::abs(evaluated.presentations[0].value-length)<1e-8,
                     "Automatic placement measured the wrong projected distance");
@@ -244,8 +244,8 @@ int verify_measurement_dimension_ui() {
         flush();
         pick(canvas, point(15, 20));
         require(props->placing() && count() == 0, "References committed before placement/OK");
-        pick(canvas, point(-10, 10));
-        require(!props->placing() && count() == 0, "Placement committed without OK");
+        mouse(canvas,QEvent::MouseMove,point(-10,10),Qt::NoButton,Qt::NoButton);
+        require(props->placing() && count() == 0, "Preview committed before placement");
         props->findChild<QLineEdit *>("sketchDimensionPrefix")->setText("2×");
         auto *tolerance = props->findChild<QComboBox *>("sketchDimensionToleranceMode");
         tolerance->setCurrentIndex(tolerance->findData("symmetric"));
@@ -258,9 +258,11 @@ int verify_measurement_dimension_ui() {
         basic->setChecked(true);
         flush();
         window.grab().save("build/measurement-properties-proof.png");
+        pick(canvas,point(-10,10));
+        require(count()==1&&dialog()&&props->entering(),"Linear placement failed to commit and reset entry");
         mouse(canvas, QEvent::MouseButtonPress, point(40, 30), Qt::MiddleButton, Qt::MiddleButton);
         mouse(canvas, QEvent::MouseButtonRelease, point(40, 30), Qt::MiddleButton, Qt::NoButton);
-        require(count() == 0 && dialog(), "Short MMB committed dimension");
+        require(count() == 1 && dialog(), "Short MMB changed committed dimensions");
         mouse(canvas, QEvent::MouseButtonDblClick, point(40, 30), Qt::MiddleButton, Qt::MiddleButton);
         require(count() == 1 && !dialog(), "MMB double click did not commit dimension");
         auto linear = window.document_for_test().sheets.front().dimensions.front();
@@ -899,7 +901,10 @@ int verify_measurement_dimension_ui() {
                 window.select_tree_entities({"drawing-dimension:"+members[0].id},"drawing-dimension:"+members[0].id);
                 QMenu menu;window.populate_selection_menu(menu);
                 auto* action=menu.findChild<QAction*>("convertDrawingLinearAction");
-                require(action,"Chain context menu has no linear conversion");
+                require(action&&!action->icon().isNull(),"Chain context menu has no linear conversion icon");
+                auto* branch=menu.findChild<QAction*>("drawingAddChainBranchAction");
+                auto* remove=menu.findChild<QAction*>("drawingDeleteSelectionAction");
+                require(branch&&!branch->icon().isNull()&&remove&&!remove->icon().isNull(),"Chain context menu is missing branch/delete icons");
                 action->trigger();flush();
                 auto* properties=dialog();
                 require(properties&&properties->value().kind==DrawingDimensionKind::Linear,"Conversion did not open linear dimension properties");

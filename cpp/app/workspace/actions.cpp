@@ -695,6 +695,8 @@ void AssemblyWorkspaceWindow::create_actions() {
     sketch_circle_action_->setObjectName("sketchCircleAction");
     sketch_arc_action_ = make_action(tr("Oblouk"), "sketch-arc");
     sketch_arc_action_->setObjectName("sketchArcAction");
+    sketch_three_point_arc_action_ = make_action(tr("Oblouk třemi body"), "sketch-arc");
+    sketch_three_point_arc_action_->setObjectName("sketchThreePointArcAction");
     sketch_ellipse_action_ = make_action(tr("Elipsa"), "sketch-ellipse");
     sketch_ellipse_action_->setObjectName("sketchEllipseAction");
     sketch_elliptical_arc_action_ = make_action(
@@ -710,7 +712,7 @@ void AssemblyWorkspaceWindow::create_actions() {
     for (auto* action : {sketch_point_action_, sketch_construction_action_,
                          sketch_segment_action_, sketch_polyline_action_,
                          sketch_rectangle_action_, sketch_slot_action_, sketch_polygon_action_,
-                         sketch_circle_action_, sketch_arc_action_,
+                         sketch_circle_action_, sketch_arc_action_, sketch_three_point_arc_action_,
                          sketch_ellipse_action_, sketch_elliptical_arc_action_,
                          sketch_bspline_action_,
                          sketch_interpolating_spline_action_}) {
@@ -917,6 +919,7 @@ void AssemblyWorkspaceWindow::create_actions() {
         [this] { start_sketch_mirror(); });
     connect(sketch_circle_action_, &QAction::triggered, this, [this] { start_sketch_circle(); });
     connect(sketch_arc_action_, &QAction::triggered, this, [this] { start_sketch_arc(); });
+    connect(sketch_three_point_arc_action_, &QAction::triggered, this, [this] { start_sketch_arc(true); });
     connect(sketch_ellipse_action_, &QAction::triggered, this, [this] { start_sketch_ellipse(); });
     connect(sketch_elliptical_arc_action_, &QAction::triggered, this,
         [this] { start_sketch_elliptical_arc(); });
@@ -927,7 +930,7 @@ void AssemblyWorkspaceWindow::create_actions() {
     for (auto* action : {sketch_point_action_, sketch_construction_action_,
                          sketch_segment_action_, sketch_polyline_action_,
                          sketch_rectangle_action_, sketch_slot_action_, sketch_polygon_action_,
-                         sketch_circle_action_, sketch_arc_action_,
+                         sketch_circle_action_, sketch_arc_action_, sketch_three_point_arc_action_,
                          sketch_ellipse_action_, sketch_elliptical_arc_action_,
                          sketch_bspline_action_,
                          sketch_interpolating_spline_action_}) {

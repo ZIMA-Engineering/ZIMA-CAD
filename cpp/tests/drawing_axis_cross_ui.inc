@@ -93,10 +93,14 @@ int verify_drawing_axis_cross_ui() {
         require(pending->placing(),"Axis-cross references did not enter dimension placement");
         pick(canvas,vertical?point(25,58):point(58,25));
         if(kind==DrawingDimensionKind::Chain)pick(canvas,arm(50,vertical));
-        require(state->revision()==revision,"Axis-cross preview committed before OK");
+        require(state->revision()==revision+(kind==DrawingDimensionKind::Linear?1:0),
+            "Axis-cross placement did not follow the dimension commit contract");
         pending->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
-        require(properties()&&properties()->value().kind==kind,"Axis-cross OK did not continue the same command");
-        mouse(canvas,QEvent::MouseButtonDblClick,{5,5},Qt::MiddleButton,Qt::MiddleButton);flush();
+        if(kind==DrawingDimensionKind::Linear)require(!properties(),"Linear axis-cross OK did not end the command");
+        else {
+            require(properties()&&properties()->value().kind==kind,"Axis-cross OK did not continue the same command");
+            mouse(canvas,QEvent::MouseButtonDblClick,{5,5},Qt::MiddleButton,Qt::MiddleButton);flush();
+        }
         require(!properties(),"Empty repeated axis-cross command did not end");
         const auto committed=state->document().sheets.front().dimensions;
         require(committed.size()==(kind==DrawingDimensionKind::Chain?2:1),"Axis-cross command committed the wrong number of dimensions");

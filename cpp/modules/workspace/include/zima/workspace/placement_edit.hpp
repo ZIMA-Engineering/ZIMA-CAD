@@ -15,6 +15,17 @@ namespace zima::workspace {
     const kernel::ViewerReferenceGeometry&, std::string_view key, double value);
 [[nodiscard]] bool assign_placement_dimension(document::ConstructionObject&,
     const kernel::ViewerReferenceGeometry&, std::string_view key, double value);
+// UI dimension values use the selected-plane angular origin. Native parameter
+// assignments above intentionally retain the stored coordinate system.
+template<class Draft> [[nodiscard]] bool assign_displayed_placement_dimension(Draft& draft,
+    const kernel::ViewerReferenceGeometry& geometry, std::string_view key, double value) {
+    const auto& references=[&]() -> const auto& {
+        if constexpr (requires { draft.placement; }) return draft.placement.references;
+        else return draft.references;
+    }();
+    return assign_placement_dimension(draft,geometry,key,
+        document::placement_dimension_stored_value(references,key,value));
+}
 // Existing inline Part parameter transaction: owned profile offset, resolved
 // references, body calculation and final exact ShaftThread fingerprints.
 void commit_part_parameter_edit(PartState&, const kernel::OcctKernel&,

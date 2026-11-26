@@ -1451,7 +1451,7 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                              sketch_trim_action_,
                              sketch_mirror_action_, sketch_offset_action_,
                              sketch_circle_action_,
-                             sketch_arc_action_, sketch_ellipse_action_,
+                             sketch_arc_action_, sketch_three_point_arc_action_, sketch_ellipse_action_,
                              sketch_elliptical_arc_action_,
                              sketch_bspline_action_,
                              sketch_interpolating_spline_action_, sketch_text_action_,
@@ -2383,6 +2383,7 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
         sketch_offset_action_->setEnabled(!active_sketch_id_.empty() && !properties_dialog_);
         sketch_circle_action_->setEnabled(!active_sketch_id_.empty());
         sketch_arc_action_->setEnabled(!active_sketch_id_.empty());
+        sketch_three_point_arc_action_->setEnabled(!active_sketch_id_.empty());
         sketch_ellipse_action_->setEnabled(!active_sketch_id_.empty());
         sketch_elliptical_arc_action_->setEnabled(!active_sketch_id_.empty());
         sketch_bspline_action_->setEnabled(!active_sketch_id_.empty());
@@ -2981,6 +2982,7 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
     sketch_offset_action_->setEnabled(has_active_part_sketch && !properties_dialog_);
     sketch_circle_action_->setEnabled(has_active_part_sketch);
     sketch_arc_action_->setEnabled(has_active_part_sketch);
+    sketch_three_point_arc_action_->setEnabled(has_active_part_sketch);
     sketch_ellipse_action_->setEnabled(has_active_part_sketch);
     sketch_elliptical_arc_action_->setEnabled(has_active_part_sketch);
     sketch_bspline_action_->setEnabled(has_active_part_sketch);

@@ -442,6 +442,19 @@ std::optional<AxisCrossStroke> measurement_axis_cross_stroke(const kernel::EdgeR
 std::optional<std::pair<Point2,Point2>> measurement_line_support(const ProjectedMeasurementCurve& curve) {
     return straight_support(&curve);
 }
+DrawingDimensionKind automatic_dimension_kind(const DrawingView& view,const DimensionAttachment& first,
+                                               const DimensionAttachment* second) {
+    const auto curves=projected_measurement_curves(view);
+    const auto* a=find_curve(curves,first.reference);
+    if(!second&&first.kind==DimensionAttachmentKind::CurvePoint&&a&&a->circular&&!a->axis&&!straight_support(a))
+        return std::abs(a->sweep)>=2*pi-1e-7?DrawingDimensionKind::Diameter:DrawingDimensionKind::Radius;
+    if(second&&first.kind==DimensionAttachmentKind::Line&&second->kind==DimensionAttachmentKind::Line) {
+        const auto* b=find_curve(curves,second->reference);
+        if(straight_support(a)&&straight_support(b)&&std::abs(cross(straight_direction(a),straight_direction(b)))>1e-9)
+            return DrawingDimensionKind::Angular;
+    }
+    return DrawingDimensionKind::Linear;
+}
 std::shared_ptr<const MeasurementGeometry> share_measurement_geometry(MeasurementGeometry data) {
     static std::mutex mutex;
     static std::vector<std::weak_ptr<const MeasurementGeometry>> shared;
@@ -1385,6 +1398,11 @@ std::vector<MeasurementCandidate> measurement_candidates_impl(const DrawingView 
         }
         if (mode == int(DimensionAttachmentKind::Point))
             continue;
+        if(request.automatic_dimension&&curve.circular&&curve.center&&!curve.axis&&!straight_support(&curve)) {
+            a.kind=DimensionAttachmentKind::CurvePoint;
+            add_candidate(a,point_at(curve,a.parameter),distance);
+            continue;
+        }
         if(mode<0&&curve.center&&!straight_support(&curve)) {
             for(const int side:{1,-1}) {
                 a.kind=DimensionAttachmentKind::Tangent;a.side=side;
@@ -1451,7 +1469,7 @@ DimensionEvaluation evaluate_drawing_dimension(const DrawingView &view, const Dr
     if (d.view_id != view.id || d.attachments.empty())
         return missing("Vyberte geometrické vazby kóty.");
     if(std::ranges::any_of(d.attachments,[&](const auto& a){return a.reference.semantic_key.starts_with(detail::cylinder_diameter_prefix)&&
-        d.kind!=DrawingDimensionKind::Diameter&& !((d.kind==DrawingDimensionKind::Linear||d.kind==DrawingDimensionKind::Chain)&&a.kind==DimensionAttachmentKind::Line);}))
+        d.kind!=DrawingDimensionKind::Diameter&& !((d.kind==DrawingDimensionKind::Linear||d.kind==DrawingDimensionKind::Chain||d.kind==DrawingDimensionKind::Angular)&&a.kind==DimensionAttachmentKind::Line);}))
         return missing("Vyberte geometrické vazby kóty.");
     for(std::size_t i=0;i<d.attachments.size();++i)if(!(d.chain_datum_only&&d.chain_direction&&i!=d.anchor_attachment))if(auto p=resolve_dimension_attachment(view,d.attachments[i]);p&&break_hidden(view,*p)) {
         result.state=MeasurementState::Hidden;result.message="Reference kóty je skrytá přerušením pohledu.";return result;

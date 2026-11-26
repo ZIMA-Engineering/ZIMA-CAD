@@ -12418,6 +12418,16 @@ SolveResult Sketch::solve_impl(
                 end->x - center->x, end->y - center->y);
             if (start_radius <= tolerance || end_radius <= tolerance ||
                 std::abs(start_radius - end_radius) > 1.0e-7) return false;
+            // Contacts were evaluated before synchronizing these parameters.
+            // A changed chord can already satisfy its dimension while its
+            // attached point still lies on the previous circle. Account for
+            // the changed support so the next iteration verifies the contact
+            // against the current radius and finite angular interval.
+            maximum_residual = std::max({maximum_residual,
+                std::hypot(start->x-center->x-arc.radius*std::cos(arc.start_angle),
+                           start->y-center->y-arc.radius*std::sin(arc.start_angle)),
+                std::hypot(end->x-center->x-arc.radius*std::cos(arc.end_angle),
+                           end->y-center->y-arc.radius*std::sin(arc.end_angle))});
             arc.radius = (start_radius + end_radius) * 0.5;
             arc.start_angle = std::atan2(
                 start->y - center->y, start->x - center->x);

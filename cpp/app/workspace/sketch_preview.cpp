@@ -1,4 +1,5 @@
 #include "workspace_internal.hpp"
+#include <zima/sketcher/three_point_arc.hpp>
 
 namespace zima::app {
 using namespace workspace_detail;
@@ -1803,6 +1804,37 @@ bool AssemblyWorkspaceWindow::accept_sketch_arc_ray(
     if (sketch == nullptr) return false;
     const auto position = sketch->intersect_ray(origin, direction);
     if (!position) return true;
+    if(sketch_three_point_arc_) {
+        const auto remember_snap=[&] {pending_curve_point_snaps_.push_back({
+            std::exchange(pending_sketch_snap_geometry_id_,{}),
+            std::exchange(pending_sketch_snap_kind_,std::nullopt)});};
+        if(!pending_three_point_arc_[0]) {
+            pending_three_point_arc_[0]=*position;remember_snap();
+            state_->setText(tr("Oblouk třemi body: určete konec."));return true;
+        }
+        if(!pending_three_point_arc_[1]) {
+            if(std::hypot((*position)[0]-(*pending_three_point_arc_[0])[0],
+                    (*position)[1]-(*pending_three_point_arc_[0])[1])<=1e-9) {
+                state_->setText(tr("An arc needs three distinct, non-collinear points."));return true;
+            }
+            pending_three_point_arc_[1]=*position;remember_snap();
+            state_->setText(tr("Oblouk třemi body: určete průchozí bod."));return true;
+        }
+        auto snaps=pending_curve_point_snaps_;
+        snaps.push_back({std::exchange(pending_sketch_snap_geometry_id_,{}),std::exchange(pending_sketch_snap_kind_,std::nullopt)});
+        try {
+            if(!mutate_active_sketch([&](auto& target) {
+                const auto arc=zima::sketcher::add_three_point_arc(target,*pending_three_point_arc_[0],*pending_three_point_arc_[1],*position);
+                const std::array ids{arc.start_point_id,arc.end_point_id,arc.through_point_id};
+                for(std::size_t i=0;i<ids.size()&&i<snaps.size();++i)
+                    apply_sketch_point_snap(target,ids[i],snaps[i].first,snaps[i].second);
+            }))return true;
+            pending_three_point_arc_={};pending_curve_point_snaps_.clear();
+            clear_completed_sketch_interaction();preserve_view_on_refresh_=true;refresh_tabs();refresh_scene();
+            state_->setText(tr("Oblouk vytvořen. Určete začátek dalšího oblouku třemi body."));
+        } catch(const std::exception& error) {state_->setText(QObject::tr(error.what()));}
+        return true;
+    }
     if (!pending_arc_center_) {
         pending_arc_center_ = *position;
         pending_curve_point_snaps_.push_back({
@@ -1889,11 +1921,33 @@ bool AssemblyWorkspaceWindow::accept_sketch_arc_ray(
 
 void AssemblyWorkspaceWindow::preview_sketch_arc_ray(
     const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction) {
-    if (!sketch_arc_active_ || !pending_arc_center_) return;
+    if (!sketch_arc_active_) return;
     const auto* sketch = active_sketch();
     if (sketch == nullptr) return;
     const auto position = sketch->intersect_ray(origin, direction);
     if (!position) return;
+    if(sketch_three_point_arc_) {
+        if(!pending_three_point_arc_[0])return;
+        const auto first=*pending_three_point_arc_[0];
+        const auto end=pending_three_point_arc_[1].value_or(*position);
+        zima::kernel::ViewerEdge preview;
+        preview.points={sketch->world_point(first[0],first[1]),sketch->world_point(end[0],end[1])};
+        if(pending_three_point_arc_[1])try {
+            const auto arc=zima::sketcher::three_point_arc_geometry(first,end,*position);
+            preview.points.clear();
+            const double sweep=arc.end_angle-arc.start_angle;
+            const auto samples=std::max(2,int(std::ceil(96*sweep/(2*std::acos(-1.)))));
+            for(int i=0;i<=samples;++i) {
+                const double a=arc.start_angle+sweep*i/samples;
+                preview.points.push_back(sketch->world_point(arc.center[0]+arc.radius*std::cos(a),arc.center[1]+arc.radius*std::sin(a)));
+            }
+            state_->setText(tr("Oblouk třemi body: určete průchozí bod."));
+        } catch(const std::exception& error) {state_->setText(QObject::tr(error.what()));}
+        viewer_->set_transient_edges({std::move(preview)});
+        viewer_->set_transient_points({sketch->world_point(first[0],first[1]),sketch->world_point(end[0],end[1])});
+        return;
+    }
+    if(!pending_arc_center_)return;
     if (!pending_arc_start_) {
         viewer_->set_transient_edges({{{
             sketch->world_point((*pending_arc_center_)[0], (*pending_arc_center_)[1]),

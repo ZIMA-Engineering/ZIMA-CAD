@@ -450,7 +450,7 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
                              sketch_segment_action_, sketch_common_tangent_action_,
                              sketch_polyline_action_,
                              sketch_rectangle_action_, sketch_slot_action_, sketch_polygon_action_,
-                             sketch_circle_action_, sketch_arc_action_,
+                             sketch_circle_action_, sketch_arc_action_, sketch_three_point_arc_action_,
                              sketch_ellipse_action_, sketch_elliptical_arc_action_,
                              sketch_bspline_action_,
                              sketch_interpolating_spline_action_}) {
@@ -823,7 +823,8 @@ void AssemblyWorkspaceWindow::sync_sketch_tool_action_checks() {
     set_checked(sketch_slot_action_, sketch_slot_active_);
     set_checked(sketch_polygon_action_, sketch_polygon_active_);
     set_checked(sketch_circle_action_, sketch_circle_active_);
-    set_checked(sketch_arc_action_, sketch_arc_active_);
+    set_checked(sketch_arc_action_, sketch_arc_active_&&!sketch_three_point_arc_);
+    set_checked(sketch_three_point_arc_action_, sketch_arc_active_&&sketch_three_point_arc_);
     set_checked(sketch_ellipse_action_, sketch_ellipse_active_);
     set_checked(sketch_elliptical_arc_action_,
         sketch_elliptical_arc_active_);

@@ -12,6 +12,11 @@ namespace zima::app {
 using namespace workspace_detail;
 
 namespace {
+void order_whole_origin_rows(PlacementReferenceDialog* reference_dialog) {
+    if(auto* dialog=dynamic_cast<QWidget*>(reference_dialog))
+        for(auto* child:dialog->findChildren<QObject*>())
+            if(auto* section=dynamic_cast<ui::ContainerPlacementSection*>(child))section->order_whole_origin_rows();
+}
 auto whole_origin_placement_scope(PlacementReferenceDialog* reference_dialog) {
     QPointer<QObject> placement;
     if (auto* dialog = dynamic_cast<QWidget*>(reference_dialog)) {
@@ -1907,6 +1912,7 @@ bool AssemblyWorkspaceWindow::accept_primitive_tree_reference(
             accepted_any = accepted_any ||
                 primitive_reference_dialog_->first_empty_position_index() != before;
         }
+        if(accepted_any)order_whole_origin_rows(primitive_reference_dialog_);
         }
         if(accepted_any&&publish_at_end) {
             // Primitive Properties deferred all intermediate draft work, not
@@ -2148,6 +2154,7 @@ bool AssemblyWorkspaceWindow::accept_construction_tree_reference(
                 accepted_any = true;
             }
         }
+        if(accepted_any)order_whole_origin_rows(construction_reference_dialog_);
         }
         if (accepted_any) {
             preserve_view_on_refresh_ = true;

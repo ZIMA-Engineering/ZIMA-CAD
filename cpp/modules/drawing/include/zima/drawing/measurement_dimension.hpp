@@ -28,6 +28,8 @@ struct MeasurementPickRequest {
     int mode{-1}; // Automatic, or an explicit DimensionAttachmentKind.
     bool circles_only{}, lines_only{};
     bool cylinder_diameters{};
+    // First pick of automatic dimension entry may select a circular curve.
+    bool automatic_dimension{};
     kernel::EdgeReference intersection_first, parallel_line;
     Point2 tangent_direction{1, 0};
     std::optional<Point2> tangent_origin;
@@ -67,6 +69,8 @@ kernel::ViewerMesh drawing_profile_mesh(const kernel::ViewerMesh &, const Projec
 std::vector<ProjectedMeasurementCurve> projected_measurement_curves(const DrawingView &);
 // Straight support in this camera, retaining the source curve and its parameters.
 std::optional<std::pair<Point2,Point2>> measurement_line_support(const ProjectedMeasurementCurve&);
+DrawingDimensionKind automatic_dimension_kind(const DrawingView&, const DimensionAttachment&,
+                                               const DimensionAttachment* second = nullptr);
 // Exact displayed fragments shared by hover and reference highlighting.
 std::vector<std::vector<Point2>> measurement_reference_geometry(
     const DrawingView &, const kernel::EdgeReference &);

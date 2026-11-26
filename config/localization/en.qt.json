@@ -1,4 +1,13 @@
 {
+  " — LMB uloží kótu a připraví další. OK ukončí příkaz.": " — LMB saves the dimension and starts the next one. OK ends the command.",
+  "Lineární kóta: kliknutím na umístění uložíte kótu a zadáte další. OK ukončí příkaz.": "Linear dimension: click to place and save the dimension, then enter the next one. OK ends the command.",
+  "Oblouk třemi body": "Three-point arc",
+  "Oblouk třemi body: určete začátek. Escape příkaz zruší.": "Three-point arc: select the start. Escape cancels.",
+  "Oblouk třemi body: určete konec.": "Three-point arc: select the end.",
+  "Oblouk třemi body: určete průchozí bod.": "Three-point arc: select the through point.",
+  "Oblouk vytvořen. Určete začátek dalšího oblouku třemi body.": "Arc created. Select the start of another three-point arc.",
+  "An arc needs three distinct, non-collinear points.": "An arc needs three distinct, non-collinear points.",
+  "Create an arc through its start, end and an editable point on the arc.": "Create an arc through its start, end and an editable point on the arc.",
   "Obrys nelze přesunout mimo vazby nebo absolutní meze.": "The outline cannot move beyond its constraints or absolute limits.",
   "Tažení obrysu: změna se uloží po puštění levého tlačítka.": "Dragging outline: release the left button to save the change.",
   "Změna obrysu byla uložena jako jedna revize.": "The outline change was saved as one revision.",

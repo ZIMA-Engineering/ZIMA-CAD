@@ -132,12 +132,25 @@ void verify_symbol_thumbnails(QApplication& application){
     zima::app::ApplicationSettings settings;settings.file_manager.default_view="files";zima::app::FileManagerTab manager(settings,root);int checked=0;
     QDirIterator symbols(root,{"*.symz"},QDir::Files,QDirIterator::Subdirectories);while(symbols.hasNext()){const auto file=symbols.next();manager.navigate(QFileInfo(file).absolutePath());application.processEvents();auto* table=manager.findChild<QTreeWidget*>("fileManagerFiles");bool found=false;for(int row=0;row<table->topLevelItemCount();++row){auto* item=table->topLevelItem(row);if(item->data(0,Qt::UserRole).toString()!=file)continue;const auto preview=item->data(0,Qt::UserRole+4).toString();check(preview==zima::app::document_thumbnail_path(file)&&QImage(preview).size()==QSize(640,480)&&!item->icon(zima::app::file_preview_column).isNull(),"Factory symbol has no discoverable native thumbnail");found=true;}check(found,"Factory symbol is missing from File Manager");++checked;}check(checked==10,"Current factory symbol thumbnail coverage changed");
 }
+void verify_compact_action_row(zima::app::FileManagerTab& first,QApplication& application) {
+    auto* slider=first.findChild<QSlider*>("fileManagerThumbnailSize");
+    const auto original_size=first.size();first.resize(3000,original_size.height());application.processEvents();
+    int previous=slider->geometry().right();
+    for(const char* name:{"fileManagerNewDirectory","fileManagerCopy","fileManagerMove","fileManagerDelete"}) {
+        auto* button=first.findChild<QPushButton*>(name);
+        check(button&&button->x()>previous&&button->width()<=button->sizeHint().width()+2,"File action order or compact width is incorrect");
+        check(slider->geometry().center().y()==button->geometry().center().y(),"File action row alignment changed");previous=button->geometry().right();
+    }
+    check(slider->width()>300,"Thumbnail slider did not receive the available width");
+    first.resize(original_size);application.processEvents();
+}
 void verify_file_controls(QApplication& application){
     QTemporaryDir fixture;check(fixture.isValid(),"Cannot create file controls fixture");const QString root=fixture.path(),child=fixture.filePath("child");QDir().mkpath(child+"/0000-index");QDir().mkpath(root+"/0000-index");
     {QSettings legacy(root+"/0000-index/files.ini",QSettings::IniFormat);legacy.setValue("files/groups","zima-cad");legacy.setValue("group/zima-cad/patterns","*.prtz");legacy.setValue("group/zima-cad/disabledPatterns","*.prtz");legacy.setValue("custom/keep","authored");legacy.sync();QSettings parent(root+"/0000-index/filters.ini",QSettings::IniFormat);parent.setValue("Filters/Hide",QStringList{"*.matz"});parent.sync();QSettings local(child+"/0000-index/filters.ini",QSettings::IniFormat);local.setValue("Filters/Hide",QStringList{"*.asmz","*.txt"});local.setValue("custom/keep","local");local.sync();}
     for(const auto* name:{"Part.prtz","Part.prtz.1","Assembly.asmz","Material.matz","Note.txt"})touch(QDir(child).filePath(name));
     zima::app::ApplicationSettings settings;settings.file_manager.default_view="files";settings.local_config_path=root+"/local.ini";
     zima::app::FileManagerTab manager(settings,root,child);manager.resize(1100,700);manager.show();application.processEvents();auto* table=manager.findChild<QTreeWidget*>("fileManagerFiles");
+    verify_compact_action_row(manager,application);
     int native_reads=0;manager.native_parameters_requested=[&](const QString&){++native_reads;return zima::app::FileManagerNativeParameters{};};manager.navigate(child);const int reads_before_filter=native_reads;
     const auto visible=[&](const QString& name){for(int row=0;row<table->topLevelItemCount();++row)if(table->topLevelItem(row)->text(0)==name)return !table->topLevelItem(row)->isHidden();return false;};
     auto* assembly=manager.findChild<QToolButton*>("fileManagerType_asmz");auto* material=manager.findChild<QToolButton*>("fileManagerType_matz");check(assembly&&!assembly->isChecked()&&!visible("Assembly.asmz")&&!visible("Note.txt")&&visible("Part.prtz")&&visible("Material.matz"),"Local exclusion patterns or ignored legacy policy were applied incorrectly");
@@ -347,6 +360,7 @@ void verify_reference_themes(QApplication& application,const QString& relative_r
 int main(int argc,char** argv){
     QApplication application(argc,argv);std::cout.setf(std::ios::unitbuf);
     try{
+        if(argc==2&&std::string(argv[1])=="--file-controls") {verify_file_controls(application);return 0;}
         if(argc==2&&std::string(argv[1])=="--source-branding") {verify_source_branding(application);return 0;}
         if(argc==2&&std::string(argv[1])=="--file-operations-small") {verify_background_file_operations(application);return 0;}
         if(argc==2&&std::string(argv[1])=="--file-operations") {verify_background_file_operations(application);return 0;}
@@ -602,7 +616,7 @@ int main(int argc,char** argv){
         for(int row=0;row<files->topLevelItemCount();++row){const auto index=files->indexFromItem(files->topLevelItem(row),zima::app::file_preview_column);if(qvariant_cast<QIcon>(index.data(Qt::DecorationRole)).isNull())continue;check(geometry.geometry(files,index).thumbnail.center().x()==preview_point.x(),"Preview images do not share one vertical line");}
         QStyleOptionViewItem preview_option;check(!files->itemDelegate()->createEditor(files,preview_option,preview_index),"Preview cell created a parameter editor");
         const auto name_geometry=geometry.geometry(files,files->indexFromItem(preview_row,0));const auto type_icon=files->style()->subElementRect(QStyle::SE_ItemViewItemDecoration,&name_geometry.content,files);const auto filename=files->style()->subElementRect(QStyle::SE_ItemViewItemText,&name_geometry.content,files);check(type_icon.right()<filename.left()&&filename.right()<preview_geometry.thumbnail.left(),"Type icon, filename and thumbnail are not in their independent visual order");
-        {auto* slider=first.findChild<QSlider*>("fileManagerThumbnailSize");auto* create=first.findChild<QPushButton*>("fileManagerNewDirectory");auto* copy=first.findChild<QPushButton*>("fileManagerCopy");check(slider->width()>=80&&slider->width()<=300&&slider->geometry().center().y()==create->geometry().center().y()&&slider->geometry().center().y()==copy->geometry().center().y()&&slider->x()>create->x()&&slider->x()<copy->x(),"Thumbnail size control must share the compact action row next to New Folder");}
+        verify_compact_action_row(first,application);
         QHelpEvent help(QEvent::ToolTip,preview_point,files->viewport()->mapToGlobal(preview_point));QApplication::sendEvent(files->viewport(),&help);check(wait_until([]{return QToolTip::isVisible()&&QToolTip::text().contains("data:image/png;base64,");},1500),"Hover did not show the enlarged thumbnail after native tooltip animation");QToolTip::hideText();opened_file.clear();QMouseEvent double_click(QEvent::MouseButtonDblClick,preview_point,files->viewport()->mapToGlobal(preview_point),Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);QApplication::sendEvent(files->viewport(),&double_click);application.processEvents();auto* inspector=first.findChild<QDialog*>("fileManagerImagePreview");check(inspector&&opened_file.isEmpty(),"Thumbnail double-click opened the CAD file instead of its image inspector");inspector->reject();application.processEvents();views->setCurrentIndex(0);
 
         {QSettings metadata(index+"/metadata.ini",QSettings::IniFormat);metadata.setValue("Directory/SubdirectoriesAsParts",true);metadata.sync();}QDir().mkpath(project+"/ZZZ-directory");first.navigate(project);for(const auto order:{Qt::AscendingOrder,Qt::DescendingOrder}){files->sortByColumn(0,order);check(files->topLevelItem(0)->data(0,Qt::UserRole+3).toBool(),"Directory group mixed with files");}QDir(project+"/ZZZ-directory").removeRecursively();{QSettings metadata(index+"/metadata.ini",QSettings::IniFormat);metadata.setValue("Directory/SubdirectoriesAsParts",false);metadata.sync();}first.navigate(project);

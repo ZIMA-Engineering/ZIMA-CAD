@@ -105,6 +105,8 @@ void AssemblyWorkspaceWindow::cancel_sketch_segment() {
     sketch_mirror_selecting_sources_ = false;
     sketch_circle_active_ = false;
     sketch_arc_active_ = false;
+    sketch_three_point_arc_ = false;
+    pending_three_point_arc_ = {};
     sketch_arc_clockwise_ = false;
     sketch_ellipse_active_ = false;
     sketch_elliptical_arc_active_ = false;
@@ -171,6 +173,7 @@ void AssemblyWorkspaceWindow::cancel_sketch_segment() {
     pending_circle_center_.reset();
     pending_circle_tangent_inference_.reset();
     pending_arc_center_.reset();
+    pending_three_point_arc_ = {};
     pending_arc_start_.reset();
     pending_ellipse_center_.reset();
     pending_ellipse_major_.reset();
@@ -458,7 +461,7 @@ bool AssemblyWorkspaceWindow::cancel_current_sketch_step(
     if (!active) return false;
     const bool has_pending_geometry = pending_segment_start_.has_value() ||
         pending_rectangle_corner_.has_value() || pending_polygon_center_.has_value() ||
-        pending_circle_center_.has_value() || pending_arc_center_.has_value() ||
+        pending_circle_center_.has_value() || pending_arc_center_.has_value() || pending_three_point_arc_[0].has_value() ||
         pending_arc_start_.has_value() || pending_ellipse_center_.has_value() ||
         pending_ellipse_major_.has_value() ||
         pending_elliptical_arc_center_.has_value() ||
@@ -489,6 +492,7 @@ bool AssemblyWorkspaceWindow::cancel_current_sketch_step(
     pending_circle_center_.reset();
     pending_circle_tangent_inference_.reset();
     pending_arc_center_.reset();
+    pending_three_point_arc_ = {};
     pending_arc_start_.reset();
     sketch_arc_clockwise_ = false;
     pending_ellipse_center_.reset();
@@ -1076,11 +1080,12 @@ void AssemblyWorkspaceWindow::cancel_sketch_circle() {
     viewer_->set_transient_edges({});
 }
 
-void AssemblyWorkspaceWindow::start_sketch_arc() {
+void AssemblyWorkspaceWindow::start_sketch_arc(bool three_points) {
     if (properties_dialog_ != nullptr) return;
     if (active_sketch() == nullptr) return;
     cancel_sketch_segment();
     sketch_arc_active_ = true;
+    sketch_three_point_arc_ = three_points;
     viewer_->set_command_snap_point_provider([this](const auto& origin,const auto& direction){return pending_arc_keypoints(origin,direction);});
     set_sketch_placement_selection_contract();
     sketch_arc_clockwise_ = false;
@@ -1091,7 +1096,8 @@ void AssemblyWorkspaceWindow::start_sketch_arc() {
     selected_sketch_ellipse_id_.clear();
     selected_sketch_elliptical_arc_id_.clear();
     selected_sketch_bspline_id_.clear();
-    state_->setText(tr("Oblouk skici: určete střed. Escape příkaz zruší."));
+    state_->setText(three_points?tr("Oblouk třemi body: určete začátek. Escape příkaz zruší."):
+        tr("Oblouk skici: určete střed. Escape příkaz zruší."));
 }
 
 void AssemblyWorkspaceWindow::cancel_sketch_arc() {
@@ -1099,6 +1105,7 @@ void AssemblyWorkspaceWindow::cancel_sketch_arc() {
     sketch_arc_active_ = false;
     sketch_arc_clockwise_ = false;
     pending_arc_center_.reset();
+    pending_three_point_arc_ = {};
     pending_arc_start_.reset();
     pending_curve_point_snaps_.clear();
     viewer_->set_transient_edges({});

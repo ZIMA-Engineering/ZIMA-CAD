@@ -1183,10 +1183,10 @@ public:
                     menu.addAction(resource_icon("drawing-break"),tr("Vložit přerušení"),this,[this,key]{start_witness_tool(drawing::WitnessEditKind::Break,key.id);})->setObjectName("drawingWitnessBreakContextAction");
                 }
                 if(dimension&&dimension->kind==drawing::DrawingDimensionKind::Linear)
-                    menu.addAction(tr("Převést na řetězovou kótu…"),this,[this,key]{if(manual_properties_)manual_properties_(key.id,2);});
+                    menu.addAction(resource_icon("drawing-chain-dimension"),tr("Převést na řetězovou kótu…"),this,[this,key]{if(manual_properties_)manual_properties_(key.id,2);});
                 if(dimension&&dimension->kind==drawing::DrawingDimensionKind::Chain) {
-                    menu.addAction(tr("Převést na lineární kótu…"),this,[this,key]{if(manual_properties_)manual_properties_(key.id,4);})->setObjectName("convertDrawingLinearAction");
-                    menu.addAction(tr("Přidat větev"),this,[this,key]{if(manual_properties_)manual_properties_(key.id,1);})->setObjectName("drawingAddChainBranchAction");
+                    menu.addAction(resource_icon("drawing-dimension"),tr("Převést na lineární kótu…"),this,[this,key]{if(manual_properties_)manual_properties_(key.id,4);})->setObjectName("convertDrawingLinearAction");
+                    menu.addAction(resource_icon("drawing-chain-dimension"),tr("Přidat větev"),this,[this,key]{if(manual_properties_)manual_properties_(key.id,1);})->setObjectName("drawingAddChainBranchAction");
                 }
             }
             if(key.kind==AnnotationKind::Caption||key.kind==AnnotationKind::SectionLabel||key.kind==AnnotationKind::DetailLabel)
@@ -1200,7 +1200,7 @@ public:
             if(properties)properties->setObjectName("drawingEntityPropertiesAction");
         }
         if(std::ranges::any_of(entity_selection_,[](const auto& key){return key.kind!=AnnotationKind::View;}))
-            menu.addAction(tr("Odstranit"),this,[this]{erase_selection();})->setObjectName("drawingDeleteSelectionAction");
+            menu.addAction(resource_icon("delete"),tr("Odstranit"),this,[this]{erase_selection();})->setObjectName("drawingDeleteSelectionAction");
     }
     void select_manual(const std::string& view,const std::string& id) {
         select_entity(AnnotationKey{AnnotationKind::Dimension,view,id,0},false);selected_.clear();selected_dimension_id_=id;
@@ -1403,7 +1403,7 @@ protected:
             }
             if(on_selection&&generic){
                 auto* menu=new QMenu(this);menu->setObjectName("drawingSelectionContextMenu");menu->setAttribute(Qt::WA_DeleteOnClose);
-                auto* remove=menu->addAction(tr("Odstranit"),this,[this]{erase_selection();});remove->setObjectName("drawingDeleteSelectionAction");
+                auto* remove=menu->addAction(resource_icon("delete"),tr("Odstranit"),this,[this]{erase_selection();});remove->setObjectName("drawingDeleteSelectionAction");
                 menu->popup(event->globalPos());event->accept();return;
             }
         }
@@ -1417,7 +1417,7 @@ protected:
             selected_field_=field;selected_.clear();selected_annotation_.reset();selected_dimension_id_.clear();update();
             auto* menu=new QMenu(this);menu->setAttribute(Qt::WA_DeleteOnClose);
             menu->addAction(tr("Vlastnosti textu…"),this,[this,field]{if(text_properties_)text_properties_(field.substr(5));});
-            menu->addAction(tr("Odstranit"),this,[this,field]{erase_text(field);});
+            menu->addAction(resource_icon("delete"),tr("Odstranit"),this,[this,field]{erase_text(field);});
             menu->popup(event->globalPos());event->accept();return;
         }
         if(dragged_model_||!dragged_dimension_id_.empty()){event->accept();return;}
@@ -1451,7 +1451,7 @@ protected:
             if(view!=sheet_->views.end()&&std::ranges::any_of(view->model_annotations,[&](const auto& a){return a.kind==drawing::ModelAnnotationKind::Dimension&&model_annotation_key(a.source)==key.id;})) {
                 auto* menu=new QMenu(this);menu->setAttribute(Qt::WA_DeleteOnClose);
                 auto* properties=menu->addAction(tr("Vlastnosti kóty…"));properties->setObjectName("dimensionLayoutPropertiesAction");
-                connect(properties,&QAction::triggered,this,[this,key]{dimension_properties_(key.view,key.id);});menu->addAction(tr("Odstranit"),this,[this]{erase_selection();});menu->popup(event->globalPos());event->accept();return;
+                connect(properties,&QAction::triggered,this,[this,key]{dimension_properties_(key.view,key.id);});menu->addAction(resource_icon("delete"),tr("Odstranit"),this,[this]{erase_selection();});menu->popup(event->globalPos());event->accept();return;
             }
         }
         if(selected_annotation_&&selected_annotation_->kind==AnnotationKind::Dimension&&!offered_annotations_.empty()){
@@ -1464,14 +1464,14 @@ protected:
             const auto* dimension=visible_dimension(id);
             if(dimension&&(dimension->kind==drawing::DrawingDimensionKind::Linear||dimension->kind==drawing::DrawingDimensionKind::Chain)){
                 if(dimension->kind==drawing::DrawingDimensionKind::Linear) {
-                    auto* convert=menu->addAction(tr("Převést na řetězovou kótu…"),this,[this,id]{if(manual_properties_)manual_properties_(id,2);});
+                    auto* convert=menu->addAction(resource_icon("drawing-chain-dimension"),tr("Převést na řetězovou kótu…"),this,[this,id]{if(manual_properties_)manual_properties_(id,2);});
                     convert->setObjectName("convertDrawingChainAction");
                 } else {
-                    menu->addAction(tr("Převést na lineární kótu…"),this,[this,id]{if(manual_properties_)manual_properties_(id,4);})->setObjectName("convertDrawingLinearAction");
-                    menu->addAction(tr("Přidat větev"),this,[this,id]{if(manual_properties_)manual_properties_(id,1);})->setObjectName("drawingAddChainBranchAction");
+                    menu->addAction(resource_icon("drawing-dimension"),tr("Převést na lineární kótu…"),this,[this,id]{if(manual_properties_)manual_properties_(id,4);})->setObjectName("convertDrawingLinearAction");
+                    menu->addAction(resource_icon("drawing-chain-dimension"),tr("Přidat větev"),this,[this,id]{if(manual_properties_)manual_properties_(id,1);})->setObjectName("drawingAddChainBranchAction");
                 }
             }
-            menu->addAction(tr("Odstranit"),this,[this,id]{workspace::erase_drawing_dimension(*sheet_,id);selected_dimension_id_.clear();selected_annotation_.reset();if(changed_)changed_();if(selection_changed_)selection_changed_();update();});menu->popup(event->globalPos());event->accept();return;
+            menu->addAction(resource_icon("delete"),tr("Odstranit"),this,[this,id]{workspace::erase_drawing_dimension(*sheet_,id);selected_dimension_id_.clear();selected_annotation_.reset();if(changed_)changed_();if(selection_changed_)selection_changed_();update();});menu->popup(event->globalPos());event->accept();return;
         }
         const auto hit=!offered_annotations_.empty()?offered_annotations_[offered_annotation_index_].key.view:view_at(event->pos());
         if (hit != selected_) {
@@ -1748,7 +1748,7 @@ protected:
                     else if(const auto* seed=visible_dimension(candidate.chain_seed))dimension_command_->adopt_chain_seed(*seed);}
                 else {selected_annotation_.reset();selected_.clear();if(selection_changed_)selection_changed_();}
             }else if(dimension_command_->placing()){
-                for(const auto& view:sheet_->views)if(view.id==dimension_command_->value().view_id){const auto p=snap_measurement_point(view,event->position());dimension_command_->position({p.x(),p.y()},true);clear_annotation_snap();}
+                for(const auto& view:sheet_->views)if(view.id==dimension_command_->value().view_id){const auto p=snap_measurement_point(view,event->position());dimension_command_->position({p.x(),p.y()},true);clear_annotation_snap();break;}
             }else{
                 offer_annotations(event->position());
                 if(!offered_annotations_.empty()){const auto candidate=offered_annotations_[offered_annotation_index_];if(candidate.key.kind==AnnotationKind::Dimension&&candidate.key.id==dimension_command_->value().id&&QLineF(candidate.point,event->position()).length()<=8)begin_manual_drag(candidate,event->position());}
@@ -3457,7 +3457,9 @@ void DrawingWindow::show_dimension_properties(const std::string& id,int extend,
         });
     });
     if(properties_handler_)properties_handler_(dialog);dialog->show();update_action_states();
-    set_status_message(id.empty()&&(extend==0||extend==2||extend==3)
+    set_status_message(dialog->placement_commits()
+        ?tr("Lineární kóta: kliknutím na umístění uložíte kótu a zadáte další. OK ukončí příkaz.")
+        :id.empty()&&(extend==0||extend==2||extend==3)
         ?tr("Kóta: OK uloží kótu a připraví další. Dvojklik prostředním tlačítkem příkaz ukončí.")
         :tr("Kóta: vyberte vazby a umístění. OK potvrdí měřenou kótu."));
 }

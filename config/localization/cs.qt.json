@@ -1,4 +1,13 @@
 {
+  " — LMB uloží kótu a připraví další. OK ukončí příkaz.": " — LMB uloží kótu a připraví další. OK ukončí příkaz.",
+  "Lineární kóta: kliknutím na umístění uložíte kótu a zadáte další. OK ukončí příkaz.": "Lineární kóta: kliknutím na umístění uložíte kótu a zadáte další. OK ukončí příkaz.",
+  "Oblouk třemi body": "Oblouk třemi body",
+  "Oblouk třemi body: určete začátek. Escape příkaz zruší.": "Oblouk třemi body: určete začátek. Escape příkaz zruší.",
+  "Oblouk třemi body: určete konec.": "Oblouk třemi body: určete konec.",
+  "Oblouk třemi body: určete průchozí bod.": "Oblouk třemi body: určete průchozí bod.",
+  "Oblouk vytvořen. Určete začátek dalšího oblouku třemi body.": "Oblouk vytvořen. Určete začátek dalšího oblouku třemi body.",
+  "An arc needs three distinct, non-collinear points.": "Oblouk vyžaduje tři různé body, které neleží na jedné přímce.",
+  "Create an arc through its start, end and an editable point on the arc.": "Vytvořit oblouk počátečním, koncovým a upravitelným průchozím bodem.",
   "Obrys nelze přesunout mimo vazby nebo absolutní meze.": "Obrys nelze přesunout mimo vazby nebo absolutní meze.",
   "Tažení obrysu: změna se uloží po puštění levého tlačítka.": "Tažení obrysu: změna se uloží po puštění levého tlačítka.",
   "Změna obrysu byla uložena jako jedna revize.": "Změna obrysu byla uložena jako jedna revize.",

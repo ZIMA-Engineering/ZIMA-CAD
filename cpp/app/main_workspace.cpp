@@ -1998,6 +1998,8 @@ int verify_template_commands(QApplication& application,zima::app::AssemblyWorksp
     auto ordinary=document::PartDocument::create_default();
     auto ordinary_owner=document::PartDocument::create_sketch_container();
     auto ordinary_sketch=sketcher::Sketch::create_default();
+    static_cast<void>(ordinary_sketch.add_point(12,7));
+    static_cast<void>(ordinary_sketch.add_point(-20,-30));
     ordinary_sketch.owner_container_id=ordinary_owner.id;
     const auto ordinary_sketch_id=ordinary_sketch.id;
     ordinary.history={ordinary_owner};ordinary.sketches={ordinary_sketch};
@@ -2029,6 +2031,29 @@ int verify_template_commands(QApplication& application,zima::app::AssemblyWorksp
     choose_image.start(100);image_action->trigger();choose_image.stop();flush();
     dialog=window.findChild<QDialog*>("templateImageDialog");
     if(!verify(dialog,"Ordinary Sketch image did not open shared Properties"))return 1;
+    auto* image_view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>());
+    if(!verify(image_view,"Image placement View missing"))return 1;
+    QEventLoop image_settle;QTimer::singleShot(400,&image_settle,&QEventLoop::quit);image_settle.exec();flush();
+    const auto image_local=[&](QPointF p){const auto ray=image_view->ray_at(p);return *window.active_sketch_for_test()->intersect_ray(ray->first,ray->second);};
+    const auto origin=image_local({0,0}),right=image_local({100,0}),bottom=image_local({0,100});
+    const double ux=(right[0]-origin[0])/100,uy=(right[1]-origin[1])/100,vx=(bottom[0]-origin[0])/100,vy=(bottom[1]-origin[1])/100,det=ux*vy-uy*vx;
+    const QPointF anchor_pixel(((12-origin[0])*vy-(7-origin[1])*vx)/det,(ux*(7-origin[1])-uy*(12-origin[0]))/det);
+    const auto image_click=[&](QPointF p){for(auto type:{QEvent::MouseMove,QEvent::MouseButtonPress,QEvent::MouseButtonRelease}) {
+        QMouseEvent event(type,p,QPointF(image_view->mapToGlobal(p.toPoint())),type==QEvent::MouseMove?Qt::NoButton:Qt::LeftButton,type==QEvent::MouseButtonPress?Qt::LeftButton:Qt::NoButton,Qt::NoModifier);
+        QApplication::sendEvent(image_view,&event);flush();
+    }};
+    for(int horizontal=0;horizontal<3;++horizontal)for(int vertical=0;vertical<3;++vertical)for(double rotation:{-17.5,90.}) {
+        dialog->findChild<QComboBox*>("templateImageHorizontal")->setCurrentIndex(horizontal);
+        dialog->findChild<QComboBox*>("templateImageVertical")->setCurrentIndex(vertical);
+        dialog->findChild<QDoubleSpinBox*>("templateImageRotation")->setValue(rotation);
+        image_click(anchor_pixel+QPointF(1,1));
+        if(!verify(std::abs(dialog->findChild<QDoubleSpinBox*>("templateImageValue0")->value()-12)<1e-8&&
+                   std::abs(dialog->findChild<QDoubleSpinBox*>("templateImageValue1")->value()-7)<1e-8,
+                   "Image insertion point did not snap to the native Sketch point"))return 1;
+        if(!verify(image_view->transient_points().size()==1,"Image insertion point is not visible"))return 1;
+    }
+    dialog->findChild<QComboBox*>("templateImageHorizontal")->setCurrentIndex(0);
+    dialog->findChild<QComboBox*>("templateImageVertical")->setCurrentIndex(0);
     dialog->findChild<QDoubleSpinBox*>("templateImageValue0")->setValue(5);
     dialog->findChild<QDoubleSpinBox*>("templateImageValue1")->setValue(6);
     dialog->findChild<QDoubleSpinBox*>("templateImageValue2")->setValue(50);
@@ -2043,7 +2068,17 @@ int verify_template_commands(QApplication& application,zima::app::AssemblyWorksp
     if(!verify(image_row,"Embedded ordinary Sketch image is missing from Tree"))return 1;
     auto* finish=window.findChild<QAction*>("finishSketchAction");
     if(!verify(finish&&finish->isEnabled(),"Ordinary image Sketch cannot finish"))return 1;
-    finish->trigger();flush();save=window.findChild<QAction*>("saveDocumentAction");save->trigger();flush();
+    const auto image_accepted=window.active_sketch_for_test()->serialized();
+    window.findChild<QAction*>("undoAction")->trigger();flush();
+    if(!verify(window.active_sketch_for_test()->reference_images.empty(),"Image insertion Undo failed"))return 1;
+    window.findChild<QAction*>("redoAction")->trigger();flush();
+    if(!verify(window.active_sketch_for_test()->serialized()==image_accepted,"Image insertion Redo failed"))return 1;
+    finish->trigger();flush();
+    for(auto* candidate:window.findChildren<QDialog*>())
+        if(auto* properties=dynamic_cast<app::SketchPropertiesDialog*>(candidate);properties&&properties->isVisible()) {
+            properties->buttons()->button(QDialogButtonBox::Ok)->click();flush();break;
+        }
+    save=window.findChild<QAction*>("saveDocumentAction");save->trigger();flush();
     std::vector<kernel::BodyResult> ordinary_cache;
     const auto stored_ordinary=document::PartDocument::load(ordinary_path,&ordinary_cache);
     const auto& stored_sketch=stored_ordinary.sketches.front();
@@ -4067,6 +4102,10 @@ int verify_pending_container_tree(QApplication& application,
         click_row(find("document-origin"));
         if (!verify(parent_dialog->populated_references().size() == 3,
                 "Document Origin did not fill the parent placement triad")) return 1;
+        if (!verify(parent_dialog->populated_references()[0].semantic_key.ends_with("plane:xy")&&
+                parent_dialog->populated_references()[1].semantic_key.ends_with("plane:xz")&&
+                parent_dialog->populated_references()[2].semantic_key.ends_with("plane:yz"),
+                "Part/Assembly whole Origin rows are not XY, XZ, YZ")) return 1;
         if (!verify(parent_dialog->set_inline_parameter_value("reference_offset:0", 12.5),
                 "Cannot offset the pending parent fixture")) return 1;
         flush();
@@ -4097,6 +4136,10 @@ int verify_pending_container_tree(QApplication& application,
         default_origin->click(); flush();
         if (!verify(point->populated_references().size() == 3,
                 "Whole pending local Origin did not populate all three Point references")) return 1;
+        if (!verify(point->populated_references()[0].semantic_key.ends_with("plane:xy")&&
+                point->populated_references()[1].semantic_key.ends_with("plane:xz")&&
+                point->populated_references()[2].semantic_key.ends_with("plane:yz"),
+                "Nested Part/Assembly Default Origin rows are not XY, XZ, YZ")) return 1;
         const auto local = point->pending_value().origin;
         if (!verify(std::abs(local.x) + std::abs(local.y) + std::abs(local.z) < 1e-8,
                 "Point on an offset parent Origin was not resolved in the parent frame")) return 1;
@@ -4116,6 +4159,10 @@ int verify_pending_container_tree(QApplication& application,
                     "Cancelled Assembly draft was persisted")) return 1;
         } else if (!verify(PartDocument::load(path).find_container(parent_id) == nullptr,
                 "Cancelled Part draft was persisted")) return 1;
+        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_ORIGIN_ROWS_ONLY")) {
+            std::cout<<(assembly?"Assembly":"Part")<<" Default Origin: XY/XZ/YZ rows, parent ownership, unchanged frame and Cancel passed\n";
+            continue;
+        }
 
         auto* point_action = window.findChild<QAction*>("featureShortcut0Action");
         if (!verify(point_action && point_action->isEnabled(), "Point shortcut unavailable")) return 1;
@@ -8895,6 +8942,7 @@ using zima::test::check_coupled_equations;
 #include "sketch_coupled_dimension_ui_verification.inc"
 #include "sketch_mechanism_ui_verification.inc"
 #include "sketch_contour_ui_verification.inc"
+#include "three_point_arc_ui_verification.inc"
 #include "sketch_arc_size_ui_verification.inc"
 #include "sketch_curve_fillet_ui_verification.inc"
 #include "sketch_offset_tangent_ui_verification.inc"
@@ -10442,6 +10490,11 @@ int verify_property_sketch_dimensions(QApplication& application, const std::file
             if(!verify(view->base_mesh_revision()==origin_revision,
                 "Default Origin republished the base Feature scene"))return 1;
             const auto origin_value=opened->pending_value();
+            if(!verify(origin_value.placement.references.size()>=3&&
+                    origin_value.placement.references[0].semantic_key.ends_with("plane:xy")&&
+                    origin_value.placement.references[1].semantic_key.ends_with("plane:xz")&&
+                    origin_value.placement.references[2].semantic_key.ends_with("plane:yz"),
+                "Feature Default Origin rows are not XY, XZ, YZ"))return 1;
             if(!verify(zima::document::placement_references_use_whole_origin(
                     origin_value.placement.references),
                 "Default Origin did not assign the complete Origin triad"))return 1;
@@ -12642,6 +12695,7 @@ int verify_startup_contract(
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_COINCIDENT_ONLY")) return verify_sketch_coincident_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_PLACED_SKETCH_REFERENCE_ONLY")) return verify_placed_sketch_reference_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_CYLINDRICAL_ANGLE_ONLY")) return verify_cylindrical_angle_ui(application,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_THREE_POINT_ARC_ONLY")) return verify_three_point_arc_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SWEEP_SURFACE_ONLY")) return verify_sweep_surface_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_CURVE_CONTEXT_FILE")) return verify_curve_context_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_FORM_SWEEP_SKETCH_ONLY")) return verify_form_sweep_sketch_ui(application,test_directory);

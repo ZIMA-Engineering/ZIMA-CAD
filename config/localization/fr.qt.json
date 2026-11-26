@@ -1,4 +1,13 @@
 {
+  " — LMB uloží kótu a připraví další. OK ukončí příkaz.": " — LMB enregistre la cote et commence la suivante. OK termine la commande.",
+  "Lineární kóta: kliknutím na umístění uložíte kótu a zadáte další. OK ukončí příkaz.": "Cote linéaire : cliquez pour placer et enregistrer la cote, puis saisissez la suivante. OK termine la commande.",
+  "Oblouk třemi body": "Arc par trois points",
+  "Oblouk třemi body: určete začátek. Escape příkaz zruší.": "Arc par trois points : choisissez le début. Échap annule.",
+  "Oblouk třemi body: určete konec.": "Arc par trois points : choisissez la fin.",
+  "Oblouk třemi body: určete průchozí bod.": "Arc par trois points : choisissez le point de passage.",
+  "Oblouk vytvořen. Určete začátek dalšího oblouku třemi body.": "Arc créé. Choisissez le début du prochain arc par trois points.",
+  "An arc needs three distinct, non-collinear points.": "Un arc nécessite trois points distincts et non alignés.",
+  "Create an arc through its start, end and an editable point on the arc.": "Créer un arc par son début, sa fin et un point de passage modifiable.",
   "Obrys nelze přesunout mimo vazby nebo absolutní meze.": "Le contour ne peut pas dépasser ses contraintes ou ses limites absolues.",
   "Tažení obrysu: změna se uloží po puštění levého tlačítka.": "Déplacement du contour : relâchez le bouton gauche pour enregistrer la modification.",
   "Změna obrysu byla uložena jako jedna revize.": "La modification du contour a été enregistrée en une seule révision.",

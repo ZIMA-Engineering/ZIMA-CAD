@@ -247,11 +247,12 @@ void AssemblyWorkspaceWindow::show_template_image_properties(const std::string& 
         auto& values=preview.drawing_template?
             preview.drawing_template->images:preview.reference_images;
         const auto found=std::ranges::find(values,id,&zima::sketcher::TemplateImage::id);
-        if(found==values.end())values.push_back(image);else *found=image;show_sketch_drag_preview(preview);
+        if(found==values.end())values.push_back(image);else *found=image;show_sketch_drag_preview(preview);viewer_->set_transient_points({preview.world_point(image.x,image.y)});
     },[this,owner,id,sketch_id=sketch->id](auto image){
         if(workspace_.active_document_id()!=owner||active_sketch_id_!=sketch_id)return;
         if(auto* part=workspace_.open_part(owner);
-            part&&std::ranges::any_of(part->session.document().sketches,
+            part&&(!sweep_profile_sketch_draft_||sweep_profile_sketch_draft_->id!=sketch_id)&&
+            std::ranges::any_of(part->session.document().sketches,
                 [&](const auto& value){return value.id==sketch_id;})) {
             static_cast<void>(workspace::commit_template_image(
                 workspace_,owner,id,std::move(image),sketch_id));
@@ -268,8 +269,8 @@ void AssemblyWorkspaceWindow::show_template_image_properties(const std::string& 
         }));
     },this);
     properties_dialog_=dialog;template_image_anchor_=[dialog](double x,double y){dialog->set_anchor(x,y);};
-    viewer_->set_selection_contract({});
-    connect(dialog,&QDialog::finished,this,[this,dialog]{template_image_anchor_={};if(properties_dialog_==dialog)properties_dialog_=nullptr;preserve_view_on_refresh_=true;refresh_tabs();refresh_scene();});dialog->show();
+    set_sketch_placement_selection_contract();
+    connect(dialog,&QDialog::finished,this,[this,dialog]{template_image_anchor_={};viewer_->set_transient_points({});viewer_->set_sketch_cursor(std::nullopt);if(properties_dialog_==dialog)properties_dialog_=nullptr;preserve_view_on_refresh_=true;refresh_tabs();refresh_scene();});dialog->show();
 }
 bool AssemblyWorkspaceWindow::template_image_ray(const zima::kernel::Vec3& origin,const zima::kernel::Vec3& direction) {
     if(!template_image_anchor_)return false;
@@ -280,7 +281,8 @@ void AssemblyWorkspaceWindow::remove_template_image(const std::string& id) {
     const auto owner=workspace_.active_document_id();const auto* sketch=image_sketch();
     if(!sketch||properties_dialog_)return;
     if(auto* part=workspace_.open_part(owner);
-        part&&std::ranges::any_of(part->session.document().sketches,
+        part&&(!sweep_profile_sketch_draft_||sweep_profile_sketch_draft_->id!=sketch->id)&&
+        std::ranges::any_of(part->session.document().sketches,
             [&](const auto& value){return value.id==sketch->id;}))
         static_cast<void>(workspace::remove_template_image(workspace_,owner,id));
     else static_cast<void>(mutate_active_sketch([&](auto& target){

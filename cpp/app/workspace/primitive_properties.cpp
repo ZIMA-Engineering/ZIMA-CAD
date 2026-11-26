@@ -973,7 +973,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                 if(origin_marker!=primitive_origin_preview_mesh_->points.end())
                     origin_marker->label=preview.name;
             }
-            if(preview.feature.uses_sketch()&&preview.feature.type!=zima::document::FeatureType::Projection&&preview.feature.type!=zima::document::FeatureType::Wrapping&&
+            if(preview.feature.uses_sketch()&&preview.feature.type!=zima::document::FeatureType::Projection&&
                     !(preview.feature.type==zima::document::FeatureType::Modeling&&
                       preview.feature.result_type==zima::document::ProfileResultType::Thin)) {
                 // Rollback hides saved output; show the pending owned geometry.
@@ -983,6 +983,10 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                 auto profile_mesh=sketch->viewer_mesh();
                 sketch->filter_hidden_3d_geometry(profile_mesh);
                 keep_only_inactive_sketch_profile(profile_mesh,preview.id);
+                // Wrapping needs both the authored planar profile and its
+                // mapped result while positioning, even behind the target.
+                if(preview.feature.type==zima::document::FeatureType::Wrapping)
+                    for(auto& edge:profile_mesh.edges) {edge.overlay=true;edge.color="#00D1FF";}
                 append_mesh(*primitive_origin_preview_mesh_,std::move(profile_mesh));
             }
         } else primitive_origin_preview_mesh_=preview_document.construction_viewer_mesh(plane.id);

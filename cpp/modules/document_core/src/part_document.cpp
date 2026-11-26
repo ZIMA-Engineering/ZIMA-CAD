@@ -5779,13 +5779,15 @@ std::vector<zima::kernel::ViewerDimension> construction_point_dimensions(
             const auto center=placement_vec_add(frame->axis_origin,placement_vec_scale(frame->axis,
                 placement_vec_dot(placement_vec_sub(object.origin,frame->axis_origin),frame->axis)));
             const double radius=frame->radius+8.;
-            result.push_back({center,center,placement_vec_add(center,placement_vec_scale(frame->zero,radius)),
-                placement_vec_add(center,placement_vec_scale(frame->radial,radius)),reference.offset,
+            const auto plane_zero=placement_vec_cross(frame->axis,frame->zero);
+            const double displayed=placement_reference_display_value(reference);
+            result.push_back({center,center,placement_vec_add(center,placement_vec_scale(plane_zero,radius)),
+                placement_vec_add(center,placement_vec_scale(frame->radial,radius)),displayed,
                 {object.id,"parameter:reference_offset:"+std::to_string(current_index),{}},{}," °"});
             auto& dimension=result.back();
             dimension.kind=kernel::ViewerDimensionKind::Angular;
             dimension.plane_normal=frame->axis;
-            dimension.sweep_degrees=reference.offset;
+            dimension.sweep_degrees=displayed;
             dimension.value_lock_key="reference_offset:"+std::to_string(current_index);
             continue;
         }

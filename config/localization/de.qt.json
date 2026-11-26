@@ -1,4 +1,13 @@
 {
+  " — LMB uloží kótu a připraví další. OK ukončí příkaz.": " — LMB speichert das Maß und beginnt das nächste. OK beendet den Befehl.",
+  "Lineární kóta: kliknutím na umístění uložíte kótu a zadáte další. OK ukončí příkaz.": "Lineares Maß: Zum Platzieren und Speichern klicken, dann das nächste Maß eingeben. OK beendet den Befehl.",
+  "Oblouk třemi body": "Dreipunktbogen",
+  "Oblouk třemi body: určete začátek. Escape příkaz zruší.": "Dreipunktbogen: Startpunkt wählen. Escape bricht ab.",
+  "Oblouk třemi body: určete konec.": "Dreipunktbogen: Endpunkt wählen.",
+  "Oblouk třemi body: určete průchozí bod.": "Dreipunktbogen: Durchgangspunkt wählen.",
+  "Oblouk vytvořen. Určete začátek dalšího oblouku třemi body.": "Bogen erstellt. Startpunkt des nächsten Dreipunktbogens wählen.",
+  "An arc needs three distinct, non-collinear points.": "Ein Bogen erfordert drei verschiedene Punkte, die nicht auf einer Geraden liegen.",
+  "Create an arc through its start, end and an editable point on the arc.": "Einen Bogen durch Startpunkt, Endpunkt und einen bearbeitbaren Durchgangspunkt erstellen.",
   "Obrys nelze přesunout mimo vazby nebo absolutní meze.": "Die Kontur kann nicht über ihre Bedingungen oder absoluten Grenzen hinaus bewegt werden.",
   "Tažení obrysu: změna se uloží po puštění levého tlačítka.": "Kontur ziehen: Zum Speichern die linke Maustaste loslassen.",
   "Změna obrysu byla uložena jako jedna revize.": "Die Konturänderung wurde als eine Revision gespeichert.",

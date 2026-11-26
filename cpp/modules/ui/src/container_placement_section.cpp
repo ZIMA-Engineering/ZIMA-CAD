@@ -666,6 +666,19 @@ void ContainerPlacementSection::initialize_from_references(
     orientation_labels_ = std::move(orientation_candidate_labels);
 }
 
+void ContainerPlacementSection::order_whole_origin_rows() {
+    if(references_.size()!=3 || !zima::document::placement_references_use_whole_origin(references_))return;
+    const auto rank=[](const auto& ref){return ref.semantic_key.ends_with("plane:xy")?0:ref.semantic_key.ends_with("plane:xz")?1:2;};
+    bool changed=false;
+    for(std::size_t i=0;i<3;++i)for(std::size_t j=i+1;j<3;++j)if(rank(references_[j])<rank(references_[i])) {
+        std::swap(references_[i],references_[j]);
+        if(reference_labels_.size()==3)std::swap(reference_labels_[i],reference_labels_[j]);
+        std::swap(empty_reference_locks_[i],empty_reference_locks_[j]);
+        changed=true;
+    }
+    if(changed){highlighted_reference_rows_.clear();refresh_reference_table();notify_changed();}
+}
+
 zima::document::ConstructionReference ContainerPlacementSection::prepare_reference(
         std::size_t index,zima::document::ConstructionReference reference) const {
     prepare_position_orientation(index,reference);
@@ -1005,7 +1018,7 @@ void ContainerPlacementSection::refresh_derived_offsets() {
         const QSignalBlocker block(field);
         const bool was_derived=field->property("pointCircleDerivedOffset").toBool();
         if(derived[i] || was_derived) {
-            field->setValue(derived[i].value_or(references_[i].offset));
+            field->setValue(derived[i].value_or(zima::document::placement_reference_display_value(references_[i])));
             field->setReadOnly(derived[i].has_value() || references_[i].offset_locked);
             if(auto* lock=field->findChild<QToolButton*>("numericValueLockButton"))lock->setEnabled(!derived[i]);
             field->setProperty("pointCircleDerivedOffset",derived[i].has_value());
@@ -1217,12 +1230,12 @@ void ContainerPlacementSection::refresh_reference_table() {
                 reference->setText(reference->text()+tr(" — poloha podél hrany"));
                 reference->setToolTip(tr("Bod určuje polohu svým kolmým průmětem na první vybranou hranu."));
             }
-            offset->setValue(references_[index].offset);
+            offset->setValue(zima::document::placement_reference_display_value(references_[index]));
             offset->setEnabled(!missing && references_[index].supports_offset);
             connect(offset, &QDoubleSpinBox::valueChanged, this,
                 [this, index](double value) {
                     if (index < references_.size() && !reference_offset_fields_[index]->property("pointCircleDerivedOffset").toBool()) {
-                        references_[index].offset = value;
+                        references_[index].offset = zima::document::placement_reference_stored_value(references_[index],value);
                         const auto* support=surface_resolver_?surface_resolver_(references_[index]):nullptr;
                         const bool curved=(support&&support->kind!=zima::kernel::SurfaceGeometry::Kind::Plane)||
                             (branch_geometry_&&zima::document::placement_exact::is_surface(references_[index],branch_geometry_()));
@@ -1332,8 +1345,9 @@ void ContainerPlacementSection::refresh_reference_table() {
                     }
                 }
                 const auto pose=numeric_placement();
+                const double initial=zima::document::placement_reference_stored_value(ref,0.);
                 ref.offset=branch_geometry_ ? zima::document::measure_placement_reference_value(
-                    ref,references_,branch_geometry_(),{pose.x,pose.y,pose.z}).value_or(0.) : 0.;
+                    ref,references_,branch_geometry_(),{pose.x,pose.y,pose.z}).value_or(initial) : initial;
             }
             if(ref.use_axis)ref.offset=0;
             for(auto& oriented:orientation_references_)

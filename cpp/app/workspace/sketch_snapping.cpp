@@ -18,7 +18,7 @@ std::optional<SketchPointAlignment> AssemblyWorkspaceWindow::sketch_point_alignm
         (sketch_elliptical_arc_active_ && pending_elliptical_arc_major_)) return std::nullopt;
 
     if (!(sketch_point_active_ || sketch_segment_active_ || sketch_rectangle_active_ || sketch_slot_active_ || sketch_polygon_active_ ||
-          sketch_circle_active_ || sketch_arc_active_ || sketch_ellipse_active_ || sketch_elliptical_arc_active_ || sketch_bspline_active_)) return std::nullopt;
+          sketch_circle_active_ || sketch_arc_active_ || sketch_ellipse_active_ || sketch_elliptical_arc_active_ || sketch_bspline_active_ || template_image_anchor_)) return std::nullopt;
     const auto position=sketch->intersect_ray(origin,direction);
     if (!position) return std::nullopt;
     return infer_sketch_point_alignment(*sketch,*position,viewer_->world_tolerance_for_pixels(2.0*viewer_->devicePixelRatioF()),sketch_inference_settings_);
@@ -468,12 +468,13 @@ bool AssemblyWorkspaceWindow::accept_sketch_external_snap(
     if (!(sketch_point_active_ || sketch_segment_active_ ||
           sketch_rectangle_active_ || sketch_slot_active_ || sketch_polygon_active_ ||
           sketch_circle_active_ || sketch_arc_active_ || sketch_ellipse_active_ ||
-          sketch_elliptical_arc_active_ || sketch_bspline_active_)) return false;
+          sketch_elliptical_arc_active_ || sketch_bspline_active_ || template_image_anchor_)) return false;
     const auto snap = sketch_candidate_snap_ray(candidate, origin, direction);
     if (!snap) return false;
     pending_sketch_snap_geometry_id_ = snap->support_geometry_id;
     pending_sketch_snap_kind_ = snap->relation;
     const bool accepted =
+        template_image_ray(snap->origin, snap->direction) ||
         accept_sketch_point_ray(snap->origin, snap->direction) ||
         accept_sketch_segment_ray(snap->origin, snap->direction) ||
         accept_sketch_rectangle_ray(snap->origin, snap->direction) ||

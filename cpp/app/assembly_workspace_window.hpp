@@ -376,6 +376,7 @@ private:
     QAction* sketch_mirror_action_{};
     QAction* sketch_circle_action_{};
     QAction* sketch_arc_action_{};
+    QAction* sketch_three_point_arc_action_{};
     QAction* sketch_ellipse_action_{};
     QAction* sketch_elliptical_arc_action_{};
     QAction* sketch_bspline_action_{};
@@ -747,6 +748,8 @@ private:
     std::optional<std::array<double, 2>> pending_circle_center_;
     bool sketch_arc_active_{};
     bool sketch_arc_clockwise_{};
+    bool sketch_three_point_arc_{};
+    std::array<std::optional<std::array<double,2>>,2> pending_three_point_arc_;
     std::optional<std::array<double, 2>> pending_arc_center_;
     std::optional<std::array<double, 2>> pending_arc_start_;
     bool sketch_ellipse_active_{};
@@ -1152,7 +1155,7 @@ private:
     [[nodiscard]] bool finish_sketch_mirror();
     void start_sketch_circle();
     void cancel_sketch_circle();
-    void start_sketch_arc();
+    void start_sketch_arc(bool three_points=false);
     void cancel_sketch_arc();
     void start_sketch_ellipse();
     void cancel_sketch_ellipse();

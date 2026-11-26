@@ -127,6 +127,9 @@ public:
     void initialize_from_references(
         const std::vector<zima::document::ConstructionReference>& references,
         const std::function<QString(const std::string&)>& label_for_semantic);
+    // Finish explicit whole-Origin entry with XY, XZ, YZ rows. Move complete
+    // references, retaining their solved FRONT/TOP roles and numeric values.
+    void order_whole_origin_rows();
 
     // Assigns reference `index` (0-2 = position row, 3-4 = FRONT/TOP
     // orientation row when `with_orientation` is enabled). New sequential

@@ -1,4 +1,13 @@
 {
+  " — LMB uloží kótu a připraví další. OK ukončí příkaz.": " — ЛКМ сохраняет размер и начинает следующий. OK завершает команду.",
+  "Lineární kóta: kliknutím na umístění uložíte kótu a zadáte další. OK ukončí příkaz.": "Линейный размер: щёлкните для размещения и сохранения, затем задайте следующий размер. OK завершает команду.",
+  "Oblouk třemi body": "Дуга по трём точкам",
+  "Oblouk třemi body: určete začátek. Escape příkaz zruší.": "Дуга по трём точкам: укажите начало. Escape отменяет команду.",
+  "Oblouk třemi body: určete konec.": "Дуга по трём точкам: укажите конец.",
+  "Oblouk třemi body: určete průchozí bod.": "Дуга по трём точкам: укажите промежуточную точку.",
+  "Oblouk vytvořen. Určete začátek dalšího oblouku třemi body.": "Дуга создана. Укажите начало следующей дуги по трём точкам.",
+  "An arc needs three distinct, non-collinear points.": "Для дуги нужны три различные точки, не лежащие на одной прямой.",
+  "Create an arc through its start, end and an editable point on the arc.": "Создать дугу по начальной, конечной и редактируемой промежуточной точкам.",
   "Obrys nelze přesunout mimo vazby nebo absolutní meze.": "Контур нельзя переместить за пределы связей или абсолютных ограничений.",
   "Tažení obrysu: změna se uloží po puštění levého tlačítka.": "Перетаскивание контура: отпустите левую кнопку для сохранения изменения.",
   "Změna obrysu byla uložena jako jedna revize.": "Изменение контура сохранено одной редакцией.",

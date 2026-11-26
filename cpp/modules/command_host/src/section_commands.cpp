@@ -126,7 +126,7 @@ void Host::register_section_commands() {
             reference.use_angle=args.contains("angle_degrees");
             if(reference.use_angle) {
                 if(args.contains("offset_mm") || args.at("index")>=3)invalid();
-                reference.offset=args.at("angle_degrees").get<double>();
+                reference.offset=document::placement_reference_stored_value(reference,args.at("angle_degrees").get<double>());
             }
             const auto id=workspace_.active_document_id(),object=args.at("object").get<std::string>();
             const bool changed=workspace::set_section_placement_reference(workspace_,id,object,args.at("index").get<std::size_t>(),std::move(reference),args.value("derive_orientation",true));

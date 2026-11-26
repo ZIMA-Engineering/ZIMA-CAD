@@ -622,6 +622,8 @@ if(ZIMA_BUILD_TESTS)
     target_link_libraries(zima_file_manager_ui_tests PRIVATE zima_ui Qt6::Widgets Qt6::Svg Qt6::WebEngineWidgets)
     target_compile_options(zima_file_manager_ui_tests PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
     add_test(NAME zima_file_manager_ui COMMAND zima_file_manager_ui_tests)
+    add_test(NAME zima_file_manager_controls_ui COMMAND zima_file_manager_ui_tests --file-controls)
+    set_tests_properties(zima_file_manager_controls_ui PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_STYLE_OVERRIDE=Fusion;QTWEBENGINE_CHROMIUM_FLAGS=--disable-gpu --no-sandbox" WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/.." TIMEOUT 60)
     add_test(NAME zima_file_manager_background_operations_ui COMMAND zima_file_manager_ui_tests --file-operations)
     set_tests_properties(zima_file_manager_background_operations_ui PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_STYLE_OVERRIDE=Fusion;QTWEBENGINE_CHROMIUM_FLAGS=--disable-gpu --no-sandbox" WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/.." TIMEOUT 180)
     add_test(NAME zima_file_manager_portable_sources_ui COMMAND zima_file_manager_ui_tests --portable-factory-sources)
@@ -1436,6 +1438,10 @@ if(ZIMA_BUILD_TESTS)
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CONSOLE_ONLY=1;ZIMA_VERIFY_RETAINED_FEATURE_ONLY=1"
         WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/.." RUN_SERIAL TRUE TIMEOUT 120)
     add_test(NAME zima_cpp_default_origin_nested_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    add_test(NAME zima_cpp_default_origin_rows_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_default_origin_rows_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_PENDING_TREE_ONLY=1;ZIMA_VERIFY_ORIGIN_ROWS_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/.." RUN_SERIAL TRUE TIMEOUT 120)
     set_tests_properties(zima_cpp_default_origin_nested_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_PENDING_TREE_ONLY=1"
         WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/.." RUN_SERIAL TRUE TIMEOUT 120)
@@ -1475,6 +1481,9 @@ if(ZIMA_BUILD_TESTS)
     add_test(NAME zima_cpp_sketcher_contract_tests COMMAND zima_cpp_sketcher_contract_tests)
     add_executable(zima_cpp_sketch_mechanism_tests tests/sketch_mechanism_tests.cpp)
     add_executable(zima_cpp_sketch_contour_drag_tests tests/sketch_contour_drag_tests.cpp)
+    add_executable(zima_cpp_three_point_arc_tests tests/three_point_arc_tests.cpp)
+    target_link_libraries(zima_cpp_three_point_arc_tests PRIVATE zima_sketcher zima_document_core)
+    add_test(NAME zima_cpp_three_point_arc_tests COMMAND zima_cpp_three_point_arc_tests)
     target_link_libraries(zima_cpp_sketch_contour_drag_tests PRIVATE zima_sketcher zima_document_core)
     add_test(NAME zima_cpp_sketch_contour_drag_tests COMMAND zima_cpp_sketch_contour_drag_tests)
     target_link_libraries(zima_cpp_sketch_mechanism_tests PRIVATE zima_sketcher zima_document_core)
@@ -2038,6 +2047,8 @@ if(ZIMA_BUILD_TESTS)
     add_executable(zima_cpp_placement_reference_assignment_tests tests/placement_reference_assignment_tests.cpp)
     target_link_libraries(zima_cpp_placement_reference_assignment_tests PRIVATE zima_ui)
     add_test(NAME zima_cpp_placement_reference_assignment_tests COMMAND zima_cpp_placement_reference_assignment_tests)
+    add_test(NAME zima_cpp_cylindrical_angle_reference_tests COMMAND zima_cpp_placement_reference_assignment_tests --cylindrical-angle)
+    set_tests_properties(zima_cpp_cylindrical_angle_reference_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
     set_tests_properties(zima_cpp_placement_reference_assignment_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
     add_executable(zima_cpp_placement_command_tests tests/placement_command_tests.cpp)
     target_link_libraries(zima_cpp_placement_command_tests PRIVATE zima_command_host)
@@ -2803,6 +2814,11 @@ if(ZIMA_BUILD_TESTS)
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." RUN_SERIAL TRUE TIMEOUT 180)
     add_test(NAME zima_cpp_placed_sketch_reference_ui_contract COMMAND zima-cad-cpp --verify-startup)
     add_test(NAME zima_cpp_cylindrical_angle_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    add_test(NAME zima_cpp_three_point_arc_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_three_point_arc_ui_contract PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/.."
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_HIDDEN_WINDOWS=1;ZIMA_VERIFY_THREE_POINT_ARC_ONLY=1"
+        TIMEOUT 120 RUN_SERIAL TRUE)
     set_tests_properties(zima_cpp_cylindrical_angle_ui_contract PROPERTIES
         WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/.."
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_HIDDEN_WINDOWS=1;ZIMA_VERIFY_CYLINDRICAL_ANGLE_ONLY=1"

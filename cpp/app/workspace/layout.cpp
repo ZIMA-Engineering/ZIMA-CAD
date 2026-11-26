@@ -1231,7 +1231,6 @@ void AssemblyWorkspaceWindow::create_layout() {
             if(const auto* sketch=active_sketch())if(const auto point=sketch->intersect_ray(origin,direction))symbol_anchor_((*point)[0],(*point)[1]);
             return true;
         }
-        if(template_image_ray(origin,direction))return true;
         if(template_region_ray(origin,direction,true))return true;
         auto [local_origin, local_direction] =
             active_part_local_ray(origin, direction);
@@ -1250,6 +1249,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                 local_origin, local_direction)) return true;
         if (accept_sketch_dimension_placement_ray(
                 local_origin, local_direction)) return true;
+        if (template_image_ray(local_origin, local_direction)) return true;
         if (accept_sketch_text_ray(local_origin, local_direction)) return true;
         if (accept_sketch_point_ray(local_origin, local_direction)) return true;
         if (accept_sketch_segment_ray(local_origin, local_direction)) return true;
@@ -1368,7 +1368,7 @@ void AssemblyWorkspaceWindow::create_layout() {
             sketch_rectangle_active_ || sketch_slot_active_ || sketch_polygon_active_ ||
             sketch_circle_active_ || sketch_arc_active_ ||
             sketch_ellipse_active_ || sketch_elliptical_arc_active_ ||
-            sketch_bspline_active_;
+            sketch_bspline_active_ || bool(template_image_anchor_);
         if (!placement_tool) {
             viewer_->set_sketch_cursor(std::nullopt);
     viewer_->set_sketch_relation_highlights({});

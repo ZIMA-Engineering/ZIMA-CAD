@@ -166,6 +166,13 @@ int verify_wrapping_ui(QApplication& application,AssemblyWorkspaceWindow& window
                 result->setCurrentIndex(result->findData(output));
             }flush();
             check(panel->parameters().output==static_cast<document::WrappingOutput>(output),"Wrap type selected the wrong output mode");
+            const auto source_visible=[&] {
+                const auto id=editor()->pending_value().feature.sketch_id;
+                return std::ranges::any_of(view->mesh().edges,[&](const auto& edge) {
+                    return edge.reference.owner_id==id&&edge.overlay&&edge.points.size()>1;
+                });
+            };
+            check(source_visible(),"Wrap Properties omitted its original planar Sketch before target entry");
             auto* target=editor()->findChild<QTableWidget*>("wrappingTarget");check(target,"Wrap target table is missing");
             for(auto* ancestor=target->parentWidget();ancestor;ancestor=ancestor->parentWidget())if(auto* scroll=qobject_cast<QScrollArea*>(ancestor))scroll->ensureWidgetVisible(target);
             flush();click(target->viewport(),target->visualItemRect(target->item(0,2)).center());check(panel->active_pick(),"Wrap target field did not arm picking");
@@ -239,6 +246,7 @@ int verify_wrapping_ui(QApplication& application,AssemblyWorkspaceWindow& window
                 check(panel->parameters()==retained&&target->rowHeight(0)==row_height,"Wrap resizing changed rows or parameters");
             }
             check(!view->transient_edges().empty(),"Wrap has no live authored wire");
+            check(source_visible(),"Wrap target inspection or replacement hid the original planar Sketch");
             check(kernel::body_calculation_count.load()==before,"Wrap picking or preview invoked OCCT");
             if(output==2) {
                 auto* correction=panel->findChild<QDoubleSpinBox*>("wrappingHeight");

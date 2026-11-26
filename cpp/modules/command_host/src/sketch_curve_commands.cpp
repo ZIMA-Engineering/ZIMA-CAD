@@ -1,5 +1,6 @@
 #include "sketch_command_support.hpp"
 #include <zima/sketcher/curve_geometry.hpp>
+#include <zima/sketcher/three_point_arc.hpp>
 #include <zima/sketcher/sketch_trim.hpp>
 #include <set>
 #include <tuple>
@@ -42,6 +43,11 @@ void Host::add_sketch_query(commands::Command command,std::function<Json(const S
     });
 }
 void Host::register_sketch_curve_commands() {
+    add_sketch_command({"sketch.three_point_arc.create",tr("Create an arc through its start, end and an editable point on the arc."),
+        {{"start",true,Type::Array},{"end",true,Type::Array},{"through",true,Type::Array},{"construction",false,Type::Boolean},{"snap_mm",false,Type::Number}}},[](Sketch& s,const Json& a) {
+        const auto arc=sketcher::add_three_point_arc(s,point(a,"start"),point(a,"end"),point(a,"through"),a.value("construction",false),snap(a));
+        return Json{{"geometry",arc.arc_id},{"start_point",arc.start_point_id},{"end_point",arc.end_point_id},{"through_point",arc.through_point_id}};
+    });
     add_sketch_command({"sketch.offset.create",tr("Offset a native Sketch curve; distance is positive millimetres."),{{"source",true},{"distance_mm",true,Type::Number},{"flipped",false,Type::Boolean}}},[](Sketch& s,const Json& a) {
         const auto source=a["source"].get<std::string>();require_geometry(s,source);
         return offset_data(s,s.add_offset(source,number(a["distance_mm"]),a.value("flipped",false)));

@@ -47,7 +47,7 @@ void cylindrical_angle_commands(const kernel::OcctKernel& kernel,const fs::path&
             near(p.y,face->surface->axis.z*10*std::sin(degrees*std::acos(-1.)/180.));near(p.z,8);
             require(p.references[2].use_angle&&!p.references[2].orientation_drives_rotation,"Command lost angular mode/role");
         };
-        position(30);
+        position(120); // angle_degrees is plane-relative; native offsets remain normal-relative.
         const auto edit=[&](double angle) {
             if(kind=="section")run(host,"section.set",{{"object",object},{"placement",{{"reference_offset:2",angle}}}});
             else run(host,"placement.set",{{"object",object},{"values",{{"reference_offset:2",angle}}}});

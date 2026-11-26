@@ -70,6 +70,23 @@ int main() {
                     near(result.presentations.front().value,radius*(kind==DrawingDimensionKind::Diameter?2:1));
                 }
             }
+        {
+            kernel::ViewerMesh mesh;mesh.edges={circle("full",0,0,5),circle("arc",20,0,5,std::numbers::pi),line("base",{0,20,0},{20,20,0}),line("parallel",{0,30,0},{20,30,0}),line("angled",{0,40,0},{20,50,0})};
+            const auto current=view(mesh);
+            MeasurementPickRequest automatic;automatic.automatic_dimension=true;
+            for(const auto& [point,kind]:std::vector<std::pair<Point2,DrawingDimensionKind>>{{{0,5},DrawingDimensionKind::Diameter},{{20,5},DrawingDimensionKind::Radius}}) {
+                const auto picks=checked_candidates(current,point,.01,automatic);
+                require(!picks.empty()&&!picks.front().point_target,"Automatic circular geometry was not offered");
+                require(automatic_dimension_kind(current,picks.front().attachment)==kind,"Automatic R/diameter inference failed");
+            }
+            for(bool reverse:{false,true})for(bool parallel:{false,true}) {
+                DimensionAttachment a{DimensionAttachmentKind::Line,ref("base")},b{DimensionAttachmentKind::Line,ref(parallel?"parallel":"angled")};
+                if(reverse)std::swap(a,b);
+                require(automatic_dimension_kind(current,a,&b)==(parallel?DrawingDimensionKind::Linear:DrawingDimensionKind::Angular),"Automatic line pair inference depends on selection order");
+                a.kind=DimensionAttachmentKind::Point;
+                require(automatic_dimension_kind(current,a,&b)==DrawingDimensionKind::Linear,"Automatic point/line did not retain a linear dimension");
+            }
+        }
         std::cout<<"Semicircle R/diameter: 12 orientation/radius/kind cases and repeated label drags passed\n";
         {
             const std::string first="drawing-contour:4:wall:side:1",second="drawing-contour:4:wall:side:-1";
@@ -79,6 +96,24 @@ int main() {
             auto diameter=make_drawing_dimension(current.id,DrawingDimensionKind::Diameter);diameter.attachments[0]=picks.front().attachment;
             near(evaluate_drawing_dimension(current,diameter).presentations.front().value,10);
             require(drawing_dimension_text(diameter,evaluate_drawing_dimension(current,diameter).presentations.front())=="⌀10","Linear diameter presentation lost the diameter symbol");
+            MeasurementPickRequest lines;lines.lines_only=true;lines.mode=int(DimensionAttachmentKind::Line);
+            for(bool reverse:{false,true}) {
+                auto a=checked_candidates(current,{-5,7},.01,lines);
+                auto b=checked_candidates(current,{5,13},.01,lines);
+                require(!a.empty()&&!b.empty(),"Angular picker rejected a cylinder silhouette");
+                auto angular=make_drawing_dimension(current.id,DrawingDimensionKind::Angular);
+                angular.attachments={a.front().attachment,b.front().attachment};
+                if(reverse)std::swap(angular.attachments[0],angular.attachments[1]);
+                const auto before=angular.attachments;
+                for(Point2 place:std::array{Point2{8,9},Point2{-8,12},Point2{7,5}}) {
+                    place_drawing_dimension(current,angular,0,place);
+                    const auto result=evaluate_drawing_dimension(current,angular);
+                    require(result.state==MeasurementState::Resolved,"Angular evaluator rejected picked cylinder generators");
+                    near(std::remainder(result.presentations.front().value,180),0);
+                    require(angular.attachments[0].reference==before[0].reference&&angular.attachments[1].reference==before[1].reference,"Angular placement changed cylinder identities");
+                }
+                require(deserialize_drawing_dimensions(serialize_drawing_dimensions({angular})).front()==angular,"Cylinder angle roundtrip changed reference identity");
+            }
             for(int variant=0;variant<5;++variant) {
                 auto invalid=mesh;
                 if(variant==0){invalid.edges[0].reference.semantic_key="left";invalid.edges[1].reference.semantic_key="right";}
