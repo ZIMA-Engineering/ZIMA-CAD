@@ -1,3 +1,4 @@
+#include "../assembly_curve_reference.hpp"
 #include "workspace_internal.hpp"
 #include "../wrapping_parameter_panel.hpp"
 #include <zima/document/boundary_surface.hpp>
@@ -11,8 +12,10 @@ void AssemblyWorkspaceWindow::install_wrapping_properties(PrimitivePropertiesDia
     using FaceKey=std::tuple<std::string,std::string,std::string>;
     auto analytic_faces=std::make_shared<std::set<FaceKey>>();
     panel->face_label=[this,document_id,path](auto reference) {
-        if(reference.instance_path.empty())reference.instance_path=path;
-        const auto* feature=workspace_.open_part(document_id)->session.document().find_container(reference.owner_id);
+        const auto* part=workspace_.open_part(document_id);
+        if(!part)reference=assembly_curve_scene_reference(std::move(reference),path);
+        else if(reference.instance_path.empty())reference.instance_path=path;
+        const auto* feature=part?part->session.document().find_container(reference.owner_id):nullptr;
         return QString::fromStdString(feature?feature->name:reference.owner_id)+" / "+
             reference_display_label(reference,viewer_->mesh().original_references).value_or(tr("Plocha"));
     };
@@ -22,19 +25,23 @@ void AssemblyWorkspaceWindow::install_wrapping_properties(PrimitivePropertiesDia
         viewer_->set_candidate_filter({});viewer_->clear_selection();set_primitive_properties_dimension_selection();
     };
     const auto allowed=[this,dialog,panel,document_id,path,analytic_faces](const viewer::ViewerCandidate& candidate) {
-        const auto& doc=workspace_.open_part(document_id)->session.document();const auto pending=dialog->pending_value();
+        const auto* part=workspace_.open_part(document_id);const auto pending=dialog->pending_value();
         if(pending.feature.type!=document::FeatureType::Wrapping||!panel->active_pick()||candidate.owner_id==pending.id||
                 candidate.kind!=viewer::CandidateKind::Face||candidate.geometry!=viewer::CandidateGeometry::Display)return false;
         if(!analytic_faces->contains({candidate.owner_id,candidate.semantic_key,candidate.instance_path}))return false;
+        if(!part)return panel->parameters().output==document::WrappingOutput::Curves&&
+            assembly_curve_local_reference({candidate.owner_id,candidate.semantic_key,candidate.instance_path},path).has_value();
+        const auto& doc=part->session.document();
         kernel::FaceReference reference{candidate.owner_id,candidate.semantic_key,candidate.instance_path==path?std::string{}:candidate.instance_path};
         if(candidate.instance_path==path)return document::boundary_surface_support_allowed(doc,pending.id,reference);
         if(panel->parameters().output==document::WrappingOutput::Relief||panel->parameters().output==document::WrappingOutput::Split)return false;
         const auto file=workspace_.occurrence_source_file(workspace_.displayed_document_id(),assembly::InstancePath::decode(candidate.instance_path));
         return file&&assembly::is_skeleton_file(*file);
     };
-    const auto inspect=[this,panel,path] {
+    const auto inspect=[this,panel,path,document_id] {
         std::vector<viewer::ViewerCandidate> faces;
         for(auto reference:panel->inspected_faces()) {
+            if(workspace_.open_assembly(document_id))reference=assembly_curve_scene_reference(std::move(reference),path);
             viewer::ViewerCandidate candidate;candidate.kind=viewer::CandidateKind::Face;candidate.geometry=viewer::CandidateGeometry::Display;
             candidate.owner_id=reference.owner_id;candidate.semantic_key=reference.semantic_key;
             candidate.instance_path=reference.instance_path.empty()?path:reference.instance_path;faces.push_back(std::move(candidate));
@@ -71,6 +78,18 @@ void AssemblyWorkspaceWindow::install_wrapping_properties(PrimitivePropertiesDia
         feature_reference_pick_=[this,dialog,panel,document_id,path,allowed,finish](const auto& candidate) {
             if(!allowed(candidate))return;
             try {
+                if(workspace_.open_assembly(document_id)) {
+                    const auto reference=assembly_curve_local_reference({candidate.owner_id,candidate.semantic_key,candidate.instance_path},path);
+                    if(!reference)return;
+                    document::ExtrusionParameters::EndTarget target;target.reference=*reference;target.kind=document::EndTargetKind::Face;
+                    target.label=panel->face_label(*reference).toStdString();
+                    const auto instance=assembly::InstancePath::decode(path);
+                    for(auto point:viewer_->candidate_face_triangles(candidate)) {
+                        if(!instance.occurrence_ids.empty())point=workspace_.occurrence_point_from_scene(workspace_.displayed_document_id(),instance,point);
+                        target.fallback_triangles.push_back(point);
+                    }
+                    if(panel->set_target(std::move(target)))finish();return;
+                }
                 const auto& doc=workspace_.open_part(document_id)->session.document();const auto pending=dialog->pending_value();
                 const bool external=candidate.instance_path!=path;
                 document::ExtrusionParameters::EndTarget target;

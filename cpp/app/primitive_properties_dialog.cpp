@@ -1,3 +1,4 @@
+#include <zima/assembly/assembly_document.hpp>
 #include "feature_parameter_panel.hpp"
 #include <zima/document/container_origin_display.hpp>
 #include "reference_table_style.hpp"
@@ -1562,7 +1563,7 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         connect(assembly_targets_,&QListWidget::itemChanged,this,[this]{notify_preview();});
         if(feature_panel_) {
             const auto show_targets=[this,target_label] {
-                const bool active=!feature_panel_->parameters().sketch_only();
+                const bool active=!feature_panel_->parameters().sketch_only()&&!zima::assembly::is_reference_curve_feature(pending_value());
                 target_label->setVisible(active);assembly_targets_->setVisible(active);
             };
             feature_panel_->on_change(show_targets);show_targets();
@@ -2618,6 +2619,7 @@ void PrimitivePropertiesDialog::set_reverse_extent_and_direction(
 
 std::vector<std::string> PrimitivePropertiesDialog::selected_assembly_targets() const {
     std::vector<std::string> result;
+    if(zima::assembly::is_reference_curve_feature(pending_value()))return result;
     if(assembly_targets_)for(int row=0;row<assembly_targets_->count();++row) {
         const auto* item=assembly_targets_->item(row);
         if(item->checkState()==Qt::Checked)result.push_back(item->data(Qt::UserRole).toString().toStdString());
@@ -2867,7 +2869,7 @@ bool PrimitivePropertiesDialog::submit() {
         return false;
     }
     auto selected_targets=selected_assembly_targets();
-    if (assembly_targets_ != nullptr) {
+    if (assembly_targets_ != nullptr && !zima::assembly::is_reference_curve_feature(result)) {
         if (selected_targets.empty()&&(!feature_panel_||!result.feature.sketch_only())) {
             error_->setText(tr("Vyberte alespoň jednu cílovou komponentu sestavy."));
             return false;

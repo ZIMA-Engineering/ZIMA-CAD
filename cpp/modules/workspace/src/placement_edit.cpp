@@ -196,6 +196,7 @@ bool commit_construction(Workspace& live, const std::string& document_id,
         const auto& before = part->session.document();
         const auto* existing = before.find_construction(id);
         check_construction(existing, value, mode);
+        if(existing&&*existing==value)return false;
         auto next = before;
         replace_construction(next, std::move(value), mode);
         auto calculated = part->session.calculated_boundaries();
@@ -210,6 +211,7 @@ bool commit_construction(Workspace& live, const std::string& document_id,
     if (!assembly) throw std::runtime_error("Assembly is no longer open");
     const auto* existing = assembly->session.document().find_construction(id);
     check_construction(existing, value, mode);
+    if(existing&&*existing==value)return false;
     auto next = assembly->session.document();
     replace_construction(next, std::move(value), mode);
     next.synchronize_history();validate_assembly_history_order(next);

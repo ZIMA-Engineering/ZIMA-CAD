@@ -461,6 +461,15 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
         add_command(sketch_constraints_action_);
         add_group_separator();
         add_command(sketch_universal_dimension_action_);
+        add_group_separator();
+        auto* dxf=findChild<QAction*>("sketchDxfAction");
+        if(!dxf) {
+            dxf=new QAction(resource_icon("export-dxf"),tr("DXF"),this);
+            dxf->setObjectName("sketchDxfAction");
+            connect(dxf,&QAction::triggered,this,[this]{import_sketch_dxf_block();});
+        }
+        dxf->setEnabled(!properties_dialog_);
+        add_command(dxf);
         add_command(sketch_text_action_);
         add_command(symbol_action_);
         add_command(template_image_action_);
@@ -631,7 +640,6 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
             modeling_part->session.document().body_history.find(
                 modeling_part->session.document().body_history.active_body_id()):nullptr;
         add_command(selection_action_);
-        if(auto* feature=findChild<QAction*>("featurePrototypeAction"))add_command(feature);
         add_group_separator();
         auto* general=findChild<QAction*>("generalSurfaceAction");
         if(!general){general=new QAction(resource_icon("boundary-surface"),tr("Obecná plocha"),this);
@@ -681,12 +689,32 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
     if (active_application_ == ApplicationMode::Assembly) {
         add_command(selection_action_);
         add_command(section_action_);
+        auto* create=findChild<QAction*>("createComponentAction");
+        if(!create) {
+            create=new QAction(resource_icon("new"),tr("Vytvořit komponentu"),this);
+            create->setObjectName("createComponentAction");
+            connect(create,&QAction::triggered,this,&AssemblyWorkspaceWindow::create_component);
+        }
+        create->setEnabled(!properties_dialog_ && active_sketch_id_.empty());
+        add_command(create);
         add_command(insert_action_);
         add_group_separator();
         if(auto* feature=findChild<QAction*>("featurePrototypeAction"))add_command(feature);
         for(int i=0;i<4;++i)
             if(auto* shortcut=findChild<QAction*>(QStringLiteral("featureShortcut%1Action").arg(i)))add_command(shortcut);
         add_command(curve_3d_action_);
+        for(bool wrap:{false,true}) {
+            const auto name=wrap?"assemblyWrapCurveAction":"assemblyProjectCurveAction";
+            auto* action=findChild<QAction*>(name);
+            if(!action) {
+                action=new QAction(resource_icon(wrap?"wrap":"projection"),QString{},this);action->setObjectName(name);
+                connect(action,&QAction::triggered,this,[this,wrap] {
+                    show_primitive_properties(document::FeatureKind::Feature,{},false,
+                        wrap?document::FeatureType::Wrapping:document::FeatureType::Projection);
+                });
+            }
+            action->setText(tr(wrap?"Wrap curve":"Project curve"));action->setEnabled(!properties_dialog_);add_command(action);
+        }
         tools_toolbar_->addSeparator();
         mirror_action_->setEnabled(!properties_dialog_);add_command(mirror_action_);
         pattern_action_->setEnabled(!properties_dialog_);add_command(pattern_action_);

@@ -21,6 +21,7 @@ struct TemplateImage {
     // A locked image remains editable through the Tree but cannot be picked
     // accidentally in the Sketch view.
     bool selection_locked{};
+    bool modeling_geometry{}; // Filled SVG regions participate in solid profiles.
     std::set<std::string> value_locks;
     void validate() const;
     // Image pixel order: top-left, top-right, bottom-right, bottom-left.

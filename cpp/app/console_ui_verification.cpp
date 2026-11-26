@@ -1,3 +1,5 @@
+#include "document_tools_dialogs.hpp"
+#include "k_factor_calibration.hpp"
 #include "../tests/native_property_fixture.hpp"
 #include <zima/kernel/calculation_diagnostics.hpp>
 #include <zima/kernel/calculated_body_shape.hpp>
@@ -292,6 +294,12 @@ Q_NEVER_INLINE static int verify_sketch_roles(QApplication& application, Assembl
 #include "drawing_file_rename_ui_verification.inc"
 
 #include "cylinder_mate_ui_verification.inc"
+#include "sphere_mate_ui_verification.inc"
+#include "create_component_ui_verification.inc"
+#include "vector_profiles_ui_verification.inc"
+#include "sheet_calibration_ui_verification.inc"
+#include "assembly_curves_ui_verification.inc"
+#include "placement_origin_drag_ui_verification.inc"
 Q_NEVER_INLINE static int verify_feature_axis_ends(QApplication& application,AssemblyWorkspaceWindow& window,const std::filesystem::path& directory) {
     try {
         const auto check=[](bool ok,const char* text){if(!ok)throw std::runtime_error(text);};
@@ -684,6 +692,21 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_FEATURE_PROTOTYPE_ONLY")) return verify_feature_prototype(application,window,directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_ROLES_ONLY")) return verify_sketch_roles(application,window,directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_AXIS_UP_TO_ONLY")) return verify_axis_up_to(application,window,directory);
+    if(const auto output=qEnvironmentVariable("ZIMA_EXPORT_WINDOWS_ICON");!output.isEmpty()) {
+        const auto icon=system_application_icon();
+        for(int size:{16,24,32,48,64,128,256}) {
+            const auto pixels=icon.pixmap(size,size).toImage();int low=size,high=-1;
+            for(int y=0;y<pixels.height();++y)for(int x=0;x<pixels.width();++x)if(pixels.pixelColor(x,y).alpha()>128){low=std::min(low,y);high=std::max(high,y);}
+            if(high-low+1<size*.75||!pixels.save(output+QStringLiteral("-%1.png").arg(size)))return 1;
+        }
+        std::cout<<"Taller Windows icon: seven native sizes exported and height verified\n";return 0;
+    }
+    if(qEnvironmentVariableIsSet("ZIMA_VERIFY_PLACEMENT_ORIGIN_DRAG_ONLY"))return verify_placement_origin_drag_ui(application,window,directory);
+    if(qEnvironmentVariableIsSet("ZIMA_VERIFY_ASSEMBLY_CURVE_MODEL"))return verify_assembly_curves_ui(application,window);
+    if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SHEET_CALIBRATION_ONLY"))return verify_sheet_calibration_ui(application,window);
+    if(qEnvironmentVariableIsSet("ZIMA_VERIFY_VECTOR_PROFILES_ONLY"))return verify_vector_profiles_ui(application,window,directory);
+    if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SPHERE_MATE_ONLY"))return verify_sphere_mate(application,window,directory);
+    if(qEnvironmentVariableIsSet("ZIMA_VERIFY_CREATE_COMPONENT_ONLY"))return verify_create_component(application,window,directory);
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_CYLINDER_MATE_ONLY"))return verify_cylinder_mate(application,window,directory);
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_FEATURE_AXIS_ENDS_ONLY"))return verify_feature_axis_ends(application,window,directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_WORK_PLANE_ONLY")) return verify_work_plane_ui(application,window,directory);

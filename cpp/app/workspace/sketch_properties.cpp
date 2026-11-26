@@ -691,7 +691,7 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
             sketch_offset_drag->plane = resolved_sketch.plane;
             const zima::viewer::ExtentManipulator offset_manipulator{
                 "sketch_plane_offset", {}, resolved_sketch.resolved_origin,
-                resolved_sketch.resolved_normal, 0.0, true};
+                resolved_sketch.resolved_normal, 0.0, true, true};
             if (std::abs(resolved_sketch.plane_offset) > 1.0e-12) {
                 const auto start = resolved_sketch.resolved_origin;
                 const auto normal = resolved_sketch.resolved_normal;

@@ -26,6 +26,11 @@ struct PreparedSketchImport {sketcher::Sketch sketch;interchange::DxfImportResul
 // A private draft for both GUI Sketcher and stored/embedded CLI Sketch targets.
 [[nodiscard]] PreparedSketchImport prepare_sketch_dxf(const sketcher::Sketch&,const std::filesystem::path&,
     double unitless_scale_mm=1.0,std::size_t maximum_entities=100000);
+struct PreparedSketchDxfBlock {sketcher::SymbolInstance instance;interchange::DxfImportResult report;};
+// Embed imported native geometry in the existing rigid Sketch instance.
+// Placement/Cancel and explosion use the same contracts as library symbols.
+[[nodiscard]] PreparedSketchDxfBlock prepare_sketch_dxf_block(const std::filesystem::path&,
+    double unitless_scale_mm=1.0,std::size_t maximum_entities=100000);
 [[nodiscard]] PartImportReport import_sketch(Workspace&,const std::string& document_id,
     const std::filesystem::path&,const PartImportOptions&,
     const std::function<void(std::function<void()>)>& runner = {});

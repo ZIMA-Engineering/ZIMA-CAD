@@ -36,7 +36,7 @@ public:
     }
     HelicalSweepDialog(document::HistoryContainer initial,std::function<void(document::HistoryContainer)> commit,QWidget* parent)
       : SweepPlacementDialog(tr("Vlastnosti H-tažení"),std::move(initial),parent),commit_(std::move(commit)) {
-        setObjectName("helicalSweepDialog");setAttribute(Qt::WA_DeleteOnClose);setMinimumWidth(360);
+        setObjectName("helicalSweepDialog");setAttribute(Qt::WA_DeleteOnClose);setMinimumWidth(440);set_initial_size(QSize(540,900));
         auto* form=new QFormLayout;
         auto* mode=new QComboBox(this);
         mode->setObjectName("helicalFeatureMode");
@@ -76,7 +76,8 @@ public:
             style_sketch_button(button);
             if(i==0) {
                 content_layout()->addWidget(new ProfilePlaneControls(this,"helical",form,
-                    base_plane,base_selector,base_offset,button,"1. Kružnice a počáteční bod…"));
+                    base_plane,base_selector,base_offset,button));
+                button->setToolTip(names[i]);
                 form=new QFormLayout;
             }
             else form->addRow(button);

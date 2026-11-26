@@ -1,6 +1,7 @@
 #include "workspace_internal.hpp"
 #include "../fem_condition_dialog.hpp"
 #include "../confirmed_face_hit.hpp"
+#include "../work_plane_selection.hpp"
 #include <zima/document/placement_surface.hpp>
 #include <zima/document/placement_exact_surface.hpp>
 #include <zima/document/placement_reference_geometry.hpp>
@@ -318,7 +319,7 @@ bool AssemblyWorkspaceWindow::accept_placement_branch(const viewer::ViewerCandid
 
 bool AssemblyWorkspaceWindow::finish_active_reference_selection() {
     end_placement_branch_selection();
-    if(feature_reference_end_&&properties_dialog_){feature_reference_end_();return true;}
+    if(feature_reference_end_&&properties_dialog_){auto end=feature_reference_end_;end();return true;}
     if (shaft_thread_dialog_ != nullptr) { shaft_thread_dialog_->end_reference_entry();return true; }
     if (finish_drill_point_face_selection()) return true;
     if (finish_shell_face_selection()) return true;
@@ -500,12 +501,140 @@ zima::kernel::ViewerMesh AssemblyWorkspaceWindow::selected_container_origins(
 }
 
 void AssemblyWorkspaceWindow::bind_local_origin_selection(QDialog* dialog) {
+    // Picking an owned datum selects the same local plane as XY/XZ/YZ.
+    // It must never create a self-referencing placement constraint. External
+    // supports continue through the command's established validation/solver.
+    if(auto* reference_dialog=dynamic_cast<PlacementReferenceDialog*>(dialog))
+        for(auto* widget:dialog->findChildren<QWidget*>()) {
+            auto* selector=dynamic_cast<WorkPlaneSelector*>(widget);
+            if(!selector||(selector->combo->findText(QStringLiteral("XY"))<0&&
+                    selector->combo->findData(QStringLiteral("xy"))<0)||
+                    selector->property("localPlaneBound").toBool())continue;
+            selector->setProperty("localPlaneBound",true);
+            const auto request=selector->request;
+            const QPointer<QDialog> guard(dialog);
+            selector->request=[this,guard,selector,reference_dialog,request] {
+                if(!guard||properties_dialog_!=guard.data())return;
+                static_cast<void>(finish_active_reference_selection());
+                if(request)request();
+                const auto previous_filter=viewer_->candidate_filter();
+                const auto previous_pick=feature_reference_pick_;
+                const auto previous_end=feature_reference_end_;
+                const auto construction_index=pending_construction_reference_index_;
+                // Construction entry normally precedes feature callbacks in the
+                // dispatcher. Preserve its index for the external-support route.
+                pending_construction_reference_index_.reset();
+                reference_dialog->set_active_reference_index(std::nullopt);
+                const auto local_index=[guard,selector,reference_dialog,path=properties_dialog_instance_path_](const viewer::ViewerCandidate& candidate) {
+                    if(!guard||candidate.instance_path!=path||candidate.kind!=viewer::CandidateKind::Plane||
+                            !candidate.semantic_key.starts_with("origin:plane:"))return -1;
+                    auto owner=candidate.owner_id;
+                    const bool owned=reference_dialog->owns_reference_owner(owner)||
+                        (owner.ends_with(":origin")&&reference_dialog->owns_reference_owner(owner.substr(0,owner.size()-7)));
+                    if(!owned)return -1;
+                    const auto key=QString::fromStdString(candidate.semantic_key.substr(13));
+                    // Construction Plane uses semantic item data and localized
+                    // labels; profile dialogs use the short literal XY/XZ/YZ.
+                    const int by_key=selector->combo->findData(key);
+                    return by_key>=0?by_key:selector->combo->findText(key.toUpper(),Qt::MatchExactly);
+                };
+                const auto finish=[this,guard,selector,previous_end] {
+                    selector->set_entry_active(false);
+                    feature_reference_pick_={};feature_reference_end_={};
+                    if(!guard)return;
+                    if(previous_end)previous_end();
+                    else static_cast<void>(finish_active_reference_selection());
+                };
+                selector->set_entry_active(true);tree_->setProperty("commandSelectionActive",true);
+                viewer_->set_selection_contract({viewer::CandidateKind::Plane,viewer::CandidateKind::Face});
+                viewer_->set_candidate_filter([local_index,previous_filter](const auto& candidate) {
+                    return local_index(candidate)>=0||(previous_filter&&previous_filter(candidate));
+                });
+                feature_reference_end_=finish;
+                feature_reference_pick_=[this,guard,selector,local_index,previous_filter,previous_pick,previous_end,construction_index,finish](const auto& candidate) {
+                    if(!guard)return;
+                    if(const int index=local_index(candidate);index>=0) {
+                        finish();selector->combo->setCurrentIndex(index);viewer_->clear_selection();return;
+                    }
+                    if(!previous_filter||!previous_filter(candidate))return;
+                    selector->set_entry_active(false);
+                    feature_reference_pick_=previous_pick;feature_reference_end_=previous_end;
+                    pending_construction_reference_index_=construction_index;
+                    if(previous_pick)previous_pick(candidate);
+                    else if(construction_index)accept_construction_reference(candidate,true);
+                    else accept_primitive_reference(candidate,true);
+                };
+            };
+            connect(selector->combo,&QComboBox::currentIndexChanged,selector,[this,selector] {
+                if(selector->entry_active)static_cast<void>(finish_active_reference_selection());
+            });
+            connect(dialog,&QDialog::finished,selector,[this,selector] {
+                if(selector->entry_active) {
+                    selector->set_entry_active(false);feature_reference_pick_={};feature_reference_end_={};
+                }
+            });
+        }
     for (auto* object : dialog->findChildren<QObject*>()) {
         if (auto* section = dynamic_cast<zima::ui::ContainerPlacementSection*>(object)) {
             section->set_branch_geometry_resolver([this,dialog]() -> const kernel::ViewerReferenceGeometry& {
                 return dialog==dynamic_cast<QDialog*>(construction_reference_dialog_)
                     ? construction_reference_geometry_:primitive_reference_geometry_;
             });
+            if(workspace_.open_part(workspace_.active_document_id()) &&
+                    !dialog->property("placementOriginDragBound").toBool()) {
+                dialog->setProperty("placementOriginDragBound",true);
+                const QPointer<QDialog> guarded_dialog(dialog);
+                const QPointer<ui::ContainerPlacementSection> guarded_section(section);
+                const auto frame=[this,dialog] {
+                    auto placement=document::Placement{};
+                    if(const auto* part=workspace_.open_part(workspace_.active_document_id());part&&body_dialog_step_id_.empty()) {
+                        const auto& doc=part->session.document();
+                        const auto* construction=dynamic_cast<const ConstructionPropertiesDialog*>(dialog);
+                        const auto owner=construction?construction->construction_id():primitive_parameter_owner_id_;
+                        const auto* body=doc.body_owner_for_object(owner);
+                        if(!body)body=doc.body_history.find(sketch_properties_body_id_.empty()?doc.body_history.active_body_id():sketch_properties_body_id_);
+                        if(body)placement=body->scope.placement;
+                    }
+                    return container_dimension_frame(placement);
+                };
+                const auto scene_point=[this,frame](kernel::Vec3 point) {
+                    point=frame().point(point);
+                    const auto path=assembly::InstancePath::decode(workspace_.active_occurrence_path());
+                    return path.occurrence_ids.empty()?point:workspace_.occurrence_point_to_scene(workspace_.displayed_document_id(),path,point);
+                };
+                const auto local_ray=[this,frame](kernel::Vec3 origin,kernel::Vec3 direction) {
+                    const auto ray=active_part_local_ray(origin,direction);const auto basis=frame();
+                    return std::pair{basis.inverse_point(ray.first),basis.inverse_vector(ray.second)};
+                };
+                struct DragPlane {kernel::Vec3 origin,normal,hit;};
+                const auto drag=std::make_shared<DragPlane>();
+                const auto hit=[](kernel::Vec3 origin,kernel::Vec3 direction,const DragPlane& plane)->std::optional<kernel::Vec3> {
+                    const auto& n=plane.normal;const double d=n.x*direction.x+n.y*direction.y+n.z*direction.z;
+                    if(std::abs(d)<1e-12)return {};
+                    const double t=((plane.origin.x-origin.x)*n.x+(plane.origin.y-origin.y)*n.y+(plane.origin.z-origin.z)*n.z)/d;
+                    return kernel::Vec3{origin.x+t*direction.x,origin.y+t*direction.y,origin.z+t*direction.z};
+                };
+                viewer_->set_placement_origin_callbacks(
+                    [this,guarded_dialog,guarded_section,scene_point]()->std::optional<kernel::Vec3> {
+                        if(!guarded_dialog||!guarded_dialog->isVisible()||!guarded_section||properties_dialog_!=guarded_dialog.data()||!active_sketch_id_.empty())return {};
+                        return scene_point(guarded_section->resolved_origin());
+                    },
+                    [this,guarded_section,local_ray,drag,hit](kernel::Vec3 origin,kernel::Vec3 direction) {
+                        if(!guarded_section)return false;
+                        const auto ray=local_ray(origin,direction);drag->origin=guarded_section->resolved_origin();drag->normal=ray.second;
+                        const auto start=hit(ray.first,ray.second,*drag);if(!start||!guarded_section->begin_origin_drag())return false;
+                        drag->hit=*start;static_cast<void>(finish_active_reference_selection());return true;
+                    },
+                    [guarded_section,local_ray,drag,hit](kernel::Vec3 origin,kernel::Vec3 direction) {
+                        if(!guarded_section)return;const auto ray=local_ray(origin,direction);
+                        if(const auto point=hit(ray.first,ray.second,*drag))guarded_section->update_origin_drag({
+                            drag->origin.x+point->x-drag->hit.x,drag->origin.y+point->y-drag->hit.y,drag->origin.z+point->z-drag->hit.z});
+                    },
+                    [guarded_section](bool cancel){if(guarded_section)guarded_section->end_origin_drag(cancel);});
+                connect(dialog,&QDialog::finished,this,[this]{viewer_->set_placement_origin_callbacks({},{},{},{});});
+                // QPointer guards make destruction safe. Do not let a deferred
+                // deletion clear callbacks already installed by the next dialog.
+            }
             section->set_branch_request_callback([this,section,dialog](bool picking) {
                 show_placement_branches(section,dialog,picking);
             });
@@ -787,6 +916,10 @@ void AssemblyWorkspaceWindow::toggle_local_origin_visibility(
 
 void AssemblyWorkspaceWindow::start_construction_reference_selection(
     std::size_t index, bool auto_advance) {
+    if(properties_dialog_)for(auto* widget:properties_dialog_->findChildren<QWidget*>())
+        if(auto* selector=dynamic_cast<WorkPlaneSelector*>(widget);selector&&selector->entry_active) {
+            static_cast<void>(finish_active_reference_selection());break;
+        }
     if (construction_reference_dialog_ == nullptr) return;
     end_placement_branch_selection();
     // A construction placement field and a Curve Point direction field share
@@ -1243,6 +1376,10 @@ void AssemblyWorkspaceWindow::accept_construction_reference(
 
 void AssemblyWorkspaceWindow::start_primitive_reference_selection(
     std::size_t index, bool auto_advance) {
+    if(properties_dialog_)for(auto* widget:properties_dialog_->findChildren<QWidget*>())
+        if(auto* selector=dynamic_cast<WorkPlaneSelector*>(widget);selector&&selector->entry_active) {
+            static_cast<void>(finish_active_reference_selection());break;
+        }
     if (primitive_reference_dialog_ == nullptr) return;
     end_placement_branch_selection();
     if (extrusion_target_dialog_ != nullptr)
@@ -1479,7 +1616,7 @@ bool AssemblyWorkspaceWindow::component_placement_reference_candidate_allowed(
         const auto path = zima::assembly::InstancePath::decode(candidate.instance_path);
         if (path == prefix) return !pending_component_placement_component_side_;
         const auto depth=prefix.occurrence_ids.size();
-        const bool cylinder=kind==zima::assembly::MateReferenceKind::CylinderFace;
+        const bool cylinder=kind==zima::assembly::MateReferenceKind::CylinderFace || kind==zima::assembly::MateReferenceKind::SphereFace;
         if ((cylinder ? path.occurrence_ids.size() <= depth : path.occurrence_ids.size() != depth + 1) ||
             !std::equal(prefix.occurrence_ids.begin(), prefix.occurrence_ids.end(), path.occurrence_ids.begin())) return false;
         // A cylinder inside an inserted subassembly locates that immediate
@@ -1526,7 +1663,7 @@ void AssemblyWorkspaceWindow::accept_component_placement_reference(
     zima::assembly::MateReference reference{
         kind, zima::assembly::InstancePath::decode(local_path),
         candidate.owner_id, candidate.semantic_key};
-    const auto semantic_label = kind == zima::assembly::MateReferenceKind::CylinderFace ? tr("Válcová plocha") : candidate.kind == zima::viewer::CandidateKind::Vertex
+    const auto semantic_label = kind == zima::assembly::MateReferenceKind::SphereFace ? tr("Kulová plocha") : kind == zima::assembly::MateReferenceKind::CylinderFace ? tr("Válcová plocha") : candidate.kind == zima::viewer::CandidateKind::Vertex
         ? tr("Bod") : candidate.kind == zima::viewer::CandidateKind::Axis
             ? tr("Osa") : tr("Plocha");
     // Preserve the nearest orientation when a new pair is picked, but persist
@@ -1534,7 +1671,7 @@ void AssemblyWorkspaceWindow::accept_component_placement_reference(
     // value and can therefore return from the opposite orientation reliably.
     std::optional<bool> initial_flip;
     const auto& existing=component_placement_dialog_->placement_references();
-    if (selected_index<existing.size() && kind!=zima::assembly::MateReferenceKind::Point) {
+    if (selected_index<existing.size() && !zima::assembly::is_point_reference(kind)) {
         const auto other=component_side?existing[selected_index].target_reference:existing[selected_index].component_reference;
         const auto* assembly=workspace_.open_assembly(component_placement_assembly_document_id_);
         if (assembly && !other.owner_id.empty() && zima::assembly::compatible_reference_kinds(other.kind,kind)) {

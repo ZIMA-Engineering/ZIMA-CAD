@@ -3427,6 +3427,17 @@ PrimitiveData make_extrusion_data(
             auto additional = make_extrusion_data(
                 additional_request, owner_id, exact_target,
                 through_all_forward_span, through_all_reverse_span, circle_radial_direction, linear_tolerance, exact_reverse_target,exact_ordered_targets,resolved_up_to);
+            if(request.merge_profile_regions) {
+                BRepAlgoAPI_Fuse join;set_boolean_inputs(join,result.shape,additional.shape);
+                join.SetFuzzyValue(linear_tolerance);join.Build();
+                if(!join.IsDone()||!BRepCheck_Analyzer(join.Shape()).IsValid())
+                    throw std::runtime_error("Cannot unite the filled SVG regions.");
+                result.faces=propagate_topology(join,result.faces,additional.faces);
+                result.edges=propagate_topology(join,result.edges,additional.edges);
+                result.vertices=propagate_topology(join,result.vertices,additional.vertices);
+                result.shape=join.Shape();
+                continue;
+            }
             builder.Add(compound, additional.shape);
             result.faces.insert(result.faces.end(),
                 std::make_move_iterator(additional.faces.begin()),
@@ -3438,7 +3449,7 @@ PrimitiveData make_extrusion_data(
                 std::make_move_iterator(additional.vertices.begin()),
                 std::make_move_iterator(additional.vertices.end()));
         }
-        result.shape = compound;
+        if(!request.merge_profile_regions)result.shape = compound;
         if(request.draft_angle_degrees!=0) {
             BOPAlgo_ArgumentAnalyzer check;check.SetShape1(result.shape);check.SelfInterMode()=true;check.Perform();
             if(check.HasFaulty())throw std::runtime_error("Draft cannot preserve the profile; reduce the angle or length.");
@@ -16615,6 +16626,19 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                                 interrupted_radius, continuous_radius,
                                 end - end_runout,
                                 end_runout), "runout:end",end-end_runout,end);
+                    }
+                    // Hole sheets are created after the bore and entry chamfer.
+                    // Intersect only these new technical faces with the actual
+                    // remaining material, including a curved entry surface.
+                    if (thread->cuts_before) {
+                        for (auto index=surface_begin;index<technological_surfaces.size();++index) {
+                            BRepAlgoAPI_Common clip;
+                            set_boolean_inputs(clip, technological_surfaces[index].shape, result_shape);
+                            clip.SetFuzzyValue(operation.boolean_tolerance);
+                            clip.Build();
+                            if (!clip.IsDone()) throw std::runtime_error("OCCT opening thread boundary trim failed");
+                            technological_surfaces[index].shape=clip.Shape();
+                        }
                     }
                     // Shaft thread dimensions are independent of the solid.
                     // Keep the sheet even when a later shaft diameter change

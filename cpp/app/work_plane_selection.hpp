@@ -12,10 +12,27 @@
 #include <QToolButton>
 #include <QWidget>
 
+#include <algorithm>
 #include <array>
 #include <functional>
 
 namespace zima::app {
+// The host may extend the existing View route with the container's own local
+// planes. The combo remains the sole owner of the authored plane choice.
+class WorkPlaneSelector final : public QWidget {
+public:
+    using QWidget::QWidget;
+    QComboBox* combo{};
+    std::function<void()> request;
+    bool entry_active{};
+    void set_entry_active(bool active) {
+        entry_active=active;
+        if(auto* table=findChild<QTableWidget*>(combo->objectName()+QStringLiteral("View"))) {
+            if(auto* field=dynamic_cast<ui::ReferenceCellItem*>(table->item(0,1)))field->set_active_input(active);
+            table->viewport()->update();
+        }
+    }
+};
 inline bool automatic_work_plane(const QComboBox* combo) {
     return combo->currentData() == QVariant(QStringLiteral("auto"));
 }
@@ -61,7 +78,8 @@ inline void install_automatic_work_plane(QComboBox* combo, bool automatic) {
 // row offers direct one-click presets plus the ordinary View-reference route.
 inline QWidget* compact_work_plane_selector(QComboBox* combo,
         std::function<void()> request_view_plane = {}) {
-    auto* selector = new QWidget(combo->parentWidget());
+    auto* selector = new WorkPlaneSelector(combo->parentWidget());
+    selector->combo=combo;selector->request=std::move(request_view_plane);
     selector->setObjectName(combo->objectName()+QStringLiteral("Selector"));
     auto* layout = new QHBoxLayout(selector);
     layout->setContentsMargins(0,0,0,0);
@@ -108,19 +126,30 @@ inline QWidget* compact_work_plane_selector(QComboBox* combo,
     view->horizontalHeader()->hide();view->verticalHeader()->hide();
     view->setSelectionMode(QAbstractItemView::NoSelection);
     view->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    view->setFixedHeight(30);view->setMinimumWidth(30);
-    view->setSizePolicy(QSizePolicy::Ignored,QSizePolicy::Fixed);
+    // One reference row must never spend its height on scrollbars. Reserve
+    // enough width for the arrow and localized prompt even in compact forms.
+    view->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    view->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    view->verticalHeader()->setMinimumSectionSize(20);
+    view->verticalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+    view->setFixedHeight(std::max(30,view->fontMetrics().height()+10));
+    view->setMinimumWidth(48+view->fontMetrics().horizontalAdvance(QObject::tr("Ve View…")));
+    view->setSizePolicy(QSizePolicy::MinimumExpanding,QSizePolicy::Fixed);
     view->setColumnWidth(0,32);
     view->horizontalHeader()->setSectionResizeMode(1,QHeaderView::Stretch);
     ui::install_reference_cell_delegate(view);
     auto* field=new ui::ReferenceCellItem;
     field->setText(QObject::tr("Ve View…"));view->setItem(0,1,field);
     auto* indicator=ui::build_reference_row_indicator({});
-    view->setCellWidget(0,0,ui::centered_cell_widget(indicator));
+    auto* indicator_cell=ui::centered_cell_widget(indicator);
+    // This arrow is an input affordance, never a remove control. Let the
+    // table receive clicks anywhere in its cell, including on the glyph.
+    indicator_cell->setAttribute(Qt::WA_TransparentForMouseEvents);
+    view->setCellWidget(0,0,indicator_cell);
     ui::set_reference_row_populated(indicator,false);
     QObject::connect(view,&QTableWidget::cellClicked,selector,
-        [request=std::move(request_view_plane)](int,int column) {
-            if(column==1&&request)request();
+        [selector](int,int column) {
+            if((column==0||column==1)&&selector->request)selector->request();
         });
     layout->addWidget(view,1);
     // Keep the established combo available to code and automated contracts,

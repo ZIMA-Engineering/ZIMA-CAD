@@ -113,7 +113,7 @@ void AssemblyWorkspaceWindow::choose_component_variant(const std::string& reques
 }
 
 void AssemblyWorkspaceWindow::insert_component(
-    const std::string& source_document_id) {
+    const std::string& source_document_id, bool activate_after) {
     const std::string assembly_id = workspace_.active_document_id();
     if (workspace_.open_assembly(assembly_id) == nullptr) return;
     const auto original_session = workspace_.open_assembly(assembly_id)->session;
@@ -127,7 +127,7 @@ void AssemblyWorkspaceWindow::insert_component(
         viewer_->confirm_occurrence(path);
         show_component_properties(path, true);
         if (auto* dialog = component_placement_dialog_) {
-            connect(dialog, &QDialog::finished, this, [this, assembly_id, original_session](int result) {
+            connect(dialog, &QDialog::finished, this, [this, dialog, assembly_id, original_session, path, activate_after](int result) {
                 auto* state = workspace_.open_assembly(assembly_id);
                 if (!state) return;
                 auto final_document = state->session.document();
@@ -135,6 +135,10 @@ void AssemblyWorkspaceWindow::insert_component(
                 if (result == QDialog::Accepted) state->session.commit(std::move(final_document));
                 preserve_view_on_refresh_ = true;
                 refresh_tabs(); refresh_scene();
+                if(result==QDialog::Accepted && activate_after)
+                    connect(dialog,&QObject::destroyed,this,[this,path] {
+                        QTimer::singleShot(0,this,[this,path] { static_cast<void>(activate_occurrence_for_test(path)); });
+                    });
             });
         } else {
             workspace_.open_assembly(assembly_id)->session = original_session;

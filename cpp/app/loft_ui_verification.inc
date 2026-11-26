@@ -223,9 +223,21 @@ int verify_loft_ui(QApplication& application,AssemblyWorkspaceWindow& window,con
             const auto owner=dialog->pending.container_origin.id;const auto semantic=std::string("origin:plane:")+key;
             for(int y=12;y<view->height()-12&&!hit;y+=4)for(int x=12;x<view->width()-12&&!hit;x+=4) {
                 const auto offered=view->selection_candidates_at(QPointF(x,y));
-                if(!offered.empty()&&offered.front().owner_id==owner&&offered.front().semantic_key==semantic)hit=QPoint(x,y);
+                if(std::ranges::any_of(offered,[&](const auto& candidate){return candidate.owner_id==owner&&candidate.semantic_key==semantic;}))hit=QPoint(x,y);
             }
-            check(hit.has_value(),"Inherited Loft Sketch cannot pick the requested plane in View");click(view,*hit);
+            check(hit.has_value(),"Inherited Loft Sketch cannot pick the requested plane in View");
+            // The inherited parent and the child's own plane are coincident.
+            // Exercise the shared RMB cycle before confirming the parent.
+            QMouseEvent hover(QEvent::MouseMove,QPointF(*hit),QPointF(view->mapToGlobal(*hit)),Qt::NoButton,Qt::NoButton,Qt::NoModifier);
+            QApplication::sendEvent(view,&hover);flush();
+            for(std::size_t i=0;i<view->selection_candidates_at(*hit).size();++i) {
+                const auto offered=view->offered_candidate();
+                if(offered&&offered->owner_id==owner&&offered->semantic_key==semantic)break;
+                click(view,*hit,Qt::RightButton);
+            }
+            const auto offered=view->offered_candidate();
+            check(offered&&offered->owner_id==owner&&offered->semantic_key==semantic,"Cannot cycle to the inherited parent plane");
+            click(view,*hit);
             const auto placed=initial_child->pending_value().placement;
             check(!placed.references.empty()&&placed.references.front().owner_id==owner&&placed.references.front().semantic_key==semantic&&
                 placed.references.front().orientation_role=="top","View-plane pick did not author a local XY attachment");

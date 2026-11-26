@@ -63,8 +63,10 @@ public:
         visible_->setChecked(initial_.visible);form->addRow({},visible_);
         selection_locked_=new QCheckBox(tr("Uzamknout výběr obrázku"),this);selection_locked_->setObjectName("templateImageSelectionLocked");
         selection_locked_->setChecked(initial_.selection_locked);form->addRow({},selection_locked_);
+        modeling_=new QCheckBox(tr("Použít jako profil tělesa"),this);modeling_->setObjectName("templateImageModelingGeometry");
+        modeling_->setVisible(initial_.format=="svg"&&!initial_.template_coordinates);modeling_->setChecked(initial_.modeling_geometry);form->addRow({},modeling_);
         content_layout()->addLayout(form);
-        note_=new QLabel(tr("Klikněte do skici na bod umístění, nebo zadejte souřadnice. Obrázek je uložen přímo v dokumentu a slouží pouze jako vizuální reference."),this);note_->setWordWrap(true);content_layout()->addWidget(note_);
+        note_=new QLabel(tr("Klikněte do skici na bod umístění, nebo zadejte souřadnice. Obrázek je uložen přímo v dokumentu."),this);note_->setWordWrap(true);content_layout()->addWidget(note_);
         for(std::size_t i=0;i<4;++i)connect(fields_[i],&QDoubleSpinBox::valueChanged,this,[this,i]{
             if(i<2)placed_=true;else resize_other(i);update_preview();
         });
@@ -75,9 +77,11 @@ public:
         connect(opacity_,&QDoubleSpinBox::valueChanged,this,[this]{update_preview();});
         connect(visible_,&QCheckBox::toggled,this,[this]{update_preview();});
         connect(selection_locked_,&QCheckBox::toggled,this,[this]{update_preview();});
+        connect(modeling_,&QCheckBox::toggled,this,[this]{update_preview();});
         connect(replace,&QPushButton::clicked,this,[this]{
             const auto path=open_file(this,tr("Vybrat obrázek"),{},tr("Obrázky (*.svg *.png *.jpg *.jpeg *.bmp *.webp)"));if(path.isEmpty())return;
             try {const auto image=zima::drawing_render::read_template_image(std::filesystem::path(path.toStdU16String()));initial_.name=image.name;initial_.data_base64=image.data_base64;initial_.format=image.format;
+                modeling_->setVisible(initial_.format=="svg"&&!initial_.template_coordinates);if(initial_.format!="svg")modeling_->setChecked(false);
                 initial_.pixel_width=image.pixel_width;initial_.pixel_height=image.pixel_height;file_->setText(QString::fromStdString(initial_.name));resize_other(2);update_preview();
             }catch(const std::exception& e){QMessageBox::warning(this,tr("Obrázek"),QString::fromUtf8(e.what()));}
         });
@@ -96,7 +100,7 @@ private:
         auto image=initial_;image.x=fields_[0]->value();image.y=fields_[1]->value();image.width=fields_[2]->value();image.height=fields_[3]->value();
         image.horizontal=horizontal_->currentData().toString().toStdString();image.vertical=vertical_->currentData().toString().toStdString();image.lock_aspect=lock_->isChecked();
         image.rotation_degrees=rotation_->value();image.opacity=opacity_->value()/100.0;
-        image.visible=visible_->isChecked();image.selection_locked=selection_locked_->isChecked();return image;
+        image.visible=visible_->isChecked();image.selection_locked=selection_locked_->isChecked();image.modeling_geometry=modeling_->isChecked()&&image.format=="svg"&&!image.template_coordinates;return image;
     }
     void resize_other(std::size_t changed) {
         if(!lock_->isChecked() || (fields_[2]->isReadOnly() && fields_[3]->isReadOnly()))return;
@@ -111,7 +115,7 @@ private:
     void update_preview() {if(placed_&&preview_)preview_(pending());}
     Image initial_;bool placed_{};std::function<void(const Image&)> preview_;std::function<void(Image)> commit_;
     std::array<QDoubleSpinBox*,4> fields_{};QDoubleSpinBox* rotation_{};QDoubleSpinBox* opacity_{};
-    QCheckBox* lock_{};QCheckBox* visible_{};QCheckBox* selection_locked_{};
+    QCheckBox* lock_{};QCheckBox* visible_{};QCheckBox* selection_locked_{};QCheckBox* modeling_{};
     QComboBox* horizontal_{};QComboBox* vertical_{};QLabel* file_{};QLabel* note_{};
 };
 class RepeatRegionDialog final : public zima::ui::PropertiesSubWindow {
@@ -232,6 +236,7 @@ void AssemblyWorkspaceWindow::start_template_image() {
     if(path.isEmpty())return;
     try {auto image=zima::drawing_render::read_template_image(std::filesystem::path(path.toStdU16String()));
         image.template_coordinates=sketch->drawing_template.has_value();
+        image.modeling_geometry=image.format=="svg"&&!image.template_coordinates;
         cancel_sketch_segment();clear_selected_sketch_geometry();viewer_->clear_selection();show_template_image_properties({},std::move(image));}
     catch(const std::exception& e){QMessageBox::warning(this,tr("Obrázek"),QString::fromUtf8(e.what()));}
 }

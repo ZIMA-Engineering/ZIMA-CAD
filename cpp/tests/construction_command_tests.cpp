@@ -236,6 +236,7 @@ void edit_verify(const kernel::OcctKernel& kernel, fs::path directory) {
 }
 }
 #include "cylinder_face_placement_contract.inc"
+#include "sphere_face_placement_contract.inc"
 int main(int argc, char** argv) { try {
     if (argc == 2 && std::string_view(argv[1]) == "--refresh-start-templates") {
         for (const auto* name : {"START_PART_mm.prtz", "START_SKELETON_mm.prtz", "START_PART_in.prtz", "START_SKELETON_in.prtz"}) {
@@ -259,7 +260,7 @@ int main(int argc, char** argv) { try {
     const auto root = fs::canonical(fs::temp_directory_path());
     const auto directory = root / ("zima-constructions-" + document::PartDocument::create_default().document_id);
     require(fs::create_directory(directory), "Cannot create fixture directory");
-    kernel::OcctKernel kernel; verify(kernel, directory); edit_verify(kernel, directory); cylinder_face_placement_verify(kernel,directory);
+    kernel::OcctKernel kernel; verify(kernel, directory); edit_verify(kernel, directory); cylinder_face_placement_verify(kernel,directory); sphere_face_placement_verify(kernel,directory);
     require(directory.parent_path() == root, "Unexpected cleanup path"); fs::remove_all(directory);
     std::cout << "Construction queries and edits: geometry, identities, ownership, atomic rejection, locks, Undo/Redo and native persistence passed\n";
     return 0;

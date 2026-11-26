@@ -78,7 +78,10 @@ struct OccurrenceSnapshot {
     bool operator==(const OccurrenceSnapshot&) const = default;
 };
 
-enum class MateReferenceKind { Face, Axis, Point, CylinderFace };
+enum class MateReferenceKind { Face, Axis, Point, CylinderFace, SphereFace };
+[[nodiscard]] constexpr bool is_point_reference(MateReferenceKind kind) {
+    return kind == MateReferenceKind::Point || kind == MateReferenceKind::SphereFace;
+}
 [[nodiscard]] constexpr bool is_axis_reference(MateReferenceKind kind) {
     return kind == MateReferenceKind::Axis || kind == MateReferenceKind::CylinderFace;
 }
@@ -186,6 +189,11 @@ inline bool is_skeleton(const OccurrenceSnapshot& value) {
 
 // Assembly-owned subtractive feature. `definition` is deliberately the same
 // object edited by the Part feature dialog; only ownership and targets differ.
+[[nodiscard]] inline bool is_reference_curve_feature(const document::HistoryContainer& value) {
+    return value.feature_kind==document::FeatureKind::Feature&&
+        ((value.feature.type==document::FeatureType::Projection&&value.feature.projection.output==document::ProjectionOutput::Curves)||
+         (value.feature.type==document::FeatureType::Wrapping&&value.feature.wrapping.output==document::WrappingOutput::Curves));
+}
 struct AssemblyCut {
     zima::document::HistoryContainer definition;
     std::vector<std::string> target_occurrence_ids;
@@ -195,6 +203,9 @@ struct AssemblyCut {
     // Calculated cutter wire in this Assembly's frame, before component
     // subtraction. Presentation only: never component reference topology.
     std::vector<zima::kernel::ViewerEdge> preview_wire;
+    // Assembly-owned exact reference curves. Native persistence owns this
+    // calculated result independently of all read-only component snapshots.
+    zima::kernel::BodySnapshot reference_result;
     bool operator==(const AssemblyCut& other) const {
         return definition == other.definition &&
             target_occurrence_ids == other.target_occurrence_ids;

@@ -1,3 +1,4 @@
+#include "k_factor_calibration.hpp"
 #include "document_tools_dialogs.hpp"
 #include "relation_text_editor.hpp"
 #include "numeric_expression_edit.hpp"
@@ -344,9 +345,21 @@ FileSettingsDialog::FileSettingsDialog(
         thickness_->setDecimals(6);thickness_->setRange(.000001,1000000);thickness_->setSuffix(" mm");
         thickness_->setValue(data_.sheet_metal->thickness_mm.value_or(1));
         sheet_form->addRow(tr("Výchozí tloušťka materiálu"),thickness_);
-        k_factor_=new QDoubleSpinBox(sheet);k_factor_->setObjectName("sheetMetalKFactor");
-        k_factor_->setDecimals(6);k_factor_->setRange(0,1);k_factor_->setSingleStep(.01);k_factor_->setValue(data_.sheet_metal->k_factor);
+        auto* exact_factor=new zima::ui::UnitDoubleSpinBox(zima::ui::InputQuantity::Scalar,sheet);exact_factor->set_display_decimals(6);k_factor_=exact_factor;k_factor_->setObjectName("sheetMetalKFactor");
+        k_factor_->setRange(0,1);k_factor_->setSingleStep(.01);k_factor_->setValue(data_.sheet_metal->k_factor);
         sheet_form->addRow(tr("Výchozí K faktor"),k_factor_);
+        auto* test_angle=new zima::ui::UnitDoubleSpinBox(zima::ui::InputQuantity::Angle,sheet);
+        test_angle->setObjectName("kFactorTestBendAngle");test_angle->setRange(.001,180);test_angle->setValue(90);test_angle->set_display_decimals(3);
+        auto* calibration=new KFactorCalibration(k_factor_,[this]{return thickness_->value();},[test_angle]{return test_angle->value();},sheet);
+        sheet_form->addRow(tr("Correction"),calibration);
+        sheet_form->addRow(tr("Test bend angle"),test_angle);
+        const auto refresh_calibration_units=[this,sheet,test_angle,calibration] {
+            QVariantMap values;for(const auto& [key,combo]:units_)values.insert(QString::fromStdString(key),combo->currentText());
+            sheet->setProperty("zimaDocumentUnits",values);calibration->refresh_units();test_angle->set_quantity(zima::ui::InputQuantity::Angle);
+        };
+        refresh_calibration_units();
+        for(const auto* key:{"Length","Angle"})if(const auto found=units_.find(key);found!=units_.end())
+            connect(found->second,&QComboBox::currentTextChanged,this,refresh_calibration_units);
         sheet_cut_tolerance_=new QDoubleSpinBox(sheet);sheet_cut_tolerance_->setObjectName("sheetCutTolerance");
         sheet_cut_tolerance_->setDecimals(6);sheet_cut_tolerance_->setRange(.000001,1.);
         sheet_cut_tolerance_->setSingleStep(.01);sheet_cut_tolerance_->setSuffix(" mm");

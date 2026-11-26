@@ -10,9 +10,45 @@
 #include <stdexcept>
 using namespace zima;
 void require(bool value,const char* text) { if (!value) throw std::runtime_error(text); }
+void verify_curved_hole_thread(const kernel::OcctKernel& kernel) {
+    for(const double bevel:{0.,1.2}) {
+        auto doc=document::PartDocument::create_default();
+        auto body=zima::test::circular_feature(doc,20,40);doc.history.push_back(body);
+        auto hole=document::PartDocument::create_thread_container();
+        hole.placement.x=20;hole.placement.z=20;hole.placement.rotation_y=-90;
+        hole.thread.bore_length=14;hole.thread.length_forward=10;hole.thread.chamfer_enabled=bevel>0;hole.thread.chamfer_depth=bevel;
+        doc.history.push_back(hole);
+        const auto boundaries=kernel.evaluate_history(doc.kernel_operations());
+        require(boundaries.size()==2&&boundaries.back().calculation_errors.empty(),"Curved threaded opening failed");
+        const auto& mesh=boundaries.back().mesh;std::size_t samples=0;
+        for(std::size_t i=0;i<mesh.triangle_references.size();++i) {
+            const auto& ref=mesh.triangle_references[i];
+            if(ref.owner_id!=hole.id||!ref.semantic_key.starts_with("thread:surface:"))continue;
+            for(int corner=0;corner<3;++corner) {
+                const auto p=mesh.vertices.at(mesh.triangles.at(i*3+corner));++samples;
+                require(p.x*p.x+p.y*p.y<=400+1e-5,"Thread sheet protrudes outside the actual cylindrical body");
+                const double depth=20-p.x,radial=std::hypot(p.y,p.z-20);
+                if(bevel>0&&depth<bevel)require(radial+depth>=hole.thread.profile_diameter/2+bevel-1e-5,"Thread sheet protrudes into the entry chamfer");
+            }
+        }
+        require(samples>0,"Trimming removed the entire technical thread");
+        auto bare_operations=doc.kernel_operations();std::get<kernel::ThreadSurfaceRequest>(bare_operations.back().primitive).enabled=false;const auto bare=kernel.evaluate_history(bare_operations);
+        require(std::abs(bare.back().volume-boundaries.back().volume)<1e-6,"Trimming a technical sheet changed the solid volume");
+    }
+}
 int main() {
     try {
         kernel::OcctKernel kernel;
+        verify_curved_hole_thread(kernel);
+        for(double diameter:{8.,8.5}) {
+            auto plain=document::PartDocument::create_default();plain.history.push_back(test::rectangular_feature(plain,{25,25,20}));
+            auto hole=document::PartDocument::create_thread_container();hole.thread.enabled=false;hole.thread.nominal_diameter=diameter;
+            hole.thread.profile_diameter=3.;hole.thread.bore_length=10;hole.thread.chamfer_enabled=false;hole.hole.drill_point_enabled=false;hole.placement.z=-10;
+            plain.history.push_back(hole);const auto result=kernel.evaluate_history(plain.kernel_operations());
+            require(result.back().calculation_errors.empty(),"Plain custom-diameter opening failed");
+            require(std::abs(result.back().volume-(25*25*20-std::acos(-1.)*diameter*diameter/4*10))<1e-5,
+                "Plain opening used thread predrill diameter instead of its authored diameter");
+        }
         // A circular extrusion can have an indirect surface frame and a
         // reversed OCCT face while still being an external shaft.
         for (const bool reverse : {false,true}) {

@@ -289,6 +289,7 @@ void Host::register_profile_commands() {
                             throw Error("parameter_not_editable","The placement parameter is unknown, constrained or locked.");
                     }
                 }
+                if(assembly&&assembly::is_reference_curve_feature(value))value.combine_mode=document::CombineMode::Add;
                 const auto container=value.id;
                 const auto revision=part?part->session.revision():assembly->session.revision();
                 std::optional<sketcher::Sketch> pending_sketch;
@@ -307,7 +308,7 @@ void Host::register_profile_commands() {
                         if(!entry.is_string()||entry.get<std::string>().empty())throw Error("invalid_arguments","Cut targets must be nonempty occurrence identities.");
                         selected.push_back(entry.get<std::string>());
                     } else if(!create)selected=assembly->session.document().find_cut(container)->target_occurrence_ids;
-                    else for(const auto& occurrence:assembly->session.document().components)
+                    else if(!assembly::is_reference_curve_feature(value))for(const auto& occurrence:assembly->session.document().components)
                         if(!occurrence.suppressed&&!occurrence.derived_copy&&!assembly::is_skeleton(occurrence)&&occurrence.source_kind==assembly::ComponentSourceKind::Part)selected.push_back(occurrence.occurrence_id);
                     workspace::commit_assembly_profile(workspace_,kernel_,id,std::move(value),std::move(selected),create?workspace::ProfileEditMode::TransformSketch:workspace::ProfileEditMode::Replace,pending_sketch);
                 }

@@ -1,4 +1,7 @@
 #include <zima/symbols/definition.hpp>
+#include <zima/workspace/import_operations.hpp>
+#include <zima/interchange/dxf.hpp>
+#include "dxf_export_test_support.hpp"
 #include <zima/workspace/sketch_operations.hpp>
 #include <zima/document/document_session.hpp>
 #include <zima/sketcher/text_geometry.hpp>
@@ -94,6 +97,24 @@ int main(){try {
         symbols::Definition definition;definition.id="derived-native";definition.name="Trimmed offset and corner";definition.default_variant="default";
         definition.variants["default"].sketches={sketch.id};definition.sketches={sketch};
         for(bool reflected:{false,true})for(double angle:{0.,37.,90.,180.})for(double scale:{.5,2.}){verify(definition,"default",reflected,angle,scale);++cases;}
+    }
+    {
+        const auto directory=std::filesystem::path("build/verification/dxf-block");std::filesystem::create_directories(directory);
+        const auto file=directory/"exact-curves.dxf";interchange::export_dxf(file,test::dxf_curve_fixture());
+        const auto prepared=workspace::prepare_sketch_dxf_block(file);
+        check(prepared.report.imported_entities>0&&prepared.report.warnings.empty(),"DXF block lost supported entities");
+        const auto definition=symbols::Definition::from_serialized(prepared.instance.definition);
+        check(definition.id.starts_with("dxf:")&&definition.sketches.front().import_blocks.empty(),"DXF block did not use a self-contained definition");
+        for(bool reflected:{false,true})for(double angle:{0.,37.,90.})for(double scale:{.5,2.}) {
+            verify(definition,prepared.instance.variant,reflected,angle,scale);++cases;
+        }
+        auto embedded=sketcher::Sketch::create_default();embedded.add_symbol(prepared.instance);
+        const auto reopened=sketcher::Sketch::from_serialized(embedded.serialized());
+        check(reopened.symbols.size()==1&&reopened.symbols.front().definition==prepared.instance.definition,"DXF embedded block did not survive reopening");
+        auto editable=reopened;symbols::explode_instance(editable,prepared.instance.id);
+        check(!editable.bsplines.empty()&&!editable.ellipses.empty(),"DXF explosion did not retain native curve types");
+        const auto id=editable.bsplines.front().control_point_ids[1];
+        for(double delta:{2.,-3.,5.}){const auto point=*editable.find_point(id);check(editable.move_point(id,point.x+delta,point.y-delta),"Exploded DXF control point is not editable");near(editable.find_point(id)->x,point.x+delta,"DXF control-point move did not occur");}
     }
     for(const auto& entry:std::filesystem::recursive_directory_iterator("config/symbols"))if(entry.is_regular_file()&&entry.path().extension()==".symz") {
         const auto definition=symbols::Definition::load(entry.path());

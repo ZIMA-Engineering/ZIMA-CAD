@@ -165,9 +165,39 @@ void AssemblyWorkspaceWindow::new_document() {
     dialog->show();
 }
 
+void AssemblyWorkspaceWindow::create_component() {
+    if (properties_dialog_ || !active_sketch_id_.empty() ||
+        !workspace_.open_assembly(workspace_.active_document_id())) return;
+    const auto owner=workspace_.active_document_id();
+    auto created=std::make_shared<std::string>();
+    auto* dialog=new NewDocumentDialog(
+        [this,created](QString type,QString stem,QString mode,QString frame) {
+            const auto application=active_application_;
+            const auto error=create_document(type,stem,mode,frame,created.get());
+            active_application_=application;
+            return error;
+        },new_drawing_options(application_settings_),application_settings_.document_naming,this);
+    for(auto* type:dialog->findChildren<QRadioButton*>()) {
+        const auto value=type->property("documentType").toString();
+        type->setEnabled(value=="part" || value=="assembly");
+    }
+    properties_dialog_=dialog;
+    connect(dialog,&QDialog::finished,this,[this,dialog,created,owner](int result) {
+        if(properties_dialog_==dialog)properties_dialog_=nullptr;
+        if(result==QDialog::Accepted && !created->empty())
+            QTimer::singleShot(0,this,[this,created,owner] {
+                if(workspace_.active_document_id()==owner)insert_component(*created,true);
+            });
+    });
+    connect(dialog,&QObject::destroyed,this,[this,dialog] {
+        if(properties_dialog_==dialog)properties_dialog_=nullptr;
+    });
+    dialog->show();
+}
+
 QString AssemblyWorkspaceWindow::create_document(
     const QString& document_type, const QString& file_stem,
-    const QString& part_mode,const QString& drawing_frame) {
+    const QString& part_mode,const QString& drawing_frame,std::string* created_id) {
     auto stem = file_stem.trimmed();
     if (stem.isEmpty()) return tr("Zadejte název souboru.");
     if (document_type == "part" && part_mode == "skeleton" && !stem.endsWith("_skeleton", Qt::CaseInsensitive)) stem += "_skeleton";
@@ -227,6 +257,7 @@ QString AssemblyWorkspaceWindow::create_document(
         if(document_type=="symbol")return tr("Symbol nelze vytvořit. Zkontrolujte název a cílovou složku.");
         return tr("Dokument nelze vytvořit: %1").arg(error.what());
     }
+    if (created_id) { *created_id=id; return {}; }
     workspace_.activate(id);
     workspace_.display_top_level(id);
     finish_document_switch(false);

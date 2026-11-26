@@ -217,6 +217,8 @@ add_library(zima_sketcher
     modules/symbols/src/placement.cpp
     modules/sketcher/src/sketch.cpp
     modules/sketcher/src/text_geometry.cpp
+    modules/sketcher/src/vector_profile.cpp
+    modules/sketcher/src/svg_geometry.cpp
     "${CMAKE_CURRENT_BINARY_DIR}/sketch_font_data.cpp"
     modules/sketcher/src/template_image.cpp
     modules/sketcher/src/rectilinear_template_solver.cpp
@@ -229,7 +231,7 @@ target_include_directories(zima_sketcher PUBLIC modules/sketcher/include modules
 target_compile_options(zima_sketcher PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
 target_link_libraries(zima_sketcher
     PUBLIC zima_kernel_api nlohmann_json::nlohmann_json
-    PRIVATE Freetype::Freetype harfbuzz::harfbuzz)
+    PRIVATE Freetype::Freetype harfbuzz::harfbuzz Qt6::Core)
 
 add_library(zima_symbols modules/symbols/src/file.cpp)
 target_include_directories(zima_symbols PUBLIC modules/symbols/include)
@@ -1932,8 +1934,14 @@ if(ZIMA_BUILD_TESTS)
     target_link_libraries(zima_cpp_sketch_text_command_tests PRIVATE zima_command_host)
     add_test(NAME zima_cpp_sketch_text_command_tests COMMAND zima_cpp_sketch_text_command_tests)
     set_tests_properties(zima_cpp_sketch_text_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
+    add_executable(zima_cpp_placement_drag_tests tests/placement_drag_tests.cpp)
+    target_link_libraries(zima_cpp_placement_drag_tests PRIVATE zima_document_core)
+    add_test(NAME zima_cpp_placement_drag_tests COMMAND zima_cpp_placement_drag_tests)
+    add_executable(zima_cpp_svg_profile_tests tests/svg_profile_tests.cpp)
+    target_link_libraries(zima_cpp_svg_profile_tests PRIVATE zima_document_core zima_kernel_occt Qt6::Core)
+    add_test(NAME zima_cpp_svg_profile_tests COMMAND zima_cpp_svg_profile_tests)
     add_executable(zima_cpp_sketch_text_geometry_tests tests/sketch_text_geometry_tests.cpp)
-    target_link_libraries(zima_cpp_sketch_text_geometry_tests PRIVATE zima_document_core zima_kernel_occt)
+    target_link_libraries(zima_cpp_sketch_text_geometry_tests PRIVATE zima_document_core zima_kernel_occt Qt6::Core)
     target_compile_options(zima_cpp_sketch_text_geometry_tests PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
     add_test(NAME zima_cpp_sketch_text_geometry_tests COMMAND zima_cpp_sketch_text_geometry_tests)
     add_executable(zima_cpp_sketch_reference_command_tests tests/sketch_reference_command_tests.cpp)
@@ -2237,6 +2245,10 @@ if(ZIMA_BUILD_TESTS)
     add_test(NAME zima_cpp_sweep_route_conversion_tests COMMAND zima_cpp_sweep_command_tests --route-conversion)
     set_tests_properties(zima_cpp_sweep_route_conversion_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
 
+    add_executable(zima_cpp_assembly_curve_features_tests tests/assembly_curve_features_tests.cpp)
+    target_link_libraries(zima_cpp_assembly_curve_features_tests PRIVATE zima_command_host)
+    add_test(NAME zima_cpp_assembly_curve_features_tests COMMAND zima_cpp_assembly_curve_features_tests "${CMAKE_CURRENT_BINARY_DIR}/assembly-curve-features")
+    set_tests_properties(zima_cpp_assembly_curve_features_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." FIXTURES_SETUP assembly_curve_fixture)
     add_executable(zima_cpp_assembly_cut_history_tests tests/assembly_cut_history_tests.cpp)
     target_link_libraries(zima_cpp_assembly_cut_history_tests PRIVATE zima_command_host)
     add_test(NAME zima_cpp_assembly_cut_history_tests COMMAND zima_cpp_assembly_cut_history_tests)
@@ -2444,6 +2456,30 @@ if(ZIMA_BUILD_TESTS)
     set_tests_properties(zima_cpp_feature_axis_ends_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CONSOLE_ONLY=1;ZIMA_VERIFY_FEATURE_AXIS_ENDS_ONLY=1"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 90)
+    add_test(NAME zima_cpp_assembly_curves_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_assembly_curves_ui_contract PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." RUN_SERIAL TRUE FIXTURES_REQUIRED assembly_curve_fixture
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CONSOLE_ONLY=1;ZIMA_VERIFY_ASSEMBLY_CURVE_MODEL=${CMAKE_CURRENT_BINARY_DIR}/assembly-curve-features/reference-curves.asmz")
+    add_test(NAME zima_cpp_sheet_calibration_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_sheet_calibration_ui_contract PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." RUN_SERIAL TRUE
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CONSOLE_ONLY=1;ZIMA_VERIFY_SHEET_CALIBRATION_ONLY=1")
+    add_test(NAME zima_cpp_placement_origin_drag_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_placement_origin_drag_ui_contract PROPERTIES
+        TIMEOUT 180 RUN_SERIAL TRUE WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.."
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CONSOLE_ONLY=1;ZIMA_VERIFY_PLACEMENT_ORIGIN_DRAG_ONLY=1")
+    add_test(NAME zima_cpp_vector_profiles_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_vector_profiles_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CONSOLE_ONLY=1;ZIMA_VERIFY_VECTOR_PROFILES_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." RUN_SERIAL TRUE TIMEOUT 180)
+    add_test(NAME zima_cpp_sphere_mate_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_sphere_mate_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CONSOLE_ONLY=1;ZIMA_VERIFY_SPHERE_MATE_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." RUN_SERIAL TRUE TIMEOUT 120)
+    add_test(NAME zima_cpp_create_component_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_create_component_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CONSOLE_ONLY=1;ZIMA_VERIFY_CREATE_COMPONENT_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." RUN_SERIAL TRUE TIMEOUT 120)
     add_test(NAME zima_cpp_cylinder_mate_ui_contract COMMAND zima-cad-cpp --verify-startup)
     set_tests_properties(zima_cpp_cylinder_mate_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CONSOLE_ONLY=1;ZIMA_VERIFY_CYLINDER_MATE_ONLY=1"
@@ -2471,7 +2507,7 @@ if(ZIMA_BUILD_TESTS)
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120)
     set_tests_properties(zima_cpp_work_plane_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CONSOLE_ONLY=1;ZIMA_VERIFY_WORK_PLANE_ONLY=1"
-        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120)
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 180)
     add_test(NAME zima_cpp_holes_ui_contract COMMAND zima-cad-cpp --verify-startup)
     add_test(NAME zima_cpp_edge_treatment_ui_contract COMMAND zima-cad-cpp --verify-startup)
     add_test(NAME zima_cpp_edge_treatment_creation_ui_contract COMMAND zima-cad-cpp --verify-startup)
@@ -3254,6 +3290,10 @@ if(ZIMA_BUILD_TESTS)
     set_tests_properties(zima_cpp_line_bend_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_LINE_BEND_ONLY=1"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120 RUN_SERIAL TRUE)
+    add_executable(zima_cpp_sheet_calibration_tests tests/sheet_calibration_tests.cpp)
+    target_link_libraries(zima_cpp_sheet_calibration_tests PRIVATE zima_document_core zima_kernel_occt)
+    add_test(NAME zima_cpp_sheet_calibration_tests COMMAND zima_cpp_sheet_calibration_tests)
+    set_tests_properties(zima_cpp_sheet_calibration_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     add_executable(zima_cpp_sheet_state_tests tests/sheet_state_tests.cpp)
     add_executable(zima_cpp_sheet_state_cone_tests tests/sheet_state_cone_tests.cpp)
     target_link_libraries(zima_cpp_sheet_state_cone_tests PRIVATE zima_document_core zima_kernel_occt)

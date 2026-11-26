@@ -1,3 +1,4 @@
+#include <zima/document/placement_drag.hpp>
 #include <zima/kernel/placement_route.hpp>
 #include <zima/kernel/surface_wrap.hpp>
 #include <zima/kernel/viewer_wrap_charts.hpp>
@@ -59,6 +60,9 @@
 #include <zima/document/feature_sketches.hpp>
 #include <zima/kernel/curve_constraints.hpp>
 #include <zima/document/profile_status.hpp>
+#include <zima/sketcher/vector_profile.hpp>
+#include <zima/sketcher/svg_geometry.hpp>
+#include <list>
 #include <zima/document/profile_targets.hpp>
 #include <zima/document/sweep_inputs.hpp>
 #include <zima/document/precision.hpp>
@@ -1731,6 +1735,58 @@ zima::kernel::ExtrusionRequest extrusion_request(
         throw std::runtime_error("Sketch contains an unresolved offset or trim intersection");
     require_positive(height, "extrusion height");
     validate_extrusion_direction(direction_mode);
+    if(zima::sketcher::has_vector_profiles(sketch)) {
+        struct Cached {std::string input;ExtrusionDirection direction;bool separate;double symmetric_height;zima::kernel::ExtrusionRequest unit;};
+        thread_local std::list<Cached> profiles;
+        const auto key=sketch.serialized();
+        auto cached=std::find_if(profiles.begin(),profiles.end(),[&](const auto& item){
+            return item.input==key&&item.direction==direction_mode&&item.separate==separate_linear_and_circular_profiles && item.symmetric_height==(direction_mode==ExtrusionDirection::Symmetric?height:1.);});
+        if(cached==profiles.end()) {
+            const double extent=direction_mode==ExtrusionDirection::Symmetric?height:1.;
+            const auto expanded=zima::sketcher::expanded_vector_profiles(sketch);
+            const auto ordinary=[](const auto& curves){return std::ranges::any_of(curves,[](const auto& curve){return !curve.construction;});};
+            std::vector<zima::kernel::ExtrusionRequest> requests;
+            if(ordinary(expanded.segments)||ordinary(expanded.circles)||ordinary(expanded.arcs)||ordinary(expanded.ellipses)||ordinary(expanded.elliptical_arcs)||ordinary(expanded.bsplines)||
+                std::ranges::any_of(expanded.texts,[](const auto& t){return t.modeling_geometry;}))
+                requests.push_back(extrusion_request(expanded,extent,direction_mode,separate_linear_and_circular_profiles));
+            for(const auto& image:sketch.reference_images)if(image.modeling_geometry) {
+                for(const auto& fill:zima::sketcher::exact_svg_fills(image)) {
+                    auto profile=zima::sketcher::Sketch::create_default();profile.id=fill.source_key+":profile";
+                    profile.plane=sketch.plane;profile.plane_offset=sketch.plane_offset;
+                    profile.resolved_origin=sketch.resolved_origin;profile.resolved_x_axis=sketch.resolved_x_axis;
+                    profile.resolved_y_axis=sketch.resolved_y_axis;profile.resolved_normal=sketch.resolved_normal;
+                    zima::sketcher::append_exact_profile(profile,fill.source_key,fill.boundaries);
+                    // Validate all original loops before removing redundant nonzero
+                    // boundaries; crossing paths must never become a guessed region.
+                    auto request=extrusion_request(profile,extent,direction_mode);
+                    if(!fill.even_odd) {
+                        const auto boundaries=zima::sketcher::nonzero_fill_boundaries(fill.boundaries);
+                        if(boundaries.size()!=fill.boundaries.size()) {
+                            profile.bsplines.clear();profile.points.clear();
+                            zima::sketcher::append_exact_profile(profile,fill.source_key,boundaries);
+                            request=extrusion_request(profile,extent,direction_mode);
+                        }
+                    }
+                    requests.push_back(std::move(request));
+                }
+            }
+            if(requests.empty())throw std::runtime_error("Profile has no solid region");
+            auto unit=requests.front();std::vector<ProfileRegion> regions;
+            for(auto& request:requests) {
+                auto current=request_regions(std::move(request));
+                regions.insert(regions.end(),std::make_move_iterator(current.begin()),std::make_move_iterator(current.end()));
+            }
+            assign_regions(unit,std::move(regions));unit.merge_profile_regions=requests.size()>1;
+
+            profiles.push_front({key,direction_mode,separate_linear_and_circular_profiles,direction_mode==ExtrusionDirection::Symmetric?height:1.,std::move(unit)});
+            std::size_t bytes=0;for(const auto& item:profiles)bytes+=item.input.size();
+            while(profiles.size()>1&&(profiles.size()>8||bytes>64*1024*1024)){bytes-=profiles.back().input.size();profiles.pop_back();}
+            cached=profiles.begin();
+        } else profiles.splice(profiles.begin(),profiles,cached);
+        auto result=profiles.front().unit;
+        if(direction_mode!=ExtrusionDirection::Symmetric) {result.direction.x*=height;result.direction.y*=height;result.direction.z*=height;}
+        return result;
+    }
     if (std::any_of(sketch.corner_radii.begin(), sketch.corner_radii.end(),
             [](const auto& value) {
                 return !value.suppressed && value.radius > 1.0e-9;
@@ -5288,6 +5344,57 @@ bool release_curve_point_references(ConstructionObject& curve) {
     return true;
 }
 
+std::optional<kernel::Vec3> project_placement_origin_drag(const Placement& baseline,
+    const kernel::ViewerReferenceGeometry& geometry,kernel::Vec3 target,bool point_circle_policy) {
+    if(!std::isfinite(target.x)||!std::isfinite(target.y)||!std::isfinite(target.z))return {};
+    auto original=baseline;
+    const auto resolve=point_circle_policy?resolve_point_placement:resolve_placement;
+    if(!resolve(original,geometry,nullptr,nullptr))return {};
+    const kernel::Vec3 start{original.x,original.y,original.z};
+    auto refs=original.references;
+    if(point_circle_policy) {
+        const auto derived=point_circle_plane_offsets(refs,geometry);
+        for(std::size_t i=0;i<refs.size();++i)if(derived[i])refs[i].offset=*derived[i];
+    }
+    if(point_constraint_state(refs,geometry,start).remaining_dof==0)return start;
+    std::optional<kernel::ViewerReferenceGeometry> locked_geometry;
+    const std::array values{start.x,start.y,start.z};
+    for(std::size_t i=0;i<3;++i)if(baseline.value_locks.contains(i==0?"x":i==1?"y":"z")) {
+        if(!locked_geometry)locked_geometry=geometry;
+        auto plane=std::make_shared<kernel::SurfaceGeometry>();plane->kind=kernel::SurfaceGeometry::Kind::Plane;
+        plane->origin=start;plane->axis={i==0?1.:0.,i==1?1.:0.,i==2?1.:0.};
+        kernel::FaceReference tag{"transient-origin-drag-lock",std::to_string(i),{}};tag.surface=std::move(plane);
+        locked_geometry->triangle_references.push_back(tag);
+        refs.push_back({{},tag.owner_id,tag.semantic_key});
+    }
+    const auto& supports=locked_geometry?*locked_geometry:geometry;
+    if(point_constraint_state(refs,supports,start).remaining_dof==0)return start;
+    std::vector<std::reference_wrapper<const ConstructionReference>> positions;
+    for(const auto& ref:refs)if(!ref.orientation_only)positions.push_back(std::cref(ref));
+    // Mouse motion chooses the nearest exact curve point. Numeric placement
+    // retains its established free-coordinate correction; seed that solver
+    // on the curve so a mouse target is not treated as a typed X/Y/Z value.
+    for(const auto& wrapped:positions) {
+        const auto& ref=wrapped.get();if(ref.use_axis||ref.use_angle)continue;
+        const auto curve=std::ranges::find_if(supports.edges,[&](const auto& edge) {
+            return edge.exact_spline&&placement_reference_matches(edge.reference,ref);
+        });
+        if(curve!=supports.edges.end()) {
+            target=kernel::project_bspline(*curve->exact_spline,target).point;
+            break;
+        }
+    }
+    if(!placement_solve_position(positions,supports,target))return {};
+    // Re-evaluate the unmodified authored definition to prevent a temporary
+    // coordinate lock from selecting another persisted intersection branch.
+    auto check=original;check.x=target.x;check.y=target.y;check.z=target.z;
+    if(!resolve(check,geometry,nullptr,nullptr)||
+       std::hypot(check.x-target.x,check.y-target.y,check.z-target.z)>1e-7)return {};
+    const std::array solved{check.x,check.y,check.z};
+    for(std::size_t i=0;i<3;++i)if(baseline.value_locks.contains(i==0?"x":i==1?"y":"z")&&std::abs(solved[i]-values[i])>1e-7)return {};
+    return kernel::Vec3{check.x,check.y,check.z};
+}
+
 bool resolve_point_placement(Placement& placement,const kernel::ViewerReferenceGeometry& geometry,
     kernel::Vec3* base_rotation,bool* orientation_from_reference) {
     const auto derived=point_circle_plane_offsets(placement.references,geometry);
@@ -6233,9 +6340,14 @@ zima::kernel::ViewerMesh PartDocument::origin_viewer_mesh(
             references.vertices.end(), corners.begin(), corners.end());
         references.triangles.insert(references.triangles.end(),
             {offset, offset + 1, offset + 2, offset, offset + 2, offset + 3});
-        references.triangle_references.insert(
-            references.triangle_references.end(), 2,
-            {origin_id, semantic, {}});
+        kernel::FaceReference reference{origin_id,semantic,{}};
+        auto plane=std::make_shared<kernel::SurfaceGeometry>();
+        plane->kind=kernel::SurfaceGeometry::Kind::Plane;
+        plane->axis=placement_vec_cross(first,second);plane->radial=first;
+        // Exact datum metadata for Assembly mates; preserve the existing
+        // shared container-placement capabilities and frame contract.
+        reference.contour_surface=std::move(plane);
+        references.triangle_references.insert(references.triangle_references.end(),2,reference);
     };
     append_origin_plane("xy", {1.0, 0.0, 0.0}, {0.0, 1.0, 0.0});
     append_origin_plane("yz", {0.0, 1.0, 0.0}, {0.0, 0.0, 1.0});
@@ -6534,9 +6646,12 @@ zima::kernel::ViewerMesh PartDocument::construction_viewer_mesh(
                 references.triangles.insert(references.triangles.end(),
                     {offset, offset + 1, offset + 2,
                      offset, offset + 2, offset + 3});
-                references.triangle_references.insert(
-                    references.triangle_references.end(), 2,
-                    {origin_id, semantic, {}});
+                kernel::FaceReference reference{origin_id,semantic,{}};
+                auto plane=std::make_shared<kernel::SurfaceGeometry>();
+                plane->kind=kernel::SurfaceGeometry::Kind::Plane;plane->origin=object.origin;
+                plane->axis=placement_vec_cross(first,second);plane->radial=first;
+                reference.contour_surface=std::move(plane);
+                references.triangle_references.insert(references.triangle_references.end(),2,reference);
             };
             append_plane("xy", {1.0, 0.0, 0.0}, {0.0, 1.0, 0.0});
             append_plane("yz", {0.0, 1.0, 0.0}, {0.0, 0.0, 1.0});
@@ -6826,8 +6941,12 @@ zima::kernel::ViewerMesh PartDocument::construction_viewer_mesh(
         references.vertices.insert(references.vertices.end(), corners.begin(), corners.end());
         references.triangles.insert(references.triangles.end(),
             {offset, offset + 1, offset + 2, offset, offset + 2, offset + 3});
-        references.triangle_references.insert(references.triangle_references.end(),
-            2, {object.entity_id, "plane", {}});
+        kernel::FaceReference reference{object.entity_id,"plane",{}};
+        auto plane=std::make_shared<kernel::SurfaceGeometry>();
+        plane->kind=kernel::SurfaceGeometry::Kind::Plane;plane->origin=object.entity_origin;
+        plane->axis=placement_vec_cross(first,second);plane->radial=first;
+        reference.contour_surface=std::move(plane);
+        references.triangle_references.insert(references.triangle_references.end(),2,reference);
         // Editing-only cyan visual marker at the actual, offset work plane.
         // It is deliberately display-only: the persisted selectable point
         // below keeps its stable ZIMA identity, while this marker explains
@@ -9747,7 +9866,8 @@ ProfileStatus profile_status(const zima::sketcher::Sketch& source) {
         const auto geometry=[](const auto& curves){return std::ranges::any_of(curves,[](const auto& curve){return !curve.construction;});};
         if(!geometry(sketch.segments)&&!geometry(sketch.circles)&&!geometry(sketch.arcs)&&
            !geometry(sketch.ellipses)&&!geometry(sketch.elliptical_arcs)&&!geometry(sketch.bsplines)&&
-           std::ranges::none_of(sketch.texts,[](const auto& text){return text.modeling_geometry&&!text.contours.empty();}))return ProfileStatus::Empty;
+           std::ranges::none_of(sketch.texts,[](const auto& text){return text.modeling_geometry&&!text.contours.empty();}) &&
+           std::ranges::none_of(sketch.reference_images,[](const auto& image){return image.modeling_geometry;}))return ProfileStatus::Empty;
         try {static_cast<void>(extrusion_request(source,1.0,ExtrusionDirection::Forward));return ProfileStatus::Closed;}
         catch(const std::exception&) {}
         std::string end;static_cast<void>(open_sweep_profile(source,end));return ProfileStatus::Open;

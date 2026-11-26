@@ -42,7 +42,7 @@ const char* mate_type_label(zima::assembly::MateKind kind) {
 
 bool mate_type_accepts(zima::assembly::MateKind type, zima::assembly::MateReferenceKind kind) {
     using namespace zima::assembly;
-    if (kind == MateReferenceKind::Point) return type == MateKind::PointCoincident;
+    if (is_point_reference(kind)) return type == MateKind::PointCoincident;
     if (is_axis_reference(kind)) return type == MateKind::AxisCoincident;
     return type == MateKind::PlaneCoincident || type == MateKind::PlaneAngle;
 }
@@ -51,7 +51,7 @@ void match_reference_type(zima::assembly::ComponentPlacementReference& row) {
     using namespace zima::assembly;
     const auto& source = row.component_reference.owner_id.empty() ? row.target_reference : row.component_reference;
     if (source.owner_id.empty() || mate_type_accepts(row.mate_type, source.kind)) return;
-    row.mate_type = source.kind == MateReferenceKind::Point ? MateKind::PointCoincident :
+    row.mate_type = is_point_reference(source.kind) ? MateKind::PointCoincident :
         is_axis_reference(source.kind) ? MateKind::AxisCoincident : MateKind::PlaneCoincident;
     row.offset = 0; row.offset_locked=false; row.lower_limit.reset(); row.upper_limit.reset(); row.flip = false;
 }
@@ -238,7 +238,17 @@ ComponentPropertiesDialog::ComponentPropertiesDialog(
     auto heading_font = heading->font();
     heading_font.setBold(true);
     heading->setFont(heading_font);
-    content_layout()->addWidget(heading);
+    auto* placement_heading = new QHBoxLayout;
+    placement_heading->addWidget(heading);
+    placement_heading->addStretch();
+    auto* default_origin = new QPushButton(resource_icon("origin-document"), tr("Default Origin"), this);
+    default_origin->setObjectName("componentDefaultOriginButton");
+    default_origin->setIconSize(QSize(18,18));
+    placement_heading->addWidget(default_origin);
+    content_layout()->addLayout(placement_heading);
+    connect(default_origin, &QPushButton::clicked, this, [this] {
+        if (default_origin_request_) default_origin_request_();
+    });
 
     placement_table_ = new QTableWidget(0, 9, this);
     placement_table_->setObjectName("componentPlacementTable");
@@ -633,7 +643,7 @@ void ComponentPropertiesDialog::refresh_placement_table() {
             const auto& reference = row.component_reference.owner_id.empty()
                 ? row.target_reference : row.component_reference;
             if (reference.owner_id.empty() || mate_type_accepts(kind, reference.kind))
-                mate_type->addItem(tr(mate_type_label(kind)), static_cast<int>(kind));
+                mate_type->addItem(tr(reference.kind==zima::assembly::MateReferenceKind::SphereFace && kind==zima::assembly::MateKind::PointCoincident ? "Koule" : mate_type_label(kind)), static_cast<int>(kind));
         }
         mate_type->setCurrentIndex(mate_type->findData(
             static_cast<int>(row.mate_type)));
@@ -697,7 +707,7 @@ void ComponentPropertiesDialog::refresh_placement_table() {
         // coincident or angle -- all of them resolve a direction/normal);
         // PointCoincident carries the field but it is always a no-op there,
         // matching ConstructionReference::flip's semantics.
-        const bool flip_enabled = populated;
+        const bool flip_enabled = populated && row.component_reference.kind!=zima::assembly::MateReferenceKind::SphereFace && row.target_reference.kind!=zima::assembly::MateReferenceKind::SphereFace;
         auto* flip_button = zima::ui::build_reference_row_flip_button(
             flip_enabled, row.flip,
             [this, index](bool value) {

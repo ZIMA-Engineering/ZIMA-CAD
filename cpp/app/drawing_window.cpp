@@ -2361,7 +2361,7 @@ void DrawingWindow::create_actions() {
     dimension_align_action_->setObjectName("drawingDimensionAlignAction");
     text_action_=drawing->addAction(resource_icon("sketch-text"),tr("Text"),this,[this]{show_text_properties();});
     text_action_->setObjectName("drawingTextAction");
-    symbol_action_=drawing->addAction(resource_icon("symbol"),tr("Vložit symbol"),this,[this]{show_symbol_properties();});
+    symbol_action_=drawing->addAction(resource_icon("symbol"),tr("Symbol"),this,[this]{show_symbol_properties();});
     symbol_action_->setObjectName("drawingSymbolAction");
     balloon_action_=drawing->addAction(resource_icon("drawing-balloon"),tr("Pozice"),this,[this]{show_balloon_properties();});
     balloon_action_->setObjectName("drawingBalloonAction");
@@ -2964,7 +2964,7 @@ void DrawingWindow::show_symbol_properties(const std::string& id) {
     const auto* sheet=active_sheet();if(!sheet)return;
     symbols::Placement initial;auto contact=std::make_shared<std::optional<drawing::SymbolContact>>();
     if(id.empty()) {
-        const auto path=open_file(this,tr("Vložit symbol"),ApplicationSettings::load().resolved_paths.value("Symbols"),tr("Symbol ZIMA-CAD (*.symz)"));
+        const auto path=open_file(this,tr("Symbol"),ApplicationSettings::load().resolved_paths.value("Symbols"),tr("Symbol ZIMA-CAD (*.symz)"));
         if(path.isEmpty())return;
         try {
             const auto definition=symbols::Definition::load(std::filesystem::path(path.toStdU16String()));

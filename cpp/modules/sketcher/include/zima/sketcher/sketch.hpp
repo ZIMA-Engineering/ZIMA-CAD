@@ -3,6 +3,7 @@
 #include <zima/kernel/dimension_layout.hpp>
 #include <zima/sketcher/template_image.hpp>
 #include <zima/sketcher/symbol_instance.hpp>
+#include <zima/sketcher/embedded_font.hpp>
 #include <zima/sketcher/curve_intersection_binding.hpp>
 
 #include <nlohmann/json_fwd.hpp>
@@ -249,6 +250,8 @@ struct SketchText {
     bool flipped{};
     SketchTextColor color{SketchTextColor::Green};
     std::string font{"osifont"};
+    EmbeddedFont embedded_font;
+    bool font_y_up{};
     std::vector<std::vector<std::array<double, 2>>> contours;
     std::string anchor_point_id; // Optional constrained anchor in a template Sketch.
     bool modeling_geometry{true}; // Annotation text never enters solid profiles.
@@ -456,9 +459,8 @@ public:
     // Revolution.
     std::string owner_container_id;
     std::optional<SketchTemplateData> drawing_template;
-    // Embedded, presentation-only images for ordinary Sketch authoring. Keep
-    // them owned by the Sketch so copies used by transactional edits remain
-    // self-contained; they never enter constraints, profiles or calculation.
+    // Embedded images remain single authored objects. SVG images explicitly
+    // marked as modeling geometry supply exact filled profiles to solid operations.
     std::vector<TemplateImage> reference_images;
     std::string name{"Skica"};
     bool suppressed{};

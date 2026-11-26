@@ -15,13 +15,16 @@ public:
         faces_.clear();
         const kernel::FaceReference* previous{};
         for(const auto& face:source.triangle_references) {
-            if(!face.surface)continue;
+            const auto surface=face.surface?face.surface:face.contour_surface;
+            if(!surface)continue;
             if(previous && previous->instance_path==face.instance_path &&
                     previous->owner_id==face.owner_id && previous->semantic_key==face.semantic_key)
                 continue;
             faces_.try_emplace(Key{face.instance_path,face.owner_id,face.semantic_key},
-                face.surface->kind==kernel::SurfaceGeometry::Kind::Cylinder
-                    ?assembly::MateReferenceKind::CylinderFace:assembly::MateReferenceKind::Face);
+                surface->kind==kernel::SurfaceGeometry::Kind::Cylinder
+                    ?assembly::MateReferenceKind::CylinderFace
+                    :surface->kind==kernel::SurfaceGeometry::Kind::Sphere
+                        ?assembly::MateReferenceKind::SphereFace:assembly::MateReferenceKind::Face);
             previous=&face;
         }
     }

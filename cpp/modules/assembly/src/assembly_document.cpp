@@ -372,6 +372,7 @@ const char* mate_reference_kind_name(MateReferenceKind kind) {
     case MateReferenceKind::Face: return "face";
     case MateReferenceKind::Axis: return "axis";
     case MateReferenceKind::CylinderFace: return "cylinder_face";
+    case MateReferenceKind::SphereFace: return "sphere_face";
     case MateReferenceKind::Point: return "point";
     }
     throw std::invalid_argument("Unknown Assembly mate reference kind");
@@ -381,6 +382,7 @@ MateReferenceKind mate_reference_kind_from_name(const std::string& name) {
     if (name == "face") return MateReferenceKind::Face;
     if (name == "axis") return MateReferenceKind::Axis;
     if (name == "cylinder_face") return MateReferenceKind::CylinderFace;
+    if (name == "sphere_face") return MateReferenceKind::SphereFace;
     if (name == "point") return MateReferenceKind::Point;
     throw std::runtime_error("Unknown Assembly mate reference kind");
 }
@@ -563,10 +565,10 @@ std::optional<Vec3> reference_direction(const MateReference& reference, Referenc
                 if (matches(face) && face.surface && face.surface->kind == kernel::SurfaceGeometry::Kind::Cylinder)
                     return face.surface->axis;
         } else if (reference.kind == MateReferenceKind::Face) {
-            for (std::size_t i=0;i<geometry->triangle_references.size();++i) if(matches(geometry->triangle_references[i])) {
-                const auto a=geometry->vertices[geometry->triangles[i*3]],b=geometry->vertices[geometry->triangles[i*3+1]],c=geometry->vertices[geometry->triangles[i*3+2]];
-                const auto normal=cross(subtract(b,a),subtract(c,a));
-                if(length(normal)>1e-12)return scaled(normal,1/length(normal));
+            for(const auto& face:geometry->triangle_references)if(matches(face)) {
+                const auto surface=face.surface?face.surface:face.contour_surface;
+                if(surface&&surface->kind==kernel::SurfaceGeometry::Kind::Plane&&length(surface->axis)>1e-12)
+                    return scaled(surface->axis,(surface->reversed?-1.:1.)/length(surface->axis));
             }
         }
     }
@@ -585,7 +587,7 @@ Vec3 angular_orientation_axis(const AssemblyDocument& document,const PartOccurre
     if(component)for(const auto kind:{MateKind::AxisCoincident,MateKind::PlaneCoincident})
         for(const auto& other:component->placement_references)if(other.mate_type==kind)
             if(auto direction=reference_direction(other.target_reference,sources)) {
-                if(leaf_surface_frames && other.target_reference.kind==MateReferenceKind::CylinderFace) {
+                if(leaf_surface_frames && (other.target_reference.kind==MateReferenceKind::CylinderFace || other.target_reference.kind==MateReferenceKind::Face)) {
                     const auto& path=other.target_reference.instance_path.occurrence_ids;
                     std::vector<ComponentPlacement> placements;
                     if(!path.empty())if(const auto* root=document.find_occurrence(path.front())) {
@@ -641,53 +643,22 @@ PlaneResolution resolve_plane_in_scene(
     if (reference.kind != MateReferenceKind::Face) {
         return {MateStatus::UnsupportedGeometry, {}};
     }
-    const std::string path = reference.instance_path.encoded();
-    constexpr double epsilon = 1.0e-10;
-    constexpr double planar_tolerance = 1.0e-7;
-    std::optional<ResolvedPlane> result;
-    std::vector<zima::kernel::Vec3> points;
-    const auto& face_vertices = scene.original_references.vertices;
-    const auto& face_triangles = scene.original_references.triangles;
-    const auto& face_references = scene.original_references.triangle_references;
-    for (std::size_t triangle = 0;
-         triangle < face_references.size(); ++triangle) {
-        const auto& candidate = face_references[triangle];
-        if (candidate.instance_path != path || candidate.owner_id != reference.owner_id ||
-            candidate.semantic_key != reference.semantic_key) continue;
-        const auto first = face_triangles[triangle * 3];
-        const auto second = face_triangles[triangle * 3 + 1];
-        const auto third = face_triangles[triangle * 3 + 2];
-        const auto& a = face_vertices[first];
-        const auto& b = face_vertices[second];
-        const auto& c = face_vertices[third];
-        points.insert(points.end(), {a, b, c});
-        if (!result) {
-            const zima::kernel::Vec3 ab{b.x - a.x, b.y - a.y, b.z - a.z};
-            const zima::kernel::Vec3 ac{c.x - a.x, c.y - a.y, c.z - a.z};
-            zima::kernel::Vec3 normal{
-                ab.y * ac.z - ab.z * ac.y,
-                ab.z * ac.x - ab.x * ac.z,
-                ab.x * ac.y - ab.y * ac.x};
-            const double magnitude = std::sqrt(
-                normal.x * normal.x + normal.y * normal.y + normal.z * normal.z);
-            if (magnitude > epsilon) {
-                normal = {normal.x / magnitude, normal.y / magnitude,
-                          normal.z / magnitude};
-                result = ResolvedPlane{a, normal};
-            }
-        }
-    }
-    if (!result) return {MateStatus::MissingReference, {}};
-    for (const auto& point : points) {
-        const double distance =
-            (point.x - result->point.x) * result->normal.x +
-            (point.y - result->point.y) * result->normal.y +
-            (point.z - result->point.z) * result->normal.z;
-        if (std::abs(distance) > planar_tolerance) {
-            return {MateStatus::UnsupportedGeometry, {}};
-        }
-    }
-    return {MateStatus::Valid, *result};
+    const auto& faces=scene.original_references.triangle_references;
+    const auto found=std::ranges::find_if(faces,[&](const auto& face) {
+        return face.instance_path==reference.instance_path.encoded() &&
+            face.owner_id==reference.owner_id && face.semantic_key==reference.semantic_key;
+    });
+    if(found==faces.end())return {MateStatus::MissingReference,{}};
+    // Triangle tags carry semantic face identity and exact authored support.
+    // No sample vertex, tessellation index or fitted normal defines a mate.
+    const auto surface=found->surface?found->surface:found->contour_surface;
+    if(!surface || surface->kind!=kernel::SurfaceGeometry::Kind::Plane)
+        return {MateStatus::UnsupportedGeometry,{}};
+    const auto magnitude=length(surface->axis);
+    if(!std::isfinite(magnitude)||magnitude<=1e-12)
+        return {MateStatus::UnsupportedGeometry,{}};
+    return {MateStatus::Valid,{surface->origin,
+        scaled(surface->axis,(surface->reversed?-1.:1.)/magnitude)}};
 }
 
 AxisResolution resolve_axis_in_scene(
@@ -721,6 +692,18 @@ AxisResolution resolve_axis_in_scene(
 
 PointResolution resolve_point_in_scene(
     const MateReference& reference, const kernel::ViewerMesh& scene) {
+    if (reference.kind == MateReferenceKind::SphereFace) {
+        const auto& faces = scene.original_references.triangle_references;
+        const auto found = std::ranges::find_if(faces, [&](const auto& face) {
+            return face.instance_path == reference.instance_path.encoded() &&
+                face.owner_id == reference.owner_id && face.semantic_key == reference.semantic_key;
+        });
+        if (found == faces.end()) return {MateStatus::MissingReference, {}};
+        const auto surface=found->surface?found->surface:found->contour_surface;
+        if (!surface || surface->kind != kernel::SurfaceGeometry::Kind::Sphere)
+            return {MateStatus::UnsupportedGeometry, {}};
+        return {MateStatus::Valid, surface->origin};
+    }
     if (reference.kind != MateReferenceKind::Point) {
         return {MateStatus::UnsupportedGeometry, {}};
     }
@@ -739,11 +722,7 @@ PointResolution resolve_point_in_scene(
 PlacementSystem make_placement_system(const AssemblyDocument& document,const PartOccurrence& component) {
     PlacementSystem system;
     if(component.placement_references.empty()) return system;
-    const bool cylindrical = std::ranges::any_of(component.placement_references, [](const auto& row) {
-        return row.component_reference.kind == MateReferenceKind::CylinderFace ||
-            row.target_reference.kind == MateReferenceKind::CylinderFace;
-    });
-    const auto reference_scene=cylindrical ? document.build_drawing_scene() : document.build_scene();
+    const auto reference_scene=document.build_drawing_scene();
     const auto pose=placement_pose(component.placement);
     for(const auto& row:component.placement_references) {
         PlacementEquation equation;equation.kind=row.mate_type;equation.value=row.offset;
@@ -1264,6 +1243,12 @@ zima::kernel::ViewerMesh AssemblyDocument::construction_viewer_mesh(
     kernel::ViewerMesh sketch_origins;
     sketch_origins.original_references=carrier.history_origin_reference_geometry_before({});
     append_viewer_mesh(result,sketch_origins);
+    const auto order=complete_history_order();const auto cursor=effective_history_cursor();
+    for(const auto& feature:cuts)if(is_reference_curve_feature(feature.definition)&&!feature.definition.suppressed) {
+        const auto entry=std::ranges::find(order,feature.definition.id,&HistoryEntry::id);
+        if(static_cast<std::size_t>(entry-order.begin())<cursor)
+            append_viewer_mesh(result,feature.reference_result->mesh);
+    }
     return result;
 }
 
@@ -1283,6 +1268,12 @@ zima::kernel::ViewerMesh AssemblyDocument::origin_viewer_mesh(
 void AssemblyDocument::resolve_constructions() {
     auto source_document = *this;
     source_document.constructions.clear();
+    // Retained failed curves are display/repair state, not valid supports.
+    // The resolver preserves each dependent frame and marks its reference lost.
+    for(auto& cut:source_document.cuts)
+        if(is_reference_curve_feature(cut.definition)&&
+                !cut.reference_result.get().calculation_errors.empty())
+            cut.reference_result=kernel::BodyResult{};
     auto carrier = zima::document::PartDocument::create_default();
     carrier.document_id = document_id;
     carrier.constructions = constructions;
@@ -1382,7 +1373,7 @@ double AssemblyDocument::project_angular_drag_value(
 PlaneResolution AssemblyDocument::resolve_plane(
     const MateReference& reference) const {
     if (reference.kind != MateReferenceKind::Face) return {MateStatus::UnsupportedGeometry, {}};
-    return resolve_plane_in_scene(reference, build_scene());
+    return resolve_plane_in_scene(reference, build_drawing_scene());
 }
 
 AxisResolution AssemblyDocument::resolve_axis(
@@ -1393,8 +1384,8 @@ AxisResolution AssemblyDocument::resolve_axis(
 
 PointResolution AssemblyDocument::resolve_point(
     const MateReference& reference) const {
-    if (reference.kind != MateReferenceKind::Point) return {MateStatus::UnsupportedGeometry, {}};
-    return resolve_point_in_scene(reference, build_scene());
+    if (!is_point_reference(reference.kind)) return {MateStatus::UnsupportedGeometry, {}};
+    return resolve_point_in_scene(reference, reference.kind == MateReferenceKind::SphereFace ? build_drawing_scene() : build_scene());
 }
 
 
@@ -1653,10 +1644,7 @@ void AssemblyDocument::calculate_placement_references() {
 zima::kernel::Vec3 AssemblyDocument::placement_reference_angle_axis(const ComponentPlacementReference& reference) const {
     const auto& path=reference.component_reference.instance_path.occurrence_ids;
     const auto* component=path.empty()?nullptr:find_occurrence(path.front());
-    const bool cylindrical=component && std::ranges::any_of(component->placement_references,[](const auto& row) {
-        return row.component_reference.kind==MateReferenceKind::CylinderFace || row.target_reference.kind==MateReferenceKind::CylinderFace;
-    });
-    const auto scene=cylindrical?build_drawing_scene():build_scene();
+    const auto scene=build_drawing_scene();
     const auto direction=reference_direction(reference.target_reference,{&scene.original_references});
     if(!direction)throw std::runtime_error("Chybí orientační reference úhlu.");
     return angular_orientation_axis(*this,component,reference,*direction,{&scene.original_references});
@@ -1779,7 +1767,7 @@ zima::kernel::ViewerMesh AssemblyDocument::build_scene() const {
             ? feature.extrusion.sketch_id : feature.revolution.sketch_id;
         if (feature.id.empty() || !cut_ids.insert(feature.id).second ||
             (!extrusion && !revolution && !shared_feature) ||
-            feature.combine_mode != zima::document::CombineMode::Subtract ||
+            (!is_reference_curve_feature(feature) && feature.combine_mode != zima::document::CombineMode::Subtract) ||
             std::none_of(sketches.begin(), sketches.end(), [&](const auto& sketch) {
                 return sketch.id == sketch_id;
             })) {
@@ -1952,26 +1940,29 @@ zima::kernel::ViewerMesh AssemblyDocument::build_scene() const {
     append_viewer_mesh(datums, construction_viewer_mesh());
     const auto find_plane = [&](const MateReference& reference)
         -> std::optional<ResolvedPlane> {
-        const auto path = reference.instance_path.encoded();
-        for (const auto* source : {&scene.original_references, &datums.original_references}) {
-        const auto& geometry = *source;
-        for (std::size_t triangle = 0;
-             triangle < geometry.triangle_references.size(); ++triangle) {
-            const auto& candidate = geometry.triangle_references[triangle];
-            if (candidate.instance_path != path ||
-                candidate.owner_id != reference.owner_id ||
-                candidate.semantic_key != reference.semantic_key) continue;
-            const auto& a = geometry.vertices[geometry.triangles[triangle * 3]];
-            const auto& b = geometry.vertices[geometry.triangles[triangle * 3 + 1]];
-            const auto& c = geometry.vertices[geometry.triangles[triangle * 3 + 2]];
-            auto normal = cross({b.x - a.x, b.y - a.y, b.z - a.z},
-                                {c.x - a.x, c.y - a.y, c.z - a.z});
-            const double magnitude = length(normal);
-            if (magnitude <= 1.0e-12) continue;
-            normal = {normal.x / magnitude, normal.y / magnitude,
-                      normal.z / magnitude};
-            return ResolvedPlane{a, normal};
-        }
+        for(const auto* geometry:{&scene.original_references,&datums.original_references}) {
+            const auto found=std::ranges::find_if(geometry->triangle_references,[&](const auto& face) {
+                return face.instance_path==reference.instance_path.encoded()&&face.owner_id==reference.owner_id&&face.semantic_key==reference.semantic_key;
+            });
+            if(found==geometry->triangle_references.end())continue;
+            const auto surface=found->surface?found->surface:found->contour_surface;
+            if(!surface||surface->kind!=kernel::SurfaceGeometry::Kind::Plane)continue;
+            ResolvedPlane result{surface->origin,scaled(surface->axis,surface->reversed?-1.:1.)};
+            const auto& path=reference.instance_path.occurrence_ids;
+            std::vector<ComponentPlacement> placements;
+            if(!path.empty()) {
+                const auto* root=find_occurrence(path.front());if(!root)return std::nullopt;
+                placements.push_back(root->placement);const auto* children=&root->nested_snapshot;
+                for(std::size_t i=1;i<path.size();++i) {
+                    const auto child=std::ranges::find(*children,path[i],&OccurrenceSnapshot::occurrence_id);
+                    if(child==children->end())return std::nullopt;
+                    placements.push_back(child->placement);children=&child->children;
+                }
+            }
+            for(auto p=placements.rbegin();p!=placements.rend();++p) {
+                result.point=transform_point(result.point,*p);result.normal=transform_direction(result.normal,*p);
+            }
+            return result;
         }
         return std::nullopt;
     };
@@ -2368,6 +2359,10 @@ AssemblyDocument AssemblyDocument::from_serialized(const nlohmann::json& root) {
         value.at("placement").get_to(feature.placement);
         value.at("value_locks").get_to(feature.value_locks);
         zima::document::load_profile_parameters(feature, value);
+        if(is_reference_curve_feature(feature)) {
+            feature.combine_mode=document::CombineMode::Add;
+            cut.reference_result=document::load_body_result(value.at("reference_result"));
+        }
         cut.target_occurrence_ids = value.at("targets").get<std::vector<std::string>>();
         for (const auto& [occurrence_id, body] : value.at("input_component_bodies").items()) {
             cut.input_component_bodies.emplace(
@@ -2640,6 +2635,7 @@ nlohmann::json AssemblyDocument::serialized(
             {"input_component_bodies", std::move(input_bodies)},
             {"preview_wire", zima::document::serialize_viewer_reference_geometry(wire)}};
         zima::document::save_profile_parameters(feature, saved_cut);
+        if(is_reference_curve_feature(feature))saved_cut["reference_result"]=document::serialize_body_result(cut.reference_result.get());
         cuts_json.push_back(std::move(saved_cut));
     }
     static_cast<void>(zima::document::parse_named_views(named_views));

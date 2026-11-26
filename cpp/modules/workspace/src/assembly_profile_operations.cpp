@@ -39,11 +39,12 @@ void commit_assembly_profile(Workspace& live, const kernel::OcctKernel& kernel,
     validate_profile_definition(value);
     if(value.feature_kind==document::FeatureKind::Extrusion&&value.extrusion.sheet_cut)
         throw ProfileOperationError("unsupported_document", "Sheet Cut belongs to a Part. Activate its source Part before cutting sheet material.");
-    if (value.combine_mode != document::CombineMode::Subtract)
+    if (!assembly::is_reference_curve_feature(value) && value.combine_mode != document::CombineMode::Subtract)
         throw ProfileOperationError("invalid_arguments", "An Assembly profile must subtract material.");
     const auto& before = state->session.document();
     const auto* existing = before.find_cut(value.id);
     const auto material_profile=[](const auto& definition) {
+        if(assembly::is_reference_curve_feature(definition))return false;
         return definition.feature_kind!=document::FeatureKind::Feature||
             definition.feature.type>=document::FeatureType::Modeling;
     };
@@ -71,6 +72,8 @@ void commit_assembly_profile(Workspace& live, const kernel::OcctKernel& kernel,
             existing->definition.container_origin != value.container_origin || value.feature_parent_id != value.id)
             throw ProfileOperationError("identity_changed", "Editing must preserve the container identity.");
     }
+    if(assembly::is_reference_curve_feature(value)&&!targets.empty())
+        throw ProfileOperationError("invalid_arguments", "Reference curves cannot modify component bodies.");
     std::set<std::string> seen;
     for (const auto& target : targets) {
         const auto* occurrence = before.find_occurrence(target);

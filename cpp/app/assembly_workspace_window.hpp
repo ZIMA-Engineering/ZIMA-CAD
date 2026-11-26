@@ -892,9 +892,10 @@ private:
     void copy_selected_opening(bool from_view);
     void paste_copied_opening();
     void new_document();
+    void create_component();
     [[nodiscard]] QString create_document(
         const QString& document_type, const QString& file_stem,
-        const QString& part_mode = {}, const QString& drawing_frame = {});
+        const QString& part_mode = {}, const QString& drawing_frame = {}, std::string* created_id = nullptr);
     void new_assembly();
     void new_part();
     void new_drawing();
@@ -903,7 +904,7 @@ private:
     void rebuild_insert_menu();
     [[nodiscard]] bool has_insertable_component() const;
     void insert_component_from_file(bool skeleton_only = false);
-    void insert_component(const std::string& source_document_id);
+    void insert_component(const std::string& source_document_id, bool activate_after = false);
     void choose_component_variant(const std::string& source_document_id,
         const std::string& replaced_instance_path = {});
     void rebuild_application_toolbar();
@@ -1019,6 +1020,7 @@ private:
     void show_global_settings(bool system_setup=false,bool first_launch=false);
     void show_about();
     void import_file();
+    void import_sketch_dxf_block();
     void import_selected_file(const QString& path, std::optional<double> mesh_deflection = {});
     void export_file();
     void export_selected_model_file(const QString& path, bool include_skeletons);

@@ -1253,6 +1253,13 @@ void calculate_resolved_assembly_cuts(
         document.origin_viewer_mesh().original_references);
     append_reference_geometry(reference_geometry,
         document.construction_viewer_mesh().original_references);
+    // Curves enter the resolver only after their current explicit calculation.
+    // Old persisted results remain displayable, never duplicate active inputs.
+    const auto old_curve=[&](const auto& item) {
+        const auto* feature=document.find_cut(item.reference.owner_id);
+        return item.reference.instance_path.empty()&&feature&&assembly::is_reference_curve_feature(feature->definition);
+    };
+    std::erase_if(reference_geometry.edges,old_curve);std::erase_if(reference_geometry.points,old_curve);std::erase_if(reference_geometry.axes,old_curve);
     const auto order=document.complete_history_order();
     const auto order_index=[&](const std::string& id) {
         const auto found=std::ranges::find(order,id,&assembly::AssemblyDocument::HistoryEntry::id);
@@ -1338,6 +1345,29 @@ void calculate_resolved_assembly_cuts(
             append_reference_geometry(reference_geometry,cutter_document.feature_result_mesh(cut.definition).original_references);
             continue;
         }
+        if(assembly::is_reference_curve_feature(cut.definition)) {
+            const auto preview_input=document.build_drawing_scene();
+            cut.preview_wire=cut.definition.feature.type==document::FeatureType::Projection
+                ?cutter_document.projection_preview_mesh(cut.definition,preview_input).edges
+                :cutter_document.wrapping_preview_mesh(cut.definition,preview_input).edges;
+            // Store the creation preview as ordinary selection strokes. The
+            // View owns the transient overlay mode and highlight color.
+            for(auto& edge:cut.preview_wire)edge.overlay=false;
+            detail::prepare_assembly_curve_carrier(document,cutter_document);
+            auto operations=cutter_document.kernel_operations(true);
+            detail::attach_ordered_up_to_sources(document,operations);
+            const auto calculated=kernel.evaluate_history(operations);
+            if(calculated.empty())throw std::runtime_error("Reference curve calculation produced no result.");
+            auto result=calculated.back();
+            if(!result.calculation_errors.empty())throw std::runtime_error(result.calculation_errors.begin()->second);
+            // The standalone operation has no material input. Keep its native
+            // result and exact reference packet; component data stay shared.
+            result.mesh.edges=result.mesh.original_references.edges;
+            result.mesh.points=result.mesh.original_references.points;
+            append_reference_geometry(reference_geometry,result.mesh.original_references);
+            cut.reference_result=std::move(result);
+            continue;
+        }
         if(cut.target_occurrence_ids.empty())continue;
         auto cutter_operations = cutter_document.kernel_operations(true);
         if (cutter_operations.size() != 1) {
@@ -1392,6 +1422,10 @@ void calculate_resolved_assembly_cuts(
             // BodyResult already persists calculation errors in .asmz; neither
             // a new file field nor a successful-looking cached cutter is needed.
             bool retained{};
+            if(assembly::is_reference_curve_feature(cut.definition)) {
+                auto result=cut.reference_result.get();result.calculation_errors[cut.definition.id]=error.what();
+                cut.reference_result=std::move(result);retained=true;
+            }
             for(const auto& target_id:cut.target_occurrence_ids) {
                 auto* target=document.find_occurrence(target_id);
                 const auto input=cut.input_component_bodies.find(target_id);
@@ -1405,6 +1439,11 @@ void calculate_resolved_assembly_cuts(
         }
     }
     refresh_standalone_before(order.size());
+    // Publish new exact curve results to their dependent construction frames
+    // during explicit calculation, before derived copies consume those frames.
+    if(std::ranges::any_of(document.cuts,[](const auto& cut) {
+            return assembly::is_reference_curve_feature(cut.definition);
+        }))document.resolve_constructions();
     document.calculate_derived_copies(kernel);
     if(!document.sections.empty()){
         auto geometry=document.build_drawing_scene().original_references;

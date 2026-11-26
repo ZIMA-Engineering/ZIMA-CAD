@@ -60,6 +60,45 @@ int main() {
             {"fixture-source",zima::test::ProfilePrism{4,5,6},zima::kernel::BooleanOperation::Add}}).back();
         {
             using namespace zima::assembly;
+            auto exact=AssemblyDocument::create_default();
+            auto first=AssemblyDocument::create_part_occurrence("Exact plane", "exact-plane-source", {}, fixture_body);
+            first.placement={17,-9,23,21,32,-14};first.grounded=true;
+            auto second=first;second.occurrence_id="exact-plane-moving";second.grounded=false;
+            second.placement={-13,27,4,-18,11,42};exact.components={first,second};
+            const auto& faces=fixture_body.mesh.original_references.triangle_references;
+            const auto found=std::ranges::find_if(faces,[](const auto& face){return face.surface&&face.surface->kind==zima::kernel::SurfaceGeometry::Kind::Plane;});
+            require(found!=faces.end(),"Exact mate fixture has no analytic plane");
+            const auto reference=[&](const auto& item){return MateReference{MateReferenceKind::Face,InstancePath{}.child(item.occurrence_id),found->owner_id,found->semantic_key};};
+            const auto before=exact.resolve_plane(reference(first));
+            require(before.status==MateStatus::Valid,"Exact planar support did not resolve");
+            auto altered=fixture_body;
+            for(auto& point:altered.mesh.original_references.vertices) {
+                point.x+=3.25*point.y;point.y-=7.75*point.z;point.z=point.x*point.x+123.;
+            }
+            // Deliberately invalid display samples retain exact surface data
+            // and semantic tags. Neither solving nor measurement may read them.
+            for(auto& component:exact.components)component.calculated_source=altered;
+            const auto after=exact.resolve_plane(reference(first));
+            require(after.status==MateStatus::Valid&&after.plane.point==before.plane.point&&after.plane.normal==before.plane.normal,
+                "Assembly plane changed with display triangles");
+            exact.components[1].placement_references={{MateKind::PlaneCoincident,reference(second),reference(first),2.5,false}};
+            for(double offset:{2.5,-4.,0.,8.5}) {
+                exact.components[1].placement_references[0].offset=offset;exact.calculate_placement_references();
+                const auto a=exact.resolve_plane(reference(second)),b=exact.resolve_plane(reference(first));
+                const auto& n=b.plane.normal;const auto& p=a.plane.point;const auto& q=b.plane.point;
+                require(std::abs((p.x-q.x)*n.x+(p.y-q.y)*n.y+(p.z-q.z)*n.z-offset)<1e-7,
+                    "Plane mate used tessellation or lost its signed offset");
+                auto restored=AssemblyDocument::from_serialized(exact.serialized());restored.hydrate_sources({},fixture_sources(exact));
+                require(restored.components[1].placement_references==exact.components[1].placement_references,
+                    "Exact mate changed its persisted face identity");
+            }
+            for(auto& face:altered.mesh.original_references.triangle_references){face.surface.reset();face.contour_surface.reset();}
+            exact.components[0].calculated_source=altered;
+            require(exact.resolve_plane(reference(first)).status==MateStatus::UnsupportedGeometry,
+                "Missing exact support fell back to display triangles");
+        }
+        {
+            using namespace zima::assembly;
             auto doc = AssemblyDocument::create_default();
             auto reference = AssemblyDocument::create_part_occurrence("Misleading alias", "skeleton-source",
                 "ZE026-0100-0000_SKELETON.PRTZ", fixture_body);

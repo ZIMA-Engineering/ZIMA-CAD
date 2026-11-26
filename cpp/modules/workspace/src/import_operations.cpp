@@ -1,6 +1,9 @@
 #include <zima/workspace/import_operations.hpp>
 #include <zima/interchange/interchange.hpp>
 #include <zima/workspace/sketch_operations.hpp>
+#include <zima/symbols/definition.hpp>
+#include <zima/document/file_path.hpp>
+#include <zima/kernel/stable_id.hpp>
 #include <algorithm>
 #include <set>
 
@@ -11,6 +14,24 @@ PreparedSketchImport prepare_sketch_dxf(const sketcher::Sketch& before,const std
     PreparedSketchImport result;result.sketch=before;
     apply_sketch_geometry(result.sketch,[&](auto& draft){result.report=interchange::import_dxf(source,draft,scale,maximum);});
     if(!result.report.imported_entities)throw std::runtime_error("DXF neobsahuje podporovanou 2D geometrii");
+    return result;
+}
+PreparedSketchDxfBlock prepare_sketch_dxf_block(const std::filesystem::path& source,double scale,std::size_t maximum) {
+    auto imported=prepare_sketch_dxf(sketcher::Sketch::create_default(),source,scale,maximum);
+    // The instance owns grouping; native geometry has no source-file dependency.
+    imported.sketch.import_blocks.clear();
+    symbols::Definition definition;
+    definition.id="dxf:"+kernel::make_stable_id();
+    definition.name=document::path_to_utf8(source.filename());
+    definition.default_variant=definition.name;
+    definition.variants[definition.default_variant].sketches={imported.sketch.id};
+    definition.sketches.push_back(std::move(imported.sketch));
+    PreparedSketchDxfBlock result;
+    result.instance.id=kernel::make_stable_id();
+    result.instance.definition=definition.serialized();
+    result.instance.variant=definition.default_variant;
+    result.report=std::move(imported.report);
+    result.instance.validate();
     return result;
 }
 PartImportReport import_sketch(Workspace& live,const std::string& id,const std::filesystem::path& source,

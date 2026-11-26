@@ -6,7 +6,7 @@
 #include <stdexcept>
 namespace zima::sketcher {
 void TemplateImage::validate() const {
-    if((format!="png" && format!="svg") || id.empty() || data_base64.empty() || data_base64.size()>32*1024*1024 ||
+    if((modeling_geometry && format!="svg") || (format!="png" && format!="svg") || id.empty() || data_base64.empty() || data_base64.size()>32*1024*1024 ||
         !std::isfinite(x) || !std::isfinite(y) || !std::isfinite(width) || !std::isfinite(height) ||
         !std::isfinite(rotation_degrees) || !std::isfinite(opacity) || opacity<0 || opacity>1 ||
         width<=0 || height<=0 || pixel_width<=0 || pixel_height<=0 ||
@@ -41,6 +41,7 @@ void to_json(nlohmann::json& j,const TemplateImage& i) {
     if(!i.visible)j["visible"]=false;
     if(!i.template_coordinates)j["template_coordinates"]=false;
     if(i.selection_locked)j["selection_locked"]=true;
+    if(i.modeling_geometry)j["modeling_geometry"]=true;
 }
 void from_json(const nlohmann::json& j,TemplateImage& i) {
     i.id=j.at("id");i.name=j.at("name");i.data_base64=j.at("data_base64");i.format=j.at("format");
@@ -49,6 +50,6 @@ void from_json(const nlohmann::json& j,TemplateImage& i) {
     i.horizontal=j.at("horizontal");i.vertical=j.at("vertical");i.lock_aspect=j.at("lock_aspect");i.value_locks=j.value("value_locks",std::set<std::string>{});
     i.rotation_degrees=j.value("rotation_degrees",0.0);i.opacity=j.value("opacity",1.0);
     i.visible=j.value("visible",true);i.template_coordinates=j.value("template_coordinates",true);
-    i.selection_locked=j.value("selection_locked",false);i.validate();
+    i.selection_locked=j.value("selection_locked",false);i.modeling_geometry=j.value("modeling_geometry",false);i.validate();
 }
 } // namespace zima::sketcher

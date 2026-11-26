@@ -41,6 +41,7 @@ public:
         const std::string& selected, std::function<void(std::string)> changed);
     void set_source_display(const QString& path, const QString& filename, bool assembly, bool skeleton);
     void set_source_request_callback(std::function<void()> callback);
+    void set_default_origin_callback(std::function<void()> callback) { default_origin_request_=std::move(callback); }
     using CommitCallback = std::function<void(zima::assembly::PartOccurrence)>;
     using PreviewCallback = std::function<void(
         const zima::assembly::PartOccurrence&)>;
@@ -113,6 +114,7 @@ private:
     QLabel* source_filename_{};
     QLabel* source_icon_{};
     std::function<void()> source_request_;
+    std::function<void()> default_origin_request_;
 
     QTableWidget* placement_table_{};
     std::vector<zima::assembly::ComponentPlacementReference> placement_references_;

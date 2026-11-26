@@ -7,6 +7,7 @@
 #include <zima/document/part_document.hpp>
 #include "../file_dialog.hpp"
 
+#include <QTreeWidgetItemIterator>
 #include <array>
 #include <cmath>
 #include <iterator>
@@ -232,6 +233,20 @@ void AssemblyWorkspaceWindow::show_component_properties(
             dialog->set_variant_choices(choices,"",[selected_variant](std::string value){*selected_variant=std::move(value);});
             show_source(file,inspection.open_assembly(root)!=nullptr);
         } catch (const std::exception& error) { dialog->set_placement_error(tr(error.what())); }
+    });
+    dialog->set_default_origin_callback([this, dialog] {
+        if (component_placement_dialog_ != dialog) return;
+        const auto parent_path = zima::assembly::InstancePath::decode(properties_dialog_instance_path_)
+            .parent().value_or(zima::assembly::InstancePath{}).encoded();
+        for (QTreeWidgetItemIterator it(tree_); *it; ++it) {
+            const auto* item = *it;
+            if (item->data(0, Qt::UserRole + 3).toString() == "document-origin" &&
+                item->data(0, Qt::UserRole).toString().toStdString() == component_placement_assembly_document_id_ + ":origin" &&
+                item->data(0, Qt::UserRole + 1).toString().toStdString() == parent_path) {
+                static_cast<void>(accept_component_placement_tree_reference(item));
+                return;
+            }
+        }
     });
     dialog->set_reference_request_callback(
         [this](std::size_t index, bool component_side) {

@@ -1092,6 +1092,11 @@ void AssemblyWorkspaceWindow::add_assembly_tree_children(
                     ? nullptr : &*owned_sketch, true);
             tree_reference_state_.apply(item,assembly_document_id,cut.definition.id,
                 feature_reference_issue(cut.definition,assembly->session.document(),references));
+            if(const auto failure=cut.reference_result->calculation_errors.find(cut.definition.id);
+                    failure!=cut.reference_result->calculation_errors.end()) {
+                item->setText(0,item->text(0)+tr(" [nevypočítáno]"));
+                item->setToolTip(0,tr(failure->second.c_str()));item->setForeground(0,QBrush(QColor(210,75,65)));
+            }
             for(const auto& component:assembly->session.document().components) {
                 const auto& errors=component.calculated_source.get().calculation_errors;
                 if(const auto failure=errors.find(cut.definition.id);failure!=errors.end()) {

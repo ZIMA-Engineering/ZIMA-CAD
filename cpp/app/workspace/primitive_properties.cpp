@@ -150,12 +150,15 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         return;
     }
     const bool assembly_cut = assembly != nullptr;
+    const auto reference_curve_preset=[&] {return feature_preset&&
+        (*feature_preset==document::FeatureType::Projection||*feature_preset==document::FeatureType::Wrapping)&&
+        !wrap_relief_preset&&!projection_relief_preset;};
     if(assembly_cut&&container_id.empty()) {
         if(feature_kind!=zima::document::FeatureKind::Feature||
-                (feature_preset&&*feature_preset>=zima::document::FeatureType::Modeling))return;
+                (feature_preset&&*feature_preset>=zima::document::FeatureType::Modeling&&!reference_curve_preset()))return;
         if(!feature_preset)feature_preset=zima::document::FeatureType::Point;
     }
-    if(assembly_cut&&feature_preset&&*feature_preset>=zima::document::FeatureType::Modeling)return;
+    if(assembly_cut&&feature_preset&&*feature_preset>=zima::document::FeatureType::Modeling&&!reference_curve_preset())return;
     if (assembly_cut && feature_kind != zima::document::FeatureKind::Extrusion &&
         feature_kind != zima::document::FeatureKind::Revolution && feature_kind!=zima::document::FeatureKind::Feature) return;
     std::string source_sketch_id;
@@ -348,7 +351,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         }
     }
     if (!edit_mode && !resuming_profile) {
-        if(assembly_cut)initial.combine_mode=zima::document::CombineMode::Subtract;
+        if(assembly_cut)initial.combine_mode=zima::assembly::is_reference_curve_feature(initial)?document::CombineMode::Add:document::CombineMode::Subtract;
         initial.name = tr(initial.name.c_str()).toStdString();
         for (auto* data : {&initial.hole.sketch_serialized, &initial.hole.chamfer_sketch_serialized,
                            &initial.hole.tip_sketch_serialized}) {
@@ -363,10 +366,10 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         const auto& name_document=part?part->session.document():assembly->session.document().feature_document();
         if(initial.feature.type==zima::document::FeatureType::Projection)
             initial.name=name_document.next_numbered_name(tr(initial.feature.projection.output==zima::document::ProjectionOutput::Relief?
-                "Project relief":"Project sketch").toStdString(),initial.id);
+                "Project relief":assembly_cut?"Project curve":"Project sketch").toStdString(),initial.id);
         else if(initial.feature.type==zima::document::FeatureType::Wrapping)
             initial.name=name_document.next_numbered_name(tr(initial.feature.wrapping.output==zima::document::WrappingOutput::Relief?
-                "Wrap relief":"Wrap sketch").toStdString(),initial.id);
+                "Wrap relief":assembly_cut?"Wrap curve":"Wrap sketch").toStdString(),initial.id);
         else if(initial.feature.planar_surface())
             initial.name=name_document.next_numbered_name(tr("Plocha").toStdString(),initial.id);
         else initial.name=next_feature_name(name_document,initial.feature.type,initial.id);
@@ -2565,8 +2568,8 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         }
     });
     dialog->show();
-    if(feature_kind==zima::document::FeatureKind::Feature&&part)install_projection_properties(dialog,owner_id);
-    if(feature_kind==zima::document::FeatureKind::Feature&&part)install_wrapping_properties(dialog,owner_id);
+    if(feature_kind==zima::document::FeatureKind::Feature)install_projection_properties(dialog,owner_id);
+    if(feature_kind==zima::document::FeatureKind::Feature)install_wrapping_properties(dialog,owner_id);
     // Properties is not a picking command by itself. Keep all model hover
     // disabled until the user explicitly requests one placement/Up-to
     // reference field; that command installs its own exact selection

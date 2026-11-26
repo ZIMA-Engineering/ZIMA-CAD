@@ -74,6 +74,9 @@ struct ExtentManipulator {
     // purple draggable-point language without implying a second endpoint or
     // displaying an extent arrow.
     bool point_only{};
+    // Only the coincident plane-offset grip is replaced by origin dragging.
+    // Angular grips remain independent, even though they also use one point.
+    bool replaced_by_placement_origin{};
 };
 
 // Screen-constant operation direction cue. Linear operations use a purple
@@ -113,6 +116,11 @@ public:
     std::optional<QPointF> dimension_handle_position(const ViewerCandidate&,int)const;
     void set_symbol_handle_callbacks(std::function<std::optional<SymbolHandles>()>,
         std::function<void(const std::string&,int,kernel::Vec3,double)>);
+    using OriginRayCallback=std::function<void(kernel::Vec3,kernel::Vec3)>;
+    void set_placement_origin_callbacks(std::function<std::optional<kernel::Vec3>()> provider,
+        std::function<bool(kernel::Vec3,kernel::Vec3)> begin,OriginRayCallback move,
+        std::function<void(bool)> finish);
+    [[nodiscard]] std::optional<QPointF> placement_origin_handle_position() const;
     [[nodiscard]] std::optional<QPointF> symbol_handle_position(int index) const;
     void set_object_frame_provider(std::function<std::map<kernel::ObjectEnvelopeKey,kernel::ModelEnvelope>(const kernel::ViewerMesh&)>);
 

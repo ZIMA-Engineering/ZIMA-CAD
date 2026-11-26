@@ -12,7 +12,7 @@ Library structure for reusable symbols:
 The projection asset is `drawing-conventions/ZE-PROJECTION-METHOD.symz`, containing
 first-angle and third-angle variants in separate coplanar Sketches. Native
 version 2 supports named text fields, choices and variant rows. Sketcher
-**Insert symbol** embeds an independent occurrence in the owning Sketch;
+**Symbol** embeds an independent occurrence in the owning Sketch;
 its geometry never participates in solid profiles. Title-block occurrences
 can select their variant from the owning Drawing sheet's projection method.
 The library directory is configurable under Global Settings / Paths / Symbols

@@ -1,3 +1,4 @@
+#include "k_factor_calibration.hpp"
 #include "work_plane_selection.hpp"
 #include <zima/document/sketch_placement.hpp>
 #include <zima/document/bend.hpp>
@@ -568,6 +569,13 @@ void SketchPropertiesDialog::set_bend_mode(zima::document::BendParameters initia
             thickness?.000001:0,thickness?1000000:1,thickness?Quantity::Length:Quantity::Scalar);
         override->setChecked(local);spin->setEnabled(local);layout->addWidget(override);layout->addWidget(spin,1);
         form->addRow(thickness?tr("Tloušťka materiálu"):tr("K faktor"),row);
+        if(!thickness) {
+            auto* calibration=new KFactorCalibration(spin,
+                [pending,defaults]{return pending->thickness_override?pending->thickness:defaults.thickness_mm.value_or(1);},
+                [pending]{return pending->angle_degrees;},this);
+            calibration->setEnabled(local);form->addRow(tr("Correction"),calibration);
+            connect(override,&QCheckBox::toggled,calibration,&QWidget::setEnabled);
+        }
         connect(spin,&QDoubleSpinBox::valueChanged,this,[pending,publish,thickness](double value){
             if(thickness)pending->thickness=value;else pending->k_factor=value;publish();
         });
@@ -719,6 +727,13 @@ void SketchPropertiesDialog::set_line_bend_mode(
         override->setChecked(local);spin->setEnabled(local);
         layout->addWidget(override);layout->addWidget(spin,1);
         form->addRow(thickness?tr("Tloušťka materiálu"):tr("K faktor"),row);
+        if(!thickness) {
+            auto* calibration=new KFactorCalibration(spin,
+                [pending,defaults]{return pending->thickness_override?pending->thickness:defaults.thickness_mm.value_or(1);},
+                [pending]{return pending->angle_degrees;},this);
+            calibration->setEnabled(local);form->addRow(tr("Correction"),calibration);
+            connect(override,&QCheckBox::toggled,calibration,&QWidget::setEnabled);
+        }
         zima::ui::bind_numeric_value_lock(spin,
             thickness?"thickness":"k_factor",locks,[this]{notify_preview();});
         connect(spin,&QDoubleSpinBox::valueChanged,this,

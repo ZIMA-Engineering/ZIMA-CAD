@@ -1,3 +1,4 @@
+#include <zima/ui/numeric_value_lock.hpp>
 #include <zima/document/trajectory_point_release.hpp>
 #include <zima/document/fem_presentation.hpp>
 #include <zima/document/sheet_from_body.hpp>
@@ -9,6 +10,7 @@
 #include <zima/workspace/modeling_confirmation.hpp>
 #include <zima/ui/properties_subwindow.hpp>
 #include "workspace_internal.hpp"
+#include "../work_plane_selection.hpp"
 #include <zima/workspace/sheet_exchange_operations.hpp>
 #include <zima/workspace/sheet_profile_operations.hpp>
 #include "../sketch_external_reference_selection.hpp"
@@ -1002,7 +1004,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                 QMenu menu(this);auto* presentation=menu.addAction(resource_icon("properties"),tr("Vlastnosti kóty…"));
                 presentation->setObjectName("dimensionLayoutPropertiesAction");
                 auto* value=menu.addAction(resource_icon("edit"),tr("Upravit hodnotu…"));
-                auto* lock=menu.addAction(parameter_value_locked(candidate.owner_id,candidate.semantic_key).value_or(false)?tr("Odemknout hodnotu"):tr("Zamknout hodnotu"));
+                auto* lock=menu.addAction(zima::ui::value_lock_icon(!parameter_value_locked(candidate.owner_id,candidate.semantic_key).value_or(false)),parameter_value_locked(candidate.owner_id,candidate.semantic_key).value_or(false)?tr("Odemknout hodnotu"):tr("Zamknout hodnotu"));
                 const auto* chosen=menu.exec(global_position);
                 if(chosen==presentation)show_dimension_layout_properties(candidate);
                 else if(chosen==value)edit_dimension_inline(candidate);
@@ -1010,7 +1012,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                 return;
             }
             if(candidate.kind==zima::viewer::CandidateKind::Dimension && candidate.semantic_key.starts_with("placement-reference:")) {
-                QMenu menu(this);auto* lock=menu.addAction(parameter_value_locked(candidate.owner_id,candidate.semantic_key).value_or(false)?tr("Odemknout hodnotu"):tr("Zamknout hodnotu"));
+                QMenu menu(this);auto* lock=menu.addAction(zima::ui::value_lock_icon(!parameter_value_locked(candidate.owner_id,candidate.semantic_key).value_or(false)),parameter_value_locked(candidate.owner_id,candidate.semantic_key).value_or(false)?tr("Odemknout hodnotu"):tr("Zamknout hodnotu"));
                 if(menu.exec(global_position)==lock)toggle_parameter_value_lock(candidate.owner_id,candidate.semantic_key);return;
             }
             if (candidate.kind == zima::viewer::CandidateKind::Dimension &&
@@ -1024,7 +1026,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                 if (sketch == nullptr || existing == sketch->dimensions.end()) return;
                 const bool locked = existing->locked;
                 QMenu menu(this);
-                auto* lock = menu.addAction(
+                auto* lock = menu.addAction(zima::ui::value_lock_icon(!locked),
                     locked ? tr("Odemknout rozměr") : tr("Zamknout rozměr"));
                 lock->setEnabled(existing->driving);
                 menu.addSeparator();
@@ -1196,7 +1198,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                 candidate.semantic_key.starts_with("parameter:")) {
                 QMenu menu(this);
                 const auto locked=parameter_value_locked(candidate.owner_id,candidate.semantic_key);
-                QAction* lock=locked?menu.addAction(*locked?tr("Odemknout hodnotu"):tr("Zamknout hodnotu")):nullptr;
+                QAction* lock=locked?menu.addAction(zima::ui::value_lock_icon(!*locked),*locked?tr("Odemknout hodnotu"):tr("Zamknout hodnotu")):nullptr;
                 auto* edit = menu.addAction(resource_icon("edit"),tr("Upravit hodnotu"));edit->setEnabled(!locked.value_or(false));
                 auto* properties = menu.addAction(resource_icon("properties"),tr("Vlastnosti"));
                 const auto* selected = menu.exec(global_position);
@@ -2106,6 +2108,24 @@ void AssemblyWorkspaceWindow::create_layout() {
                 for(auto* row=item;row&&candidate.instance_path.empty();row=row->parent())
                     candidate.instance_path=row->data(0,Qt::UserRole+1).toString().toStdString();
                 auto pick=feature_reference_pick_;pick(candidate);return;
+            }
+            if(properties_dialog_&&feature_reference_pick_&&item->data(0,Qt::UserRole+3).toString()=="origin-reference") {
+                bool work_plane_entry=false;
+                for(auto* widget:properties_dialog_->findChildren<QWidget*>())
+                    if(auto* selector=dynamic_cast<WorkPlaneSelector*>(widget);selector&&selector->entry_active){work_plane_entry=true;break;}
+                if(work_plane_entry) {
+                    viewer::ViewerCandidate candidate;
+                    candidate.geometry=viewer::CandidateGeometry::OriginalReference;
+                    candidate.kind=viewer::CandidateKind::Plane;
+                    candidate.owner_id=item->data(0,item->data(0,Qt::UserRole+6).isValid()?Qt::UserRole+6:Qt::UserRole).toString().toStdString();
+                    candidate.instance_path=item->data(0,Qt::UserRole+1).toString().toStdString();
+                    candidate.semantic_key=item->data(0,Qt::UserRole+5).toString().toStdString();
+                    const auto filter=viewer_->candidate_filter();
+                    if(candidate.semantic_key.starts_with("origin:plane:")&&filter&&filter(candidate)) {
+                        const auto pick=feature_reference_pick_;pick(candidate);
+                    }
+                    return;
+                }
             }
             if (construction_reference_dialog_ != nullptr &&
                 pending_construction_reference_index_) {

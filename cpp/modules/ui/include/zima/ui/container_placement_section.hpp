@@ -84,6 +84,11 @@ public:
     // these fields; shape dialogs only add their own geometric parameters.
     void initialize_numeric_values(const zima::document::Placement& placement);
     [[nodiscard]] zima::document::Placement numeric_placement() const;
+    [[nodiscard]] zima::kernel::Vec3 resolved_origin() const { return resolved_origin_; }
+    bool begin_origin_drag();
+    void update_origin_drag(zima::kernel::Vec3 target);
+    void end_origin_drag(bool cancel);
+
     void set_orientation_back(bool back);
     void set_translation_constraint_state(
         const zima::document::PointConstraintState& state,
@@ -219,6 +224,10 @@ public:
     bool set_reference_offset(std::size_t populated_index, double value);
 
 private:
+    zima::kernel::Vec3 resolved_origin_;
+    std::optional<zima::document::Placement> origin_drag_baseline_;
+    zima::kernel::ViewerReferenceGeometry origin_drag_geometry_;
+    void set_origin_drag_position(zima::kernel::Vec3);
     bool point_circle_plane_policy_{};
     bool planar_face_capture_policy_{};
     void refresh_derived_offsets();

@@ -9,6 +9,38 @@ namespace zima::app {
 using namespace workspace_detail;
 
 
+void AssemblyWorkspaceWindow::import_sketch_dxf_block() {
+    if(properties_dialog_||!active_sketch())return;
+    const auto path=open_file(this,tr("DXF"),
+        QString::fromStdString(zima::document::path_to_utf8(working_directory_)),
+        tr("DXF (*.dxf)"),application_settings_.translations);
+    if(path.isEmpty())return;
+    const auto owner=workspace_.active_document_id(),sketch_id=active_sketch_id_;
+    const auto before=active_sketch()->serialized();
+    begin_status_operation(tr("Importuji %1…").arg(QFileInfo(path).fileName()));
+    try {
+        std::optional<zima::workspace::PreparedSketchDxfBlock> result;
+        run_background_task([source=std::filesystem::path(path.toStdU16String()),&result] {
+            result=zima::workspace::prepare_sketch_dxf_block(source);
+        });
+        if(workspace_.active_document_id()!=owner||active_sketch_id_!=sketch_id||
+            !active_sketch()||active_sketch()->serialized()!=before)
+            throw std::runtime_error("The target document changed while importing the Sketch; its current data was preserved.");
+        if(!result)throw std::runtime_error("The import runner did not complete the calculation.");
+        finish_status_operation(tr("DXF importováno: %1 entit").arg(result->report.imported_entities));
+        if(!result->report.warnings.empty()) {
+            QStringList warnings;
+            for(const auto& warning:result->report.warnings)
+                if(!warnings.contains(QString::fromStdString(warning)))warnings<<QString::fromStdString(warning);
+            QMessageBox::information(this,tr("Upozornění importu DXF"),warnings.join("\n"));
+        }
+        show_symbol_properties({},std::move(result->instance));
+    }catch(const std::exception& error) {
+        finish_status_operation(tr("Import selhal"),false);
+        QMessageBox::warning(this,tr("Import selhal"),tr(error.what()));
+    }
+}
+
 void AssemblyWorkspaceWindow::import_file() {
     if (properties_dialog_) { properties_dialog_->raise(); return; }
     const QString path = open_file(this,

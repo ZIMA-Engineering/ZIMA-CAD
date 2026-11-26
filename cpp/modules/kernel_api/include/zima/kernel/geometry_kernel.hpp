@@ -743,6 +743,7 @@ struct ExtrusionRequest {
     ProfileLoop outer_profile{PolygonProfile{}};
     std::vector<ProfileLoop> inner_profiles;
     std::vector<ProfileRegion> additional_profile_regions;
+    bool merge_profile_regions{}; // Union independent filled SVG elements.
     std::optional<ProfileWall> wall;
     bool first_cap_is_start{true};
     Vec3 direction{0.0, 0.0, 10.0};

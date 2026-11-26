@@ -2741,7 +2741,7 @@ void Sketch::validate() const {
     ids.clear();
     for (const auto& text : texts) {
         if (text.id.empty() || !ids.insert(text.id).second || text.value.empty() ||
-            text.font.empty() || !std::isfinite(text.anchor_x) ||
+            text.font.empty() || text.embedded_font.encoded().size()>24*1024*1024 || !std::isfinite(text.anchor_x) ||
             !std::isfinite(text.anchor_y) || !std::isfinite(text.height) ||
             text.height <= 0.0 || !std::isfinite(text.angle_degrees) ||
             text.contours.empty()) {
@@ -17837,6 +17837,10 @@ nlohmann::json Sketch::serialized_json() const {
             {"angle_degrees", text.angle_degrees}, {"flipped", text.flipped},
             {"color", text_color_name(text.color)}, {"font", text.font},
             {"contours", std::move(contours)},{"anchor_point_id",text.anchor_point_id}});
+        if(!text.embedded_font.empty()) {
+            text_values.back()["embedded_font"]=text.embedded_font.encoded();
+            text_values.back()["font_y_up"]=text.font_y_up;
+        }
     }
     nlohmann::json external_reference_values = nlohmann::json::array();
     for (const auto& reference : external_references) {
@@ -18139,6 +18143,8 @@ Sketch Sketch::from_serialized_json(const nlohmann::json& root) {
         text.flipped = value.at("flipped").get<bool>();
         text.color = text_color_from_name(value.at("color").get<std::string>());
         text.font = value.at("font").get<std::string>();
+        text.embedded_font=EmbeddedFont(value.value("embedded_font",std::string{}));
+        text.font_y_up=value.value("font_y_up",false);
         for (const auto& contour_value : value.at("contours")) {
             std::vector<std::array<double, 2>> contour;
             for (const auto& point : contour_value) {

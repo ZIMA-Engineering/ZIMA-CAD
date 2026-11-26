@@ -987,7 +987,20 @@ int verify_derived_copy_commands(QApplication& application,zima::app::AssemblyWo
         const int initial_axis=dialog->is_axis_input(input)?
             dialog->derived_copy.pattern->linear[dialog->axis_row(input)].local_axis:-1;
         const auto kind=pattern?viewer::CandidateKind::Axis:viewer::CandidateKind::Plane;
-        dialog->request_input(input);flush();
+        if(input==app::DerivedCopyDialog::plane_field) {
+            auto* entry=dialog->findChild<QTableWidget*>("copyReferenceView");
+            if(!verify(entry&&entry->isVisible(),"Copy View-reference field missing"))return false;
+            // Exercise both real cell hit targets, including the arrow glyph.
+            for(int column:{0,1}) {
+                dialog->end_input();flush();
+                const QPointF point(entry->columnViewportPosition(column)+entry->columnWidth(column)/2.,entry->rowHeight(0)/2.);
+                const QPointF global(entry->viewport()->mapToGlobal(point.toPoint()));
+                QMouseEvent press(QEvent::MouseButtonPress,point,global,Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
+                QMouseEvent release(QEvent::MouseButtonRelease,point,global,Qt::LeftButton,Qt::NoButton,Qt::NoModifier);
+                QApplication::sendEvent(entry->viewport(),&press);QApplication::sendEvent(entry->viewport(),&release);flush();
+                if(!verify(dialog->active_input()==input,"Copy arrow/text did not arm plane/axis entry"))return false;
+            }
+        }else {dialog->request_input(input);flush();}
         const auto accepts=view->candidate_filter();
         if(!verify(static_cast<bool>(accepts),"Copy Origin input has no candidate filter"))return false;
         viewer::ViewerCandidate candidate;candidate.kind=kind;candidate.instance_path=prefix;
@@ -2341,8 +2354,8 @@ int verify_sweep2d_command(QApplication& application,zima::app::AssemblyWorkspac
         for(int x=8;x<view->width()-8&&!path_plane_hit;x+=3) {
             const QPointF at(x,y);
             const auto candidates=view->selection_candidates_at(at);
-            body_origin_plane_offered|=std::ranges::any_of(candidates,[](const auto& value) {
-                return value.semantic_key.starts_with("origin:plane:");
+            body_origin_plane_offered|=std::ranges::any_of(candidates,[&](const auto& value) {
+                return value.semantic_key.starts_with("origin:plane:")&&value.owner_id!=dialog->pending.container_origin.id;
             });
             const auto candidate=std::ranges::find_if(candidates,[&](const auto& value) {
                 return (value.kind==zima::viewer::CandidateKind::Plane||

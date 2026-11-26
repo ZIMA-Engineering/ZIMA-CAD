@@ -175,6 +175,7 @@ std::string encode_history_fingerprint(
                 }
             }
             if constexpr (std::is_same_v<Request, ExtrusionRequest>) {
+                if(primitive.merge_profile_regions)for(unsigned char c:std::string_view("filled-vector-union-v1"))byte(c);
                 if(primitive.draft_angle_degrees!=0) {
                     for(unsigned char c:std::string_view("extrusion-draft-v1"))byte(c);
                     u64(std::bit_cast<std::uint64_t>(primitive.draft_angle_degrees));
@@ -780,6 +781,10 @@ std::string encode_history_fingerprint(
                     // without rewriting the persisted placement parameters.
                     u64(std::bit_cast<std::uint64_t>(value == 0.0 ? 0.0 : value));
             } else if constexpr (std::is_same_v<Request, ThreadSurfaceRequest>) {
+                if (primitive.cuts_before) {
+                    const std::string marker="opening-thread-boundary-trim-v1";
+                    u64(marker.size());for(const unsigned char value:marker)byte(value);
+                }
                 if (primitive.shaft_face) {
                     byte(255); // Standalone external thread reference contract.
                     for (const auto& face : {primitive.shaft_face, std::optional<FaceReference>{primitive.shaft_start},

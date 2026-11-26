@@ -266,11 +266,12 @@ private:
         // replaceable. Keep the shared entry arrow instead of exposing a
         // remove action that would leave the command incomplete.
         reference_indicator_=ui::build_reference_row_indicator({});
-        reference_table_->setCellWidget(0,0,
-            ui::centered_cell_widget(reference_indicator_));
+        auto* indicator_cell=ui::centered_cell_widget(reference_indicator_);
+        indicator_cell->setAttribute(Qt::WA_TransparentForMouseEvents);
+        reference_table_->setCellWidget(0,0,indicator_cell);
         connect(reference_table_,&QTableWidget::cellClicked,this,
             [this](int,int column) {
-                if(column==1&&request_input)request_input(plane_field);
+                if((column==0||column==1)&&request_input)request_input(plane_field);
             });
         row->addWidget(reference_table_,1);content_layout()->addWidget(reference_selector_);
     }

@@ -30,6 +30,7 @@ public:
     SymbolDialog(Instance value,std::function<void(const Instance&)> preview,std::function<void(Instance)> commit,QWidget* parent,bool sheet=false)
         :PropertiesSubWindow(tr("Vlastnosti symbolu"),parent),value_(std::move(value)),definition_(symbols::Definition::from_serialized(value_.definition)),preview_(std::move(preview)),commit_(std::move(commit)) {
         setObjectName("symbolPropertiesDialog");setAttribute(Qt::WA_DeleteOnClose);
+        if(definition_.id.starts_with("dxf:"))setWindowTitle(tr("DXF"));
         if(definition_.id=="ze:general-surface-texture:iso21920")
             empty_variant_added_=definition_.variants.try_emplace("empty").second;
         setProperty("expandBottomTable",true);

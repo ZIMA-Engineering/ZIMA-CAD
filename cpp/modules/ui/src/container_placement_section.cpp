@@ -1,3 +1,4 @@
+#include <zima/document/placement_drag.hpp>
 #include <zima/document/placement_reference_geometry.hpp>
 #include <zima/ui/numeric_value_lock.hpp>
 #include <zima/document/placement_reference_assignment.hpp>
@@ -309,6 +310,7 @@ void ContainerPlacementSection::set_origin_selection_mode_active(bool active) {
 
 void ContainerPlacementSection::initialize_numeric_values(
         const zima::document::Placement& placement) {
+    resolved_origin_={placement.x,placement.y,placement.z};
     value_locks_=placement.value_locks;
     accept_full_owner_origin_projection_=false;
     picked_translation_values_={};
@@ -405,9 +407,40 @@ zima::document::Placement ContainerPlacementSection::numeric_placement() const {
     return result;
 }
 
+bool ContainerPlacementSection::begin_origin_drag() {
+    if(!branch_geometry_)return false;
+    auto baseline=numeric_placement();baseline.references=combined_references(3);
+    baseline.x=resolved_origin_.x;baseline.y=resolved_origin_.y;baseline.z=resolved_origin_.z;
+    const auto& geometry=branch_geometry_();
+    origin_drag_geometry_=document::PlacementReferenceGeometryIndex(geometry,baseline.references).select(baseline.references);
+    if(!document::project_placement_origin_drag(baseline,origin_drag_geometry_,resolved_origin_,point_circle_plane_policy_))return false;
+    origin_drag_baseline_=std::move(baseline);return true;
+}
+void ContainerPlacementSection::set_origin_drag_position(kernel::Vec3 point) {
+    const std::array values{point.x,point.y,point.z};
+    const auto current=numeric_placement();
+    if(std::hypot(current.x-point.x,current.y-point.y,current.z-point.z)<=1e-10)return;
+    for(std::size_t i=0;i<3;++i) {
+        const QSignalBlocker block(translation_[i]);translation_[i]->setValue(values[i]);
+        picked_translation_values_[i]=std::pair{translation_[i]->value(),values[i]};
+    }
+    notify_changed();
+}
+void ContainerPlacementSection::update_origin_drag(kernel::Vec3 target) {
+    if(!origin_drag_baseline_)return;
+    if(const auto point=document::project_placement_origin_drag(*origin_drag_baseline_,origin_drag_geometry_,target,point_circle_plane_policy_))
+        set_origin_drag_position(*point);
+}
+void ContainerPlacementSection::end_origin_drag(bool cancel) {
+    if(!origin_drag_baseline_)return;
+    const auto start=*origin_drag_baseline_;origin_drag_baseline_.reset();origin_drag_geometry_={};
+    if(cancel)set_origin_drag_position({start.x,start.y,start.z});
+}
+
 void ContainerPlacementSection::set_translation_constraint_state(
         const zima::document::PointConstraintState& state,
         const zima::kernel::Vec3& solution) {
+    resolved_origin_=solution;
     third_point_is_station_=state.third_point_is_station;
     set_remaining_translation_dof(state.remaining_dof);
     const std::array values{solution.x, solution.y, solution.z};

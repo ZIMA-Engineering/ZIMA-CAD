@@ -2,6 +2,10 @@
 #include <QJsonArray>
 #include "sketch_text_properties_dialog.hpp"
 #include "annotation_symbols.hpp"
+#include "file_dialog.hpp"
+#include <QPushButton>
+#include <QFile>
+#include <QSignalBlocker>
 #include <zima/sketcher/text_geometry.hpp>
 #include <zima/ui/unit_spin_box.hpp>
 
@@ -102,7 +106,30 @@ SketchTextPropertiesDialog::SketchTextPropertiesDialog(
     font_ = new QComboBox(this);
     font_->setObjectName("sketchTextFont");
     font_->addItem(tr("ISO (osifont)"), QStringLiteral("osifont"));
+    if(!initial_.embedded_font.empty()) {
+        font_->addItem(QString::fromStdString(initial_.font),QStringLiteral("embedded"));font_->setCurrentIndex(1);
+    }
     form->addRow(tr("Písmo"), font_);
+    if(!drawing_text_) {
+        auto* load=new QPushButton(tr("Načíst písmo…"),this);load->setObjectName("sketchTextLoadFont");
+        form->addRow({},load);
+        connect(load,&QPushButton::clicked,this,[this] {
+            const auto path=open_file(this,tr("Načíst písmo…"),{},tr("Vektorová písma (*.ttf *.otf)"));
+            if(path.isEmpty())return;
+            try {
+                QFile file(path);
+                if(!file.open(QIODevice::ReadOnly))throw std::runtime_error("Cannot read the selected font.");
+                if(file.size()>18*1024*1024)throw std::runtime_error("The font is too large (maximum 18 MB).");
+                zima::sketcher::EmbeddedFont embedded(file.readAll().toBase64().toStdString());
+                const auto name=zima::sketcher::embedded_font_name(embedded);
+                initial_.embedded_font=std::move(embedded);initial_.font=name;
+                const QSignalBlocker blocked(font_);
+                if(font_->count()>1)font_->removeItem(1);
+                font_->addItem(QString::fromStdString(name),QStringLiteral("embedded"));font_->setCurrentIndex(1);update_preview();
+            }catch(const std::exception& failure){error_->setText(QObject::tr(failure.what()));}
+        });
+        connect(font_,&QComboBox::currentIndexChanged,this,&SketchTextPropertiesDialog::update_preview);
+    }
 
     color_ = new QComboBox(this);
     color_->setObjectName("sketchTextColor");
@@ -206,7 +233,8 @@ zima::sketcher::SketchText SketchTextPropertiesDialog::build_text(bool preview) 
     text.vertical = static_cast<zima::sketcher::TextVerticalAlignment>(vertical_->currentData().toInt());
     text.angle_degrees = angle_->value(); text.flipped = flipped_->isChecked() != inverted_flip_ui_;
     text.color = static_cast<zima::sketcher::SketchTextColor>(color_->currentData().toInt());
-    text.font = font_->currentData().toString().toStdString();
+    if(font_->currentData()==QStringLiteral("embedded"))text.font=initial_.font;
+    else {text.font="osifont";text.embedded_font={};text.font_y_up=false;}
     if(!drawing_text_)rebuild_sketch_text_contours(text, y_up_);
     return text;
 }

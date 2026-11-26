@@ -617,10 +617,48 @@ int verify_work_plane_ui(QApplication& application, AssemblyWorkspaceWindow& win
                 "Changing work plane did not move the live offset-plane border");
             const auto dot=[](const auto& a,const auto& b){return a.x*b.x+a.y*b.y+a.z*b.z;};
             const auto difference=[](const auto& a,const auto& b){return kernel::Vec3{a.x-b.x,a.y-b.y,a.z-b.z};};
+            auto* model_view=dynamic_cast<viewer::MeshView*>(window.findChild<QWidget*>("modelWorkspace"));
+            model_view->set_standard_view(viewer::StandardView::Isometric);model_view->fit_all();
+            {QEventLoop settle;QTimer::singleShot(950,&settle,&QEventLoop::quit);settle.exec();}flush();
+            const auto select_local_plane=[&](const char* key,int column) {
+                auto* field=pending->findChild<QTableWidget*>(QString::fromLatin1(combo_name)+"View");
+                check(field&&field->isVisible(),"Local-plane View entry missing");
+                const auto click=[&](QWidget* target,QPointF point,Qt::MouseButton button=Qt::LeftButton) {
+                    const QPointF global(target->mapToGlobal(point.toPoint()));
+                    QMouseEvent hover(QEvent::MouseMove,point,global,Qt::NoButton,Qt::NoButton,Qt::NoModifier);
+                    QMouseEvent press(QEvent::MouseButtonPress,point,global,button,button,Qt::NoModifier);
+                    QMouseEvent release(QEvent::MouseButtonRelease,point,global,button,Qt::NoButton,Qt::NoModifier);
+                    QApplication::sendEvent(target,&hover);QApplication::sendEvent(target,&press);QApplication::sendEvent(target,&release);flush();
+                };
+                click(field->viewport(),{field->columnViewportPosition(column)+field->columnWidth(column)/2.,field->rowHeight(0)/2.});
+                std::optional<QPointF> hit;const auto semantic=std::string("origin:plane:")+key;
+                for(int y=12;y<model_view->height()-12&&!hit;y+=4)for(int x=12;x<model_view->width()-12&&!hit;x+=4) {
+                    const auto candidates=model_view->selection_candidates_at({double(x),double(y)});
+                    if(std::ranges::any_of(candidates,[&](const auto& candidate){return candidate.owner_id==owner+":origin"&&candidate.semantic_key==semantic;}))hit=QPointF(x,y);
+                }
+                if(!hit)std::cerr<<"Missing local datum in "<<kind<<": "<<semantic<<'\n';
+                check(hit.has_value(),"Local-plane field does not offer its own datum");
+                // Co-located document/Body/container datums use the ordinary
+                // RMB candidate cycle. The requested plane need not be first.
+                QMouseEvent hover(QEvent::MouseMove,*hit,QPointF(model_view->mapToGlobal(hit->toPoint())),Qt::NoButton,Qt::NoButton,Qt::NoModifier);
+                QApplication::sendEvent(model_view,&hover);flush();
+                for(std::size_t i=0;i<model_view->selection_candidates_at(*hit).size();++i) {
+                    const auto offered=model_view->offered_candidate();
+                    if(offered&&offered->owner_id==owner+":origin"&&offered->semantic_key==semantic)break;
+                    click(model_view,*hit,Qt::RightButton);
+                }
+                const auto offered=model_view->offered_candidate();
+                check(offered&&offered->owner_id==owner+":origin"&&offered->semantic_key==semantic,"Cannot cycle to the owned plane");
+                click(model_view,*hit);
+            };
             std::vector<kernel::Vec3> centers;
             for(const auto plane:{sketcher::SketchPlane::XY,sketcher::SketchPlane::XZ,sketcher::SketchPlane::YZ}) {
                 const QVariant key=kind=="plane"?QVariant(plane==sketcher::SketchPlane::XY?"xy":plane==sketcher::SketchPlane::XZ?"xz":"yz"):QVariant(static_cast<int>(plane));
-                combo->setCurrentIndex(combo->findData(key));flush();
+                const auto label=plane==sketcher::SketchPlane::XY?"xy":plane==sketcher::SketchPlane::XZ?"xz":"yz";
+                for(int column:{0,1}) {
+                    select_local_plane(label,column);
+                    check(combo->currentData()==key,"View-picked local plane differs from its preset");
+                }
                 const auto border=plane_border();const auto c=center(border);
                 check(std::abs(dot(c,c)-9)<1e-8,"Live plane lost its 3 mm offset");
                 check(std::abs(dot(c,difference(border[1],border[0])))<1e-8 &&

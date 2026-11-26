@@ -408,13 +408,16 @@ public:
         refresh_operations();
     }
     void set_assembly_context() {
+        for(const auto* name:{"projectionOutput","wrappingOutput"})if(auto* output=findChild<QComboBox*>(name)) {
+            if(auto* model=qobject_cast<QStandardItemModel*>(output->model()))for(int row=1;row<model->rowCount();++row)model->item(row)->setEnabled(false);
+            output->setCurrentIndex(0);
+        }
         set_subtract(true);
         operation_group_->button(0)->setEnabled(false);
         if(auto* model=qobject_cast<QStandardItemModel*>(result_->model()))model->item(1)->setEnabled(false);
         if(result_->currentIndex()==1)result_->setCurrentIndex(0);
         if(auto* model=qobject_cast<QStandardItemModel*>(type_->model())) {
-            model->item(static_cast<int>(document::FeatureType::Projection))->setEnabled(false);
-            model->item(feature_type_index(document::FeatureType::Wrapping))->setEnabled(false);
+
             model->item(wrap_relief_type_index)->setEnabled(false);
             model->item(projection_relief_type_index)->setEnabled(false);
             model->item(planar_surface_type_index)->setEnabled(false);

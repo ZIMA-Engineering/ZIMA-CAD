@@ -570,6 +570,12 @@ struct MeshView::Impl {
     bool show_dimensions{true};
     bool show_symbols{true};
     std::map<kernel::ObjectEnvelopeKey,bool> annotation_sides;
+    std::function<std::optional<kernel::Vec3>()> placement_origin;
+    std::function<bool(kernel::Vec3,kernel::Vec3)> placement_origin_begin;
+    OriginRayCallback placement_origin_move;
+    std::function<void(bool)> placement_origin_finish;
+    bool placement_origin_dragging{};
+    QPointF placement_origin_press;
     std::function<std::optional<SymbolHandles>()> symbol_handles;
     std::function<void(const std::string&,int,kernel::Vec3,double)> symbol_handle_move;
     struct SymbolDrag {std::string id;kernel::AnnotationStroke annotation;kernel::Vec3 right,up,normal,anchor;bool left;int index;};
@@ -1368,6 +1374,19 @@ std::optional<QPointF> MeshView::dimension_handle_position(const ViewerCandidate
     const auto text=dimension_label_text(*d);
     const auto layout=dimension_text_presentation(*d,project,font(),text,.5*logicalDpiX()/25.4,1.5,10,3,false,1.5*logicalDpiX()/25.4,impl_->active_sketch_owner_id.empty());
     return layout.valid?std::optional(layout.handles[index]):std::nullopt;
+}
+void MeshView::set_placement_origin_callbacks(std::function<std::optional<kernel::Vec3>()> provider,
+    std::function<bool(kernel::Vec3,kernel::Vec3)> begin,OriginRayCallback move,std::function<void(bool)> finish) {
+    impl_->placement_origin_dragging=false;
+    impl_->placement_origin=std::move(provider);impl_->placement_origin_begin=std::move(begin);
+    impl_->placement_origin_move=std::move(move);impl_->placement_origin_finish=std::move(finish);update();
+}
+std::optional<QPointF> MeshView::placement_origin_handle_position() const {
+    if(!impl_->placement_origin||width()<=0||height()<=0)return {};
+    const auto p=impl_->placement_origin();if(!p)return {};
+    auto clip=impl_->projection(width(),height())*impl_->view()*QVector4D(p->x,p->y,p->z,1);
+    if(clip.w()<=1e-9)return {};clip/=clip.w();
+    return QPointF((clip.x()+1)*width()/2.,(1-clip.y())*height()/2.);
 }
 void MeshView::set_symbol_handle_callbacks(std::function<std::optional<SymbolHandles>()> provider,
     std::function<void(const std::string&,int,kernel::Vec3,double)> move) {
@@ -5384,7 +5403,7 @@ if (impl_->show_origins) {
         !impl_->read_only_profile_context.edges.empty() || !impl_->read_only_profile_context.points.empty() ||
         !impl_->interactive_labels.empty() ||
         impl_->sketch_cursor.has_value() ||
-        impl_->component_origin_handle || !impl_->extent_manipulators.empty() ||
+        impl_->component_origin_handle || impl_->placement_origin || !impl_->extent_manipulators.empty() ||
         !impl_->operation_direction_indicators.empty() ||
         // Every candidate kind has an overlay below.  Restricting entry to
         // point/edge/axis candidates accidentally made Face, Container and
@@ -5523,6 +5542,7 @@ if (impl_->show_origins) {
             painter.setBrush(Qt::NoBrush);
         }
         for (const auto& handle : impl_->extent_manipulators) {
+            if(handle.replaced_by_placement_origin&&impl_->placement_origin&&impl_->placement_origin())continue;
             const double direction_length = std::sqrt(
                 handle.direction.x * handle.direction.x +
                 handle.direction.y * handle.direction.y +
@@ -7040,6 +7060,8 @@ if (impl_->show_origins) {
             draw_circular_marker(painter,project(point.position),hover?interaction::hover:
                 point.construction?interaction::selected:palette().color(QPalette::Text),6.0);
         }
+        if(const auto point=placement_origin_handle_position())
+            draw_circular_marker(painter,*point,QColor("#D05CFF"),6.0);
         if (impl_->component_origin_handle) {
             const auto& key = *impl_->component_origin_handle;
             for (const auto& point : impl_->mesh.points) {
@@ -7265,9 +7287,18 @@ void MeshView::mousePressEvent(QMouseEvent* event) {
             impl_->hovered_interactive_label_key=*label;
             event->accept();update();return;
         }
+    if(event->button()==Qt::LeftButton)if(const auto point=placement_origin_handle_position();
+        point&&QLineF(*point,event->position()).length()<=9.*devicePixelRatioF()) {
+        const auto ray=ray_at(event->position());
+        impl_->placement_origin_dragging=ray&&impl_->placement_origin_begin&&impl_->placement_origin_begin(ray->first,ray->second);
+        if(impl_->placement_origin_dragging) {
+            impl_->placement_origin_press=event->position();event->accept();update();return;
+        }
+    }
     impl_->last_pointer = event->position().toPoint();
     if (event->button() == Qt::LeftButton) {
       for (const auto& handle : impl_->extent_manipulators) {
+            if(handle.replaced_by_placement_origin&&impl_->placement_origin&&impl_->placement_origin())continue;
         const double norm = std::sqrt(handle.direction.x * handle.direction.x +
             handle.direction.y * handle.direction.y +
             handle.direction.z * handle.direction.z);
@@ -7626,6 +7657,12 @@ void MeshView::mouseDoubleClickEvent(QMouseEvent* event) {
 }
 
 void MeshView::mouseMoveEvent(QMouseEvent* event) {
+    if(impl_->placement_origin_dragging&&(event->buttons()&Qt::LeftButton)) {
+        if((event->position()-impl_->placement_origin_press).manhattanLength()>=QApplication::startDragDistance())
+            if(const auto ray=ray_at(event->position());ray&&impl_->placement_origin_move)
+                impl_->placement_origin_move(ray->first,ray->second);
+        event->accept();update();return;
+    }
     if(impl_->symbol_contact_drag&&(event->buttons()&Qt::LeftButton)){
         if((event->position()-impl_->symbol_contact_drag_start).manhattanLength()>=QApplication::startDragDistance())impl_->symbol_contact_moved=true;
         if(impl_->symbol_contact_moved)update_candidates(event->position());update();event->accept();return;
@@ -7824,6 +7861,7 @@ void MeshView::mouseMoveEvent(QMouseEvent* event) {
         }
         std::string hovered;
         for (const auto& handle : impl_->extent_manipulators) {
+            if(handle.replaced_by_placement_origin&&impl_->placement_origin&&impl_->placement_origin())continue;
             const double norm = std::sqrt(handle.direction.x * handle.direction.x +
                 handle.direction.y * handle.direction.y +
                 handle.direction.z * handle.direction.z);
@@ -7880,6 +7918,10 @@ void MeshView::mouseMoveEvent(QMouseEvent* event) {
 }
 
 void MeshView::mouseReleaseEvent(QMouseEvent* event) {
+    if(event->button()==Qt::LeftButton&&impl_->placement_origin_dragging) {
+        impl_->placement_origin_dragging=false;if(impl_->placement_origin_finish)impl_->placement_origin_finish(false);
+        event->accept();update();return;
+    }
     if(event->button()==Qt::LeftButton&&impl_->symbol_contact_drag){
         impl_->symbol_contact_drag=false;
         if(impl_->symbol_contact_moved&&!impl_->candidates.empty()){impl_->confirmed_candidate=impl_->candidates[impl_->active_candidate];notify_confirmation();}
@@ -8088,6 +8130,10 @@ void MeshView::wheelEvent(QWheelEvent* event) {
 }
 
 void MeshView::keyPressEvent(QKeyEvent* event) {
+    if(event->key()==Qt::Key_Escape&&impl_->placement_origin_dragging) {
+        impl_->placement_origin_dragging=false;if(impl_->placement_origin_finish)impl_->placement_origin_finish(true);
+        event->accept();update();return;
+    }
     if(event->key()==Qt::Key_Escape)impl_->pending_dimension_drag.reset();
     if(event->key()==Qt::Key_Escape){impl_->symbol_drag.reset();impl_->symbol_contact_drag=false;}
     if(event->key()==Qt::Key_Escape&&impl_->layout_drag){auto drag=*impl_->layout_drag;impl_->layout_drag.reset();const auto i=drag.candidate.geometry_index;if(i<impl_->mesh.dimensions.size())impl_->mesh.dimensions[i]=drag.shown;else if(i-impl_->mesh.dimensions.size()<impl_->transient_dimensions.size())impl_->transient_dimensions[i-impl_->mesh.dimensions.size()]=drag.shown;update();event->accept();return;}

@@ -286,7 +286,7 @@ void AssemblyWorkspaceWindow::show_construction_properties(
             if (preview.kind == zima::document::ConstructionKind::Plane) {
                 viewer_->set_extent_manipulator(zima::viewer::ExtentManipulator{
                     "plane_offset", {}, resolved_entity_origin,
-                    resolved_direction, 0.0, true});
+                    resolved_direction, 0.0, true, true});
             }
         });
     viewer_->set_editing_origin_visible(true);

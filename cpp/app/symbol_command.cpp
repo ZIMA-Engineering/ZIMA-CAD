@@ -77,7 +77,7 @@ void AssemblyWorkspaceWindow::initialize_symbol_handles() {
 }
 void AssemblyWorkspaceWindow::start_symbol() {
     if(properties_dialog_||symbol_document_sketch())return;
-    const auto path=open_file(this,tr("Vložit symbol"),application_settings_.resolved_paths.value("Symbols"),tr("Symbol ZIMA-CAD (*.symz)"),application_settings_.translations);
+    const auto path=open_file(this,tr("Symbol"),application_settings_.resolved_paths.value("Symbols"),tr("Symbol ZIMA-CAD (*.symz)"),application_settings_.translations);
     if(path.isEmpty())return;
     try {
         const auto definition=symbols::Definition::load(std::filesystem::path(path.toStdU16String()));

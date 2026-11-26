@@ -115,7 +115,7 @@ void install_dialog_button_icons() {
     qApp->installEventFilter(new ButtonIcons(qApp));
 }
 
-static QPixmap branding_pixmap(const QString& path, const QSize& size, qreal scale);
+static QPixmap branding_pixmap(const QString& path, const QSize& size, qreal scale, bool tall = false);
 
 static QIcon raster_resource_icon(const QString& name, bool surface) {
     if (name == "application-logo") {
@@ -260,8 +260,13 @@ static bool system_uses_dark_colors() {
 QIcon system_application_icon() {
     const auto make_icon = [](const QString& path) {
         QIcon icon;
-        for (const int size : {16, 24, 32, 48, 64, 128, 256})
-            icon.addPixmap(branding_pixmap(path, QSize(size, size), 1));
+        for (const int size : {16, 24, 32, 48, 64, 128, 256}) {
+#ifdef Q_OS_WIN
+            icon.addPixmap(branding_pixmap(path,QSize(size,size),1,true));
+#else
+            icon.addPixmap(branding_pixmap(path,QSize(size,size),1));
+#endif
+        }
         return icon;
     };
     static const auto dark_icon = make_icon(QStringLiteral(":/zima/branding/zc-dark.svg"));
@@ -313,7 +318,7 @@ QImage application_wordmark(const QColor& color) {
     return tinted;
 }
 
-static QPixmap branding_pixmap(const QString& path, const QSize& size, qreal scale) {
+static QPixmap branding_pixmap(const QString& path, const QSize& size, qreal scale, bool tall) {
     QSvgRenderer renderer(path);
     if (!renderer.isValid()) return {};
     QPixmap pixmap((QSizeF(size) * scale).toSize());
@@ -321,6 +326,7 @@ static QPixmap branding_pixmap(const QString& path, const QSize& size, qreal sca
     pixmap.fill(Qt::transparent);
     QSizeF bounds = renderer.viewBoxF().size();
     bounds.scale(size, Qt::KeepAspectRatio);
+    if(tall) {bounds=QSizeF(size.width(),size.height()*0.875);renderer.setAspectRatioMode(Qt::IgnoreAspectRatio);}
     const QRectF target(QPointF((size.width() - bounds.width()) / 2,
                                (size.height() - bounds.height()) / 2), bounds);
     QPainter painter(&pixmap);
