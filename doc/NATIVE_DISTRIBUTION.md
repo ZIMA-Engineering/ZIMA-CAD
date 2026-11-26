@@ -1,5 +1,19 @@
 # Native versioned distribution
 
+Signed Windows [2026112601](releases/2026112601.md#distribution-verification) was
+published at `2026-11-26T11:50:47Z` from immutable source
+`b3126a72dddfe15ce73bdf53312861140c1836f3`. It adds three-point Arc creation, image insertion anchors,
+plane-based angle presentation, geometry-preserving XY-first Origin rows,
+Drawing dimension workflow improvements and compact File Manager controls.
+It also includes the committed constrained outline dragging and CAM profile
+milling stages. Candidate/signed smoke, 1,190 factory native loads, twelve
+sheet-branch gates and eleven packaged application scenarios pass. Anonymous
+downloads, publisher signature, safe extraction and production updater
+trusted/current status pass. See the
+[publication evidence](verification/20261126-windows-2601-publication.json)
+for finite coverage and known unrelated test limitations. Native Linux execution
+and later CAM stages remain unverified or unfinished as documented.
+
 Signed Windows [2026112504](releases/2026112504.md#distribution-status) was
 published at `2026-11-25T21:14:07Z` from immutable source
 `0939ea23baabf7018c33865d0a580bd426e0767a`. It includes exact mathematical surface references,
