@@ -7,31 +7,34 @@
 <header class="site-header"><div class="header-inner"><a class="brand" href="../../../0000-index/index_ru.html" aria-label="ZIMA-CAD"><img class="logo-dark" src="../../../0000-index/assets/zc-dark.svg" alt="" width="82" height="39"><img class="logo-light" src="../../../0000-index/assets/zc-light.svg" alt="" width="82" height="39"><span>ZIMA-CAD</span></a>
 <button class="menu-toggle" aria-expanded="false" aria-controls="main-nav" aria-label="Меню">☰</button><nav id="main-nav" aria-label="Меню"><a href="../../../0000-index/index_ru.html">Главная</a><a href="../../../0200-gallery/0000-index/index_ru.html">Галерея</a><a href="../../0000-index/index_ru.html" aria-current="page">Руководства</a><a href="../../../0400-download/0000-index/index_ru.html">Скачать</a></nav>
 <div class="header-tools"><button class="theme-toggle" aria-label="Переключить светлую/тёмную тему" title="Переключить светлую/тёмную тему">◐</button><details class="languages"><summary aria-label="Язык"><span aria-hidden="true">◎</span> RU<span class="chevron"></span></summary><div><a lang="cs" hreflang="cs" href="index_cs.html">Čeština</a><a lang="de" hreflang="de" href="index_de.html">Deutsch</a><a lang="en" hreflang="en" href="index_en.html">English</a><a lang="fr" hreflang="fr" href="index_fr.html">Français</a><a lang="ru" hreflang="ru" href="index_ru.html" aria-current="true">Русский</a></div></details></div></div></header>
-<main id="content" class="guide-page"><div class="guide-heading"><a href="../../0000-index/index_ru.html">Все руководства</a><h1>МКЭ</h1><p class="language-note">Текст руководства на английском языке.</p></div><section class="visual-guide" lang="en"><h2>Ориентиры в приложении</h2><div class="annotated-image"><button class="image-open" aria-label="Увеличить изображение"><img src="../../images/fem.png" alt="ZIMA-CAD FEM workspace displaying a meshed three-arm bracket, a 1000 N force, two restraints, and a von Mises stress colour scale in MPa."></button><button class="hotspot" style="left:7.6%;top:45.3%" data-marker="1" aria-controls="marker-1" aria-label="Read the analysis definition" aria-pressed="false"><span>1</span></button><button class="hotspot" style="left:37.0%;top:51.8%" data-marker="2" aria-controls="marker-2" aria-label="Check loads and restraints" aria-pressed="false"><span>2</span></button><button class="hotspot" style="left:79.2%;top:31.3%" data-marker="3" aria-controls="marker-3" aria-label="Read the result scale" aria-pressed="false"><span>3</span></button><button class="hotspot" style="left:94.3%;top:47.4%" data-marker="4" aria-controls="marker-4" aria-label="Choose a result display" aria-pressed="false"><span>4</span></button></div><ol class="marker-list"><li id="marker-1"><button data-marker="1" aria-pressed="false"><span class="step-number">1</span><span><strong>Read the analysis definition</strong><span>FEM těleso 1 is the active analysis Body. Its tree lists the source Body, two restraints named Vazba 1 and Vazba 2, and the force Síla 1.</span></span></button></li><li id="marker-2"><button data-marker="2" aria-pressed="false"><span class="step-number">2</span><span><strong>Check loads and restraints</strong><span>The yellow annotation on the left arm reads Síla 1 = 1000 N. The other yellow annotations mark the two restrained regions. These symbols describe this example&#x27;s boundary conditions.</span></span></button></li><li id="marker-3"><button data-marker="3" aria-pressed="false"><span class="step-number">3</span><span><strong>Read the result scale</strong><span>The legend is labelled Napětí von Mises [MPa]. Blue represents the lower end and red the upper end of this result scale, whose displayed maximum is 49,54 MPa.</span></span></button></li><li id="marker-4"><button data-marker="4" aria-pressed="false"><span class="step-number">4</span><span><strong>Choose a result display</strong><span>Click Výsledky to access result display choices. Zobrazit deformaci immediately above controls the deformation view; the bottom-left annotation shows a scale factor of ×1 in this capture.</span></span></button></li></ol></section><article class="guide-copy" lang="en"><h1 id="fem">FEM</h1>
-<h2 id="before-you-start">Before you start</h2>
-<p>Prepare a calculated solid Body in a Part and assign suitable material
-properties. Choose an analysis that matches the supported physical model.</p>
-<h2 id="steps">Steps</h2>
+<main id="content" class="guide-page"><div class="guide-heading"><a href="../../0000-index/index_ru.html">Все руководства</a><h1>МКЭ</h1><p class="language-note">Выберите номер на изображении, чтобы выделить соответствующее пояснение.</p></div><section class="visual-guide" lang="ru"><h2>Ориентиры в приложении</h2><div class="annotated-image"><button class="image-open" aria-label="Увеличить изображение"><img src="../../images/ru/fem.png" alt="FEM в ZIMA-CAD: стержень с сеткой, активное тело B2, закрепление C1, сила C2 = 100 N и шкала напряжения по Мизесу в MPa."></button><button class="hotspot" style="left:5.2%;top:27.5%" data-marker="1" aria-controls="marker-1" aria-label="Просмотрите определение анализа" aria-pressed="false"><span>1</span></button><button class="hotspot" style="left:53.6%;top:33.8%" data-marker="2" aria-controls="marker-2" aria-label="Проверьте нагрузки и закрепления" aria-pressed="false"><span>2</span></button><button class="hotspot" style="left:81.0%;top:30.5%" data-marker="3" aria-controls="marker-3" aria-label="Прочитайте шкалу результатов" aria-pressed="false"><span>3</span></button><button class="hotspot" style="left:94.0%;top:50.8%" data-marker="4" aria-controls="marker-4" aria-label="Выберите отображение результатов" aria-pressed="false"><span>4</span></button></div><ol class="marker-list"><li id="marker-1"><button data-marker="1" aria-pressed="false"><span class="step-number">1</span><span><strong>Просмотрите определение анализа</strong><span>B2 — активное тело анализа, B1 — его источник. В дереве под B2 указаны закрепление C1 и сила C2.</span></span></button></li><li id="marker-2"><button data-marker="2" aria-pressed="false"><span class="step-number">2</span><span><strong>Проверьте нагрузки и закрепления</strong><span>Жёлтые отметки показывают C2 = 100 N и закрепление C1 с UX=0, UY=0, UZ=0. Это нагрузка и закрепление данного примера линейной статики.</span></span></button></li><li id="marker-3"><button data-marker="3" aria-pressed="false"><span class="step-number">3</span><span><strong>Прочитайте шкалу результатов</strong><span>Легенда «Напряжение по Мизесу [MPa]» показывает усреднённое напряжение элементов. Синий обозначает нижнюю границу шкалы, красный — верхнюю; показанный максимум приблизительно равен 0,93978 MPa.</span></span></button></li><li id="marker-4"><button data-marker="4" aria-pressed="false"><span class="step-number">4</span><span><strong>Выберите отображение результатов</strong><span>Справа выберите «Перемещение [mm]» или «Напряжение по Мизесу [MPa]». «Показать деформацию» переключает видимость результата. Слева внизу указаны увеличение ×1 и статический результат.</span></span></button></li></ol></section><article class="guide-copy" lang="ru"><h1 id="fem">FEM</h1>
+<h2 id="_1">Перед началом</h2>
+<p>Подготовьте рассчитанное твёрдое тело в детали и назначьте подходящие свойства
+материала. Выберите анализ, соответствующий поддерживаемой физической модели.</p>
+<h2 id="_2">Порядок действий</h2>
 <ol>
-<li>Create a <strong>FEM Body</strong>, select its source Body and choose the analysis in
-   FEM Body Properties.</li>
-<li>Define its conditions: mechanical restraints, forces or pressure for a
-   mechanical case; supported thermal conditions for heat conduction.</li>
-<li>Explicitly generate the volume mesh. Review mesh diagnostics before solving.</li>
-<li>Run <strong>Calculation</strong> from the FEM toolbar.</li>
-<li>Select displacement, stress or temperature results as applicable. Inspect
-   extrema and placed measurement points; compare results after mesh refinement.</li>
+<li>Деактивируйте текущее тело, чтобы перейти к корню детали, и выберите <strong>Создать FEM</strong>. В окне <strong>Свойства тела FEM</strong> выберите исходное тело и анализ, затем нажмите <strong>OK</strong>.</li>
+<li>Определите условия: механические закрепления, силы или давление для
+   механической задачи; поддерживаемые тепловые условия для теплопроводности.</li>
+<li>Явно создайте объёмную сетку. Перед решением просмотрите диагностику сетки.</li>
+<li>Запустите соответствующий анализ на панели FEM: <strong>Линейная статика</strong>, <strong>Стационарный тепловой анализ</strong>, <strong>Термомеханический анализ</strong>.</li>
+<li>Выберите результаты перемещений, напряжений или температуры в зависимости
+   от задачи. Изучите экстремумы и размещённые измерительные точки;
+   сравните результаты после сгущения сетки.</li>
 </ol>
-<h2 id="what-to-check">What to check</h2>
-<p>Mechanical analysis is small-displacement isotropic linear-elastic statics.
-Thermal analysis is steady-state. Optional thermal expansion is one-way
-small-strain coupling; combined mode also includes force and pressure.</p>
-<p>Deformation magnification changes the display, not the calculated displacement.
-Animation illustrates a static case, not dynamics. Contact, plasticity,
-transient heating and temperature-dependent properties are outside this scope.</p>
-<p>Edit definitions through Properties and recalculate when inputs change.
-Native saving retains the supported FEM definitions and measurement references.
-A successful mesh or solver run alone does not demonstrate engineering accuracy.</p>
-<p>See <a href="https://github.com/ZIMA-Engineering/ZIMA-CAD/blob/codex/sketcher-mechanisms/doc/FEM_STATUS.md">FEM capabilities and limits</a>.</p></article></main>
+<h2 id="_3">Что проверить</h2>
+<p>Механический анализ — изотропная линейно-упругая статика при малых перемещениях.
+Тепловой анализ — стационарный. Необязательное тепловое расширение представляет
+собой одностороннюю связь при малых деформациях; комбинированный режим также
+учитывает силы и давление.</p>
+<p>Увеличение деформации изменяет отображение, а не рассчитанные перемещения.
+Анимация иллюстрирует статическую задачу, а не динамику. Контакт, пластичность,
+нестационарный нагрев и свойства, зависящие от температуры, выходят за рамки
+этих возможностей.</p>
+<p>Редактируйте определения через свойства и повторяйте расчёт при изменении
+исходных данных. Сохранение в собственном формате сохраняет поддерживаемые
+определения FEM и измерительные ссылки. Сам по себе успешный запуск построения
+сетки или решателя не подтверждает инженерную точность.</p>
+<p>См. <a href="https://github.com/ZIMA-Engineering/ZIMA-CAD/blob/codex/sketcher-mechanisms/doc/FEM_STATUS.md">возможности и ограничения FEM</a>.</p></article></main>
 <footer><div><a class="footer-brand" href="../../../0000-index/index_ru.html">ZIMA-CAD</a><span>Открытая параметрическая САПР.</span></div><div class="socials"><a href="https://www.youtube.com/@zimaengineering" rel="noopener">YouTube</a><a href="https://www.facebook.com/" rel="noopener">Facebook</a><a href="https://github.com/ZIMA-Engineering/ZIMA-CAD" rel="noopener">GitHub</a></div><small>© 2026 ZIMA-Engineering · GPL-3.0-or-later</small></footer>
-<dialog class="lightbox" aria-label="Увеличить изображение"><button class="lightbox-close" aria-label="Закрыть">×</button><img alt=""><p></p></dialog></body></html>
+<dialog class="lightbox" aria-label="Увеличить изображение" data-actual-size="false"><div class="lightbox-toolbar"><button type="button" class="lightbox-zoom" aria-controls="lightbox-image-viewport" data-actual="Фактический размер" data-fit="Вписать изображение">Фактический размер</button><button type="button" class="lightbox-close" aria-label="Закрыть" autofocus>×</button></div><div class="lightbox-viewport" id="lightbox-image-viewport" role="region" tabindex="0" aria-label="Изображение"><img alt=""></div><p></p></dialog></body></html>

@@ -402,6 +402,11 @@ Q_NEVER_INLINE static int verify_sheet_form_ui(QApplication& application,Assembl
         auto stock=document::PartDocument::create_sketch_container();stock.feature_kind=document::FeatureKind::Flat;
         stock.flat.direction=document::ExtrusionDirection::Reverse;stock.flat.thickness_override=true;stock.flat.thickness=1;
         auto outline=sketcher::Sketch::create_default();outline.owner_container_id=stock.id;
+        if(qEnvironmentVariableIsSet("ZIMA_CAPTURE_GUIDE_DIALOGS")) {
+            part.name="P01";stock.name="F01";outline.name="S01";
+            const auto bodies=part.body_history.bodies();
+            for(auto body:bodies){body.name="B01";part.body_history.update_body(body);}
+        }
         static_cast<void>(outline.add_rectangle(-150,-150,150,150));stock.flat.sketch_id=outline.id;
         part.insert_history_entry(document::PartHistoryKind::Feature,stock.id);part.history.push_back(stock);part.sketches.push_back(outline);
         kernel::OcctKernel kernel;const auto calculated=kernel.evaluate_history(part.kernel_operations());
@@ -743,6 +748,9 @@ Q_NEVER_INLINE static int verify_sheet_form_ui(QApplication& application,Assembl
         saved=native().first;check(saved.find_container(id)->sheet_form.source_name==renamed.name&&saved.find_container(id)->placement==placed,"FORM replacement changed feature placement");
         run("undo");check(native().first.find_container(id)->sheet_form==original,"FORM replacement Undo failed");run("redo");
         check(native().first.find_container(id)->sheet_form.source_name==renamed.name,"FORM replacement Redo failed");
+        if(qEnvironmentVariableIsSet("ZIMA_CAPTURE_GUIDE_DIALOGS")) {
+            window.showNormal();window.resize(1600,1000);flush();view->fit_all();flush();
+        }
         window.grab().save(QString::fromStdString(document::path_to_utf8((directory/"sheet-form-ui.png"))));
         run(QString::fromStdString(commands::Json{{"command","close"},{"arguments",{{"discard",true}}}}.dump()));
         check(window.open_document_path(QString::fromStdString(document::path_to_utf8(path))),"Inserted FORM could not reopen");flush();

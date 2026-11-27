@@ -16,7 +16,7 @@ int verify_documentation_workspace(QApplication& application) {
             const auto index=zima::app::documentation::guide_url(localized);
             const auto expected=zima::app::documentation::guide_url(localized,"featureShortcut4Action");
             check(!index.isEmpty()&&!expected.isEmpty(),"Generated documentation pages are missing");
-            check(expected.toLocalFile().endsWith(QString("/feature/0000-index/index_%1.html").arg(language)),"Command guide or language identity changed");
+            check(expected.toLocalFile().endsWith(QString("/command-feature-shortcut4/0000-index/index_%1.html").arg(language)),"Command guide or language identity changed");
             check(zima::app::documentation::guide_url(localized,"unmappedAction").isEmpty(),"Unknown command silently opened another guide");
             zima::app::AssemblyWorkspaceWindow window(directory.path(),directory.path());window.resize(1366,900);window.show();flush();
             check(window.execute_console_command(QString("new part guide-%1").arg(language)).ok,"Guide test Part creation failed");
@@ -51,7 +51,7 @@ int verify_documentation_workspace(QApplication& application) {
             loading.restart();
             while(!rendered&&loading.elapsed()<10000){
                 if(!pending){pending=true;view->page()->runJavaScript(
-                    "document.readyState==='complete' && document.querySelectorAll('.hotspot').length===4 && [...document.images].filter(i=>i.getAttribute('src')).every(i=>i.complete&&i.naturalWidth>0)",
+                    QString("document.readyState==='complete' && document.documentElement.lang==='%1' && document.querySelector('.guide-copy[lang=\"%1\"][data-command=\"featureShortcut4Action\"]')!==null && document.querySelectorAll('.procedure-steps li').length>=3 && document.querySelectorAll('img[data-native-ui-lang=\"%1\"]').length===2 && [...document.images].filter(i=>i.getAttribute('src')).every(i=>i.complete&&i.naturalWidth>0)").arg(language),
                     [&](const QVariant& result){rendered=result.toBool();pending=false;});}
                 flush();QThread::msleep(10);
             }

@@ -61,6 +61,13 @@ int verify_cam_body(QApplication& application,AssemblyWorkspaceWindow& window,co
         auto machining_sketch=sketcher::Sketch::create_default();static_cast<void>(machining_sketch.add_circle(0,0,3));
         auto machining_owner=document::PartDocument::create_sketch_container();machining_sketch.owner_container_id=machining_owner.id;
         doc.sketches.push_back(machining_sketch);doc.history.push_back(machining_owner);static_cast<void>(graph.create_body("Machining profiles"));graph.insert({document::PartHistoryKind::Feature,machining_owner.id});
+        if(qEnvironmentVariableIsSet("ZIMA_CAPTURE_GUIDE_DIALOGS")) {
+            doc.name="P01";unsigned number=0;
+            for(auto& feature:doc.history)feature.name="F"+std::to_string(++number);
+            number=0;for(auto& sketch:doc.sketches)sketch.name="S"+std::to_string(++number);
+            const auto bodies=graph.bodies();
+            number=0;for(auto body:bodies) {body.name="B"+std::to_string(++number);graph.update_body(body);}
+        }
         graph.activate({});doc.set_body_history(graph);
         doc.appearance.bodies[stock]={"#B9C2CC",.55,0};doc.appearance.bodies[target]={"#D8483E",.55,0};doc.appearance.bodies[fixture]={"#667685",.55,0};
         kernel::OcctKernel kernel;const auto path=directory/"cam-setup-ui.prtz";doc.save(path,workspace::calculate_part_with_resolved_references(kernel,doc));

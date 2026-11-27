@@ -31,7 +31,9 @@
 #include <QToolBar>
 #include <QToolButton>
 #include <QTreeWidgetItemIterator>
+#include <algorithm>
 #include <iostream>
+#include <iterator>
 
 namespace zima::app {
 int verify_render_body(QApplication& application,AssemblyWorkspaceWindow& window,const std::filesystem::path& directory) {
@@ -39,12 +41,29 @@ int verify_render_body(QApplication& application,AssemblyWorkspaceWindow& window
         const auto check=[](bool ok,const char* message){if(!ok)throw std::runtime_error(message);};
         const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
         const auto wait=[&](auto done,int timeout=15000){QElapsedTimer clock;clock.start();while(!done()&&clock.elapsed()<timeout)application.processEvents(QEventLoop::AllEvents,20);flush();check(done(),"Render GUI wait timed out");};
+        const auto guide_directory=qEnvironmentVariable("ZIMA_CAPTURE_GUIDE_DIALOGS");
+        const auto guide_language=window.application_settings_.language;
+        check(guide_directory.isEmpty()||QDir::isAbsolutePath(guide_directory),
+            "ZIMA_CAPTURE_GUIDE_DIALOGS requires an absolute output directory");
+        const auto capture_guide=[&](QWidget& widget,const QString& name) {
+            const QDir output(QDir(guide_directory).filePath(guide_language));
+            check(QDir().mkpath(output.absolutePath()),"Cannot create Render guide capture directory");
+            flush();
+            check(widget.grab().save(output.filePath(name+".png")),"Render guide screenshot failed");
+        };
         auto part=document::PartDocument::create_default();
         auto floor=test::rectangular_feature(part,{120,90,3});floor.placement.z=-3;
         auto sphere=test::spherical_feature(part,15);sphere.placement.x=-20;sphere.placement.z=13;
         auto block=test::rectangular_feature(part,{25,25,25});block.placement.x=23;block.placement.z=12;
+        if(!guide_directory.isEmpty()) {
+            // These are disposable fixture names, not user-authored data.
+            // Native factory names otherwise retain Czech in the scene tree.
+            part.name="P01";floor.name="F01";sphere.name="F02";block.name="F03";
+            unsigned profile=0;
+            for(auto& sketch:part.sketches)sketch.name="S"+std::to_string(++profile);
+        }
         part.history={floor,sphere,block};document::BodyHistoryGraph graph;std::vector<std::string> sources;
-        for(const auto& f:part.history){sources.push_back(graph.create_body("Source"));graph.insert({document::PartHistoryKind::Feature,f.id});}
+        for(const auto& f:part.history){sources.push_back(graph.create_body(guide_directory.isEmpty()?"Source":"B"+std::to_string(sources.size()+1)));graph.insert({document::PartHistoryKind::Feature,f.id});}
         graph.activate({});part.set_body_history(graph);part.resolve_constructions({});
         part.appearance.bodies[sources[1]]={"#D09946",.25,.8};part.appearance.bodies[sources[2]]={"#277B9C",.35,.1};
         kernel::OcctKernel kernel;const auto path=directory/"render-scene.prtz";part.save(path,workspace::calculate_part(kernel,part));
@@ -81,7 +100,9 @@ int verify_render_body(QApplication& application,AssemblyWorkspaceWindow& window
             check(used&&settings(),"Render group did not open the shared creation dialog");
         };
         const auto object=[&]{return dynamic_cast<RenderObjectDialog*>(window.properties_dialog_);};
-        auto other=document::PartDocument::create_default();const auto other_path=directory/"camera-tab.prtz";other.save(other_path);
+        auto other=document::PartDocument::create_default();
+        if(!guide_directory.isEmpty())other.name="Camera context";
+        const auto other_path=directory/"camera-tab.prtz";other.save(other_path);
         check(window.open_document_path(QString::fromStdString(other_path.string())),"Cannot open camera tab fixture");flush();
         const auto switch_model=[&](const std::string& id){
             for(int i=0;i<window.tabs_->count();++i)if(window.tabs_->tabData(i).toString().toStdString()==id){window.tabs_->setCurrentIndex(i);flush();return;}
@@ -379,7 +400,18 @@ int verify_render_body(QApplication& application,AssemblyWorkspaceWindow& window
         render_revision=session.revision();
         session.document().save(path,session.calculated_boundaries());const auto reopened=document::PartDocument::load(path);check(*reopened.body_history.find(render_id)->render==definition(),"Render native save/reopen changed its definition");
         window.tabs_->setCurrentIndex(model_tab());flush();
-        for(const auto* language:{"cs","en","de","fr","ru"}) {
+        std::vector<const char*> languages{"cs","en","de","fr","ru"};
+        if(!guide_directory.isEmpty()) {
+            const auto initial=std::ranges::find_if(languages,[&](const auto* language){return guide_language==QString::fromUtf8(language);});
+            check(initial!=languages.end(),"Unsupported Render guide language");
+            // Capture before visiting another locale, so transient status text
+            // cannot survive from a preceding language-verification pass.
+            std::rotate(languages.begin(),initial,std::next(initial));
+        }
+        for(const auto* language:languages) {
+            // A translated dialog cannot retranslate the surrounding window.
+            // The caller launches a fresh process for each initial language.
+            const bool capture_language=!guide_directory.isEmpty()&&guide_language==QString::fromUtf8(language);
             QTemporaryDir temporary;QSettings ini(temporary.filePath("config.ini"),QSettings::IniFormat);ini.setValue("Application/Language",language);ini.setValue("Paths/Localization",QDir::current().absoluteFilePath("config/localization"));ini.sync();
             const auto localized=ApplicationSettings::load(temporary.path());apply_application_translations(application,localized);window.refresh_scene();flush();
             check(render_group()&&render_group()->text(0)==localized.qt_translations.value("Renders"),"Render group did not translate");
@@ -389,6 +421,7 @@ int verify_render_body(QApplication& application,AssemblyWorkspaceWindow& window
             render_command_button();
             check(window.tools_toolbar_->widgetForAction(window.section_action_)->isVisible(),"Localized Section command is hidden");
             if(std::string_view(language)=="cs")check(window.grab().save(QString::fromStdWString((directory/"render-section-commands.png").wstring())),"Command-panel screenshot failed");
+            if(capture_language)capture_guide(window,"render-section-commands");
             window.activate_body(render_id);flush();
             window.show_render_result();flush();page=window.active_render_page_;
             for(const auto& control:std::vector<std::pair<const char*,const char*>>{{"renderKeepImage","Save to Part"},{"renderRenameImage","Rename"},{"renderDeleteImage","Delete image"}})
@@ -396,12 +429,17 @@ int verify_render_body(QApplication& application,AssemblyWorkspaceWindow& window
             for(auto* button:page->findChild<QToolBar*>("renderImageTools")->findChildren<QToolButton*>())
                 if(!button->text().isEmpty())check(button->width()>=button->fontMetrics().horizontalAdvance(button->text())+button->iconSize().width()+26,
                     "Translated gallery command label is clipped");
+            if(capture_language)capture_guide(*page,"render-gallery");
             window.tabs_->setCurrentIndex(model_tab());flush();
             window.show_render_body_properties(render_id);flush();check(settings()->windowTitle()==localized.qt_translations.value("Render Body properties"),"Render title did not translate");
-            check(settings()->findChild<QComboBox*>("renderSourceMode")->itemText(0)==localized.qt_translations.value("Visible Bodies"),"Render source mode did not translate");settings()->reject();flush();
+            check(settings()->findChild<QComboBox*>("renderSourceMode")->itemText(0)==localized.qt_translations.value("Visible Bodies"),"Render source mode did not translate");
+            if(capture_language)capture_guide(*settings(),"render-body-properties");
+            settings()->reject();flush();
             window.show_render_object_properties(document::RenderObjectKind::Camera,camera_id);flush();check(object()->windowTitle()==localized.qt_translations.value("Render object properties"),"Render object title did not translate");
             check(object()->findChild<QCheckBox*>("renderViewFromCamera")->text()==localized.qt_translations.value("View from camera"),"Camera view action did not translate");
-            check(std::ranges::any_of(object()->findChildren<QLabel*>(),[&](const auto* label){return label->text()==localized.qt_translations.value("Camera frame height");}),"Render camera parameter did not translate");object()->reject();flush();
+            check(std::ranges::any_of(object()->findChildren<QLabel*>(),[&](const auto* label){return label->text()==localized.qt_translations.value("Camera frame height");}),"Render camera parameter did not translate");
+            if(capture_language)capture_guide(*object(),"render-camera-properties");
+            object()->reject();flush();
             for(const auto kind:{document::RenderObjectKind::PointLight,document::RenderObjectKind::SpotLight}) {
                 window.show_render_object_properties(kind);flush();
                 for(const auto* source:kind==document::RenderObjectKind::SpotLight?
@@ -410,6 +448,11 @@ int verify_render_body(QApplication& application,AssemblyWorkspaceWindow& window
                 check(window.rect().contains(object()->geometry())&&object()->buttons()->isVisible(),"Localized light Properties exceed the application bounds");
                 if(kind==document::RenderObjectKind::SpotLight&&std::string_view(language)=="cs")
                     check(window.grab().save(QString::fromStdWString((directory/"render-spotlight-properties.png").wstring())),"Spotlight Properties screenshot failed");
+                if(capture_language) {
+                    capture_guide(*object(),kind==document::RenderObjectKind::SpotLight?
+                        "render-spotlight-properties":"render-point-light-properties");
+                    if(kind==document::RenderObjectKind::SpotLight)capture_guide(window,"render");
+                }
                 object()->reject();flush();
             }
         }

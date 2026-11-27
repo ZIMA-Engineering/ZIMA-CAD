@@ -3,6 +3,9 @@ int verify_new_document_options(QApplication& application) {
     const auto check=[](bool ok,const char* message){if(!ok)throw std::runtime_error(message);};
     const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
     try {
+        const auto guide_directory=qEnvironmentVariable("ZIMA_CAPTURE_GUIDE_DIALOGS");
+        check(guide_directory.isEmpty()||QDir::isAbsolutePath(guide_directory),
+            "ZIMA_CAPTURE_GUIDE_DIALOGS requires an absolute output directory");
         const auto length=qEnvironmentVariable("ZIMA_VERIFY_NEW_DOCUMENT_LENGTH","in");
         check(length=="mm"||length=="in","Unsupported start-template units");
         for(const QString language:{"cs","en","de","fr","ru"}) {
@@ -11,7 +14,8 @@ int verify_new_document_options(QApplication& application) {
             check(directory.isValid(),"Cannot create New Document test directory");
             QSettings config(directory.filePath("config.ini"),QSettings::IniFormat);
             config.setValue("Application/Language",language);
-            config.setValue("Application/UseISOFont",true);
+            config.setValue("Application/UseISOFont",guide_directory.isEmpty());
+            if(!guide_directory.isEmpty())config.setValue("Application/Theme","dark");
             config.setValue("Units/Length",length);config.setValue("Units/Angle","rad");
             config.setValue("Paths/WorkingDirectory",directory.path());
             config.setValue("Templates/Part","START_PART_"+length+".prtz");
@@ -109,6 +113,20 @@ int verify_new_document_options(QApplication& application) {
                 }
                 const auto capture=std::filesystem::path(__FILE__).parent_path().parent_path().parent_path()/"build"/("new-document-"+language.toStdString()+"-"+type.toStdString()+".png");
                 dialog->grab().save(QString::fromStdString(capture.generic_string()));
+                if(!guide_directory.isEmpty()) {
+                    const QDir output(QDir(guide_directory).filePath(language));
+                    check(QDir().mkpath(output.absolutePath()),"Cannot create New Document guide capture directory");
+                    // Keep Modeling separate from the subsequent Sheet Metal
+                    // and Skeleton Part cases that overwrite the legacy image.
+                    const auto slug=type=="part"?
+                        (mode==0?QStringLiteral("getting-started"):
+                            mode==1?QStringLiteral("new-document-sheet-metal"):
+                                QStringLiteral("new-document-skeleton")):
+                        QStringLiteral("new-document-")+type;
+                    flush();
+                    check(dialog->grab().save(output.filePath(slug+".png")),
+                        "New Document guide screenshot failed");
+                }
                 QTimer picker;
                 QObject::connect(&picker,&QTimer::timeout,&window,[&]{
                     if(auto* file=qobject_cast<QFileDialog*>(QApplication::activeModalWidget())) {

@@ -70,8 +70,25 @@ int verify_fem_body(QApplication& application,AssemblyWorkspaceWindow& window,co
         const auto check=[](bool ok,const char* message){if(!ok)throw std::runtime_error(message);};
         const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
 #ifdef ZIMA_ENABLE_FEM_MESHER
-        const auto reproduction=qEnvironmentVariable("ZIMA_VERIFY_FEM_DOCUMENT");
+        auto reproduction=qEnvironmentVariable("ZIMA_VERIFY_FEM_DOCUMENT");
         if(!reproduction.isEmpty()) {
+            if(qEnvironmentVariableIsSet("ZIMA_CAPTURE_GUIDE_DIALOGS")) {
+                // Only the isolated documentation copy gets neutral authored
+                // names; the source document and its geometry remain intact.
+                std::vector<kernel::BodyResult> retained;
+                auto example=document::PartDocument::load(std::filesystem::u8path(reproduction.toStdString()),&retained);
+                example.name="P01";unsigned number=0;
+                for(auto& feature:example.history)feature.name="F"+std::to_string(++number);
+                number=0;for(auto& sketch:example.sketches)sketch.name="S"+std::to_string(++number);
+                const auto bodies=example.body_history.bodies();
+                number=0;for(auto body:bodies) {
+                    body.name="B"+std::to_string(++number);unsigned condition=0;
+                    if(body.fem)for(auto& item:body.fem->conditions)item.name="C"+std::to_string(++condition);
+                    example.body_history.update_body(body);
+                }
+                const auto copy=directory/"fem-guide.prtz";example.save(copy,retained);
+                reproduction=QString::fromStdString(document::path_to_utf8(copy));
+            }
             window.resize(1600,1000);window.show();
             check(window.open_document_path(reproduction),"FEM reproduction document did not open");flush();
             auto& session=window.workspace_.open_part(window.workspace_.active_document_id())->session;

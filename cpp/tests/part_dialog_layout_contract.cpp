@@ -24,19 +24,142 @@
 #include <QDialogButtonBox>
 #include <QDir>
 #include <QGroupBox>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QPixmap>
+#include <QRegion>
+#include <QSaveFile>
 #include <filesystem>
 #include <iostream>
 #include <memory>
 
+namespace {
+
+QString capture_guide_dialog(QWidget& dialog, const QString& output_directory,
+        const QString& language, const QString& name, const QSize& available,
+        const QStringList& layout_errors) {
+    // Name fields are authored data, so the translator correctly leaves them
+    // alone. Give these disposable fixtures neutral identifiers before capture.
+    const QStringList fixture_names{"Špička","Kroucený plech","Otvor","Skica",
+        "Bod001","3D křivka001","Osa001","Rovina001","Tažení","Rotace",
+        "Zaplnit plochu","Obecná plocha","H-tažení","Sešít plochy","Závit",
+        "Průsečík ploch","2D tažení","3D tažení","Zesílit plochu","Oříznout plochu"};
+    for(auto* field:dialog.findChildren<QLineEdit*>())
+        if(fixture_names.contains(field->text()))field->setText("F01");
+    if(auto* definition=dialog.findChild<QLabel*>("sheetFormDefinition"))definition->setText("FORM01");
+    const QDir output(QDir(output_directory).filePath(language));
+    if(!QDir().mkpath(output.absolutePath()))
+        return QStringLiteral("could not create capture directory: ")+
+            output.absolutePath();
+
+    const auto image=dialog.grab();
+    const auto image_path=output.filePath(name+QStringLiteral(".png"));
+    if(image.isNull()||!image.save(image_path))
+        return QStringLiteral("could not save capture image: ")+image_path;
+
+    const auto geometry=[](const QRect& rect) {
+        return QJsonObject{{"x",rect.x()},{"y",rect.y()},
+            {"width",rect.width()},{"height",rect.height()}};
+    };
+    const auto normalized=[&](const QRect& rect) {
+        return QJsonObject{{"x",double(rect.x())/dialog.width()},
+            {"y",double(rect.y())/dialog.height()},
+            {"width",double(rect.width())/dialog.width()},
+            {"height",double(rect.height())/dialog.height()}};
+    };
+    QJsonArray widgets;
+    auto visible_widgets=dialog.findChildren<QWidget*>();
+    visible_widgets.prepend(&dialog);
+    for(auto* widget:visible_widgets) {
+        if(!widget->isVisible())continue;
+        const auto visible_region=widget->visibleRegion();
+        if(visible_region.isEmpty())continue;
+        const QRect bounds(widget->mapTo(&dialog,QPoint{}),widget->size());
+        const auto visible_local=visible_region.boundingRect();
+        const auto visible_bounds=QRect(
+            widget->mapTo(&dialog,visible_local.topLeft()),
+            visible_local.size()).intersected(dialog.rect());
+        if(visible_bounds.isEmpty())continue;
+        // Keep both authored widget bounds and their visible clipped portion;
+        // guide markers must not point into scrolled-out content.
+        QString text=widget->property("text").toString();
+        if(auto* combo=qobject_cast<QComboBox*>(widget))
+            text=combo->currentText();
+        else if(auto* group=qobject_cast<QGroupBox*>(widget))
+            text=group->title();
+        else if(widget==&dialog)
+            text=dialog.windowTitle();
+        QJsonObject entry{{"objectName",widget->objectName()},
+            {"class",QString::fromLatin1(widget->metaObject()->className())},
+            {"text",text},{"enabled",widget->isEnabled()},
+            {"geometry",geometry(bounds)},
+            {"normalizedGeometry",normalized(bounds)},
+            {"visibleGeometry",geometry(visible_bounds)},
+            {"visibleNormalizedGeometry",normalized(visible_bounds)}};
+        if(auto* table=qobject_cast<QTableWidget*>(widget)) {
+            QJsonArray cells;
+            for(int row=0;row<table->rowCount();++row)
+                for(int column=0;column<table->columnCount();++column) {
+                    const auto cell=table->visualRect(
+                        table->model()->index(row,column)).intersected(
+                            table->viewport()->rect());
+                    if(cell.isEmpty())continue;
+                    const auto cell_bounds=QRect(table->viewport()->mapTo(
+                        &dialog,cell.topLeft()),cell.size()).intersected(
+                            visible_bounds);
+                    if(cell_bounds.isEmpty())continue;
+                    const auto* item=table->item(row,column);
+                    cells.append(QJsonObject{{"row",row},{"column",column},
+                        {"text",item?item->text():QString{}},
+                        {"normalizedGeometry",normalized(cell_bounds)}});
+                }
+            entry.insert("cells",cells);
+        }
+        widgets.append(entry);
+    }
+    const QJsonObject metadata{{"language",language},{"case",name},
+        {"image",name+QStringLiteral(".png")},
+        {"imageSize",QJsonObject{{"width",image.width()},
+            {"height",image.height()}}},
+        {"dialogSize",QJsonObject{{"width",dialog.width()},
+            {"height",dialog.height()}}},
+        {"availableSize",QJsonObject{{"width",available.width()},
+            {"height",available.height()}}},
+        {"devicePixelRatio",image.devicePixelRatio()},
+        {"normalizedGeometryUnits",QStringLiteral("fraction-of-dialog")},
+        {"layoutPassed",layout_errors.isEmpty()},
+        {"layoutErrors",QJsonArray::fromStringList(layout_errors)},
+        {"widgets",widgets}};
+    QSaveFile metadata_file(output.filePath(name+QStringLiteral(".json")));
+    const auto bytes=QJsonDocument(metadata).toJson(QJsonDocument::Indented);
+    if(!metadata_file.open(QIODevice::WriteOnly)||
+            metadata_file.write(bytes)!=bytes.size()||!metadata_file.commit())
+        return QStringLiteral("could not save capture metadata: ")+
+            metadata_file.fileName();
+    return {};
+}
+
+}
+
 int verify_part_dialog_layout(QApplication& application, QWidget& parent) {
     using namespace zima;
     const auto root=std::filesystem::path(__FILE__).parent_path().parent_path().parent_path();
+    const auto capture_directory=qEnvironmentVariable("ZIMA_CAPTURE_GUIDE_DIALOGS");
+    if(!capture_directory.isEmpty()&&!QDir::isAbsolutePath(capture_directory)) {
+        std::cerr<<"ZIMA_CAPTURE_GUIDE_DIALOGS requires an absolute output directory\n";
+        return 1;
+    }
     QTemporaryDir temporary;
     const auto flush=[&]{for(int i=0;i<12;++i)application.processEvents();};
     int failures=0, count=0;
     for(const QString language:{"cs","en","de","fr","ru"}) {
         QSettings config(temporary.filePath("config.ini"),QSettings::IniFormat);
         config.setValue("Application/Language",language);
+        if(!capture_directory.isEmpty()) {
+            config.setValue("Application/Theme","dark");
+            config.setValue("Application/UseISOFont",false);
+        }
         config.setValue("Paths/Localization",QString::fromStdString((root/"config/localization").generic_string()));config.sync();
         auto settings=app::ApplicationSettings::load(temporary.path());
         app::apply_application_translations(application,settings);app::apply_application_font(application,settings);
@@ -228,12 +351,22 @@ int verify_part_dialog_layout(QApplication& application, QWidget& parent) {
                     const auto output=root/"build/dialog-layout";std::filesystem::create_directories(output);
                     dialog->grab().save(QString::fromStdString(output.generic_string())+"/"+language+"-"+name+"-"+QString::number(available.width())+".png");
                 }
+                if(!capture_directory.isEmpty()&&available==QSize(1920,1080)) {
+                    const auto error=capture_guide_dialog(*dialog,capture_directory,
+                        language,name,available,errors);
+                    if(!error.isEmpty()) {
+                        ++failures;
+                        std::cerr<<language.toStdString()<<" "<<name.toStdString()
+                            <<": "<<error.toStdString()<<'\n';
+                    }
+                }
                 dialog->hide();
             };
             using Part=document::PartDocument;
             for(bool revolve:{false,true}) {
                 auto feature=Part::create_feature_container("profile");
-                feature.feature.sides[0].operation=revolve?document::FeatureSideOperation::Revolution:document::FeatureSideOperation::Extrusion;
+                for(auto& side:feature.feature.sides)
+                    side.operation=revolve?document::FeatureSideOperation::Revolution:document::FeatureSideOperation::Extrusion;
                 check(new app::PrimitivePropertiesDialog(feature,false,true,[](auto){},&parent),revolve?"default-revolution":"default-extrusion");
             }
             const std::array factories{&Part::create_hole_container,&Part::create_thread_container,&Part::create_drill_point_container,&Part::create_twisted_sheet_container};
@@ -283,6 +416,7 @@ int verify_part_dialog_layout(QApplication& application, QWidget& parent) {
             auto* sweep=new app::Sweep2DDialog(Part::create_sweep2d_container(),[](auto){},&parent);
             auto path=sketcher::Sketch::from_serialized(sweep->pending.sweep2d.path_sketch);
             auto invalid_path=path;static_cast<void>(invalid_path.add_segment(10,0,40,0));
+            static_cast<void>(invalid_path.add_segment(50,10,70,10));
             sweep->set_sketch(0,invalid_path);sweep->set_status("preview status");
             const auto error_prefix=settings.qt_translations.value("Dráha není platná: %1").section("%1",0,0);
             bool explained=false;for(auto* label:sweep->findChildren<QLabel*>())

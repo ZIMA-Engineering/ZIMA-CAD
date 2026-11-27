@@ -9,9 +9,8 @@ Parts, `.asmz` for Assemblies and `.drwz` for Drawings.
 
 1. Open **Tools > System Setup**. Select the metric or inch preset and matching
    Part and Assembly templates. Review the working folder and confirm **OK**.
-2. Choose **File > New > Part**. Select **Modeling** or **Sheet Metal** and enter
-   a name. Both choices create an ordinary Part; they select different tools.
-3. Work inside the active editable **Body**. Start a modeling command, place its
+2. Choose **File > New**, select **Part** in the dialog and enter a name. Choose **Modeling** or **Sheet Metal**. Both modes create an ordinary Part and select its initial tools; confirm **OK**.
+3. Work inside the active editable Body. Start a modeling command, place its
    references and use **Sketch** when the command needs a profile.
 4. Finish the Sketch, review the pending feature and confirm **OK**. **Cancel**
    discards the pending definition.

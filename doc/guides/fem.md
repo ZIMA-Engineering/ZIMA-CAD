@@ -7,12 +7,11 @@ properties. Choose an analysis that matches the supported physical model.
 
 ## Steps
 
-1. Create a **FEM Body**, select its source Body and choose the analysis in
-   FEM Body Properties.
+1. Deactivate the current Body to reach the Part root and choose **Create FEM**. Select the source Body and analysis in **FEM Body properties**, then confirm **OK**.
 2. Define its conditions: mechanical restraints, forces or pressure for a
    mechanical case; supported thermal conditions for heat conduction.
 3. Explicitly generate the volume mesh. Review mesh diagnostics before solving.
-4. Run **Calculation** from the FEM toolbar.
+4. Run the appropriate analysis button in the FEM panel: **Linear statics**, **Steady-state thermal analysis**, **Thermal-mechanical analysis**.
 5. Select displacement, stress or temperature results as applicable. Inspect
    extrema and placed measurement points; compare results after mesh refinement.
 

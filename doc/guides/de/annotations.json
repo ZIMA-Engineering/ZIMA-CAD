@@ -1,0 +1,273 @@
+{
+  "sketch": {
+    "alt": "Der ZIMA-CAD-Skizzierer zeigt einen Kreis mit einem Radiusmaß von 9 mm, den Geometriebaum, Ansichtssteuerungen sowie die Aktionen OK und Abbrechen.",
+    "markers": [
+      {
+        "title": "Kreis und Mittelpunkt",
+        "body": "Der weiße Kreis ist die Skizzenkurve. Sein weißer Mittelpunkt ist vom braunen Skizzenursprung unten links getrennt."
+      },
+      {
+        "title": "Radius bearbeiten",
+        "body": "Doppelklicken Sie auf das angezeigte Maß R9mm, um dessen Werteditor zu öffnen. Dasselbe Radiusmaß ist im Baum unter „Bemaßungen“ aufgeführt."
+      },
+      {
+        "title": "Senkrecht auf die Skizze blicken",
+        "body": "„Normalansicht“ richtet die Kamera an der Skizzenebene aus. Die beiden folgenden Tasten heißen „Umkehren“: Die erste wechselt Vorder-/Rückseite, die zweite dreht die Ansicht um jeweils 90°."
+      },
+      {
+        "title": "Bearbeitung abschließen",
+        "body": "OK beendet die Skizzenbearbeitung. Eine eingebettete Skizze übergibt den Entwurf an die Eigenschaften ihrer Operation, die ebenfalls bestätigt werden müssen. „Abbrechen“ darunter verwirft die Sitzungsänderungen."
+      }
+    ]
+  },
+  "feature": {
+    "alt": "ZIMA-CAD-Feature-Eigenschaften für eine Extrusion mit leeren Platzierungsreferenzen, XY-Ebene, Skizze, Hinzufügen und Abziehen sowie OK und Abbrechen.",
+    "markers": [
+      {
+        "title": "Feature platzieren",
+        "body": "Klicken Sie auf das Referenzfeld, um die Geometrieauswahl zu aktivieren. Das Auge in derselben Zeile dient unabhängig davon zur Inspektion. In dieser Aufnahme ist keine Platzierungsreferenz eingetragen.",
+        "x": 29.34,
+        "y": 17.7
+      },
+      {
+        "title": "Profil definieren",
+        "body": "Klicken Sie auf „Skizze“, um das Feature-Profil zu bearbeiten. In den Ebenensteuerungen links ist derzeit XY ausgewählt; der Ebenenversatz beträgt 0,000 mm.",
+        "x": 89.05,
+        "y": 49.85
+      },
+      {
+        "title": "Materialoperation wählen",
+        "body": "„Hinzufügen“ fügt Material hinzu; „Abziehen“ entfernt es. Hier ist „Hinzufügen“ mit dem Ergebnistyp „Körper“ ausgewählt.",
+        "x": 40.45,
+        "y": 63.06
+      },
+      {
+        "title": "Vollständige Definition bestätigen",
+        "body": "Klicken Sie nach dem Definieren des Profils und der Begrenzungen auf OK, um das Feature zu validieren und zu berechnen. „Abbrechen“ verwirft die ausstehenden Dialogänderungen. Die Aufnahme zeigt den anfänglichen Dialog, keinen fertigen Volumenkörper.",
+        "x": 76.84,
+        "y": 97.96
+      }
+    ]
+  },
+  "fillet-chamfer": {
+    "alt": "ZIMA-CAD-Verrundungseigenschaften mit konstantem Radius 1 mm, drei ausgewählten Kanten des Eingangskörpers und ihrer cyanfarbenen Drahtdarstellung.",
+    "markers": [
+      {
+        "title": "Radius einstellen",
+        "body": "Bearbeiten Sie „Radius R“, um den Verrundungsradius festzulegen. Die angezeigte Definition verwendet den Typ „Konstant“ und einen Radius von 1,000 mm.",
+        "x": 80,
+        "y": 13.9
+      },
+      {
+        "title": "Kantenreferenz hinzufügen",
+        "body": "Klicken Sie auf „Referenz auswählen“ und wählen Sie dann eine Eingangskante in der Ansicht aus. Drei Referenzen sind bereits aufgeführt; jedes rote Kreuz entfernt den zugehörigen Listeneintrag.",
+        "x": 60.5,
+        "y": 33.1
+      },
+      {
+        "title": "Ausgewählte Kanten prüfen",
+        "body": "Die cyanfarbene Drahtdarstellung kennzeichnet die ausgewählten Kanten am tatsächlichen Eingangsbauteil. Der Dialog ist noch geöffnet; diese Ansicht darf daher nicht als übernommenes endgültiges Verrundungsergebnis verstanden werden.",
+        "x": 48,
+        "y": 68
+      },
+      {
+        "title": "Berechnen und bestätigen",
+        "body": "Klicken Sie auf OK, um die ausstehende Verrundung zu berechnen und zu bestätigen. „Abbrechen“ schließt den Dialog ohne Übernahme seiner Änderungen.",
+        "x": 90.5,
+        "y": 44.9
+      }
+    ]
+  },
+  "sheet-metal": {
+    "alt": "Der ZIMA-CAD-Arbeitsbereich Blech zeigt ein Blech mit einer umgeformten Lüftungsöffnung, seine Körperhistorie und die Symbolleiste mit Blechbefehlen.",
+    "markers": [
+      {
+        "title": "Blechwerkzeuge öffnen",
+        "body": "Klicken Sie auf „Blech“, um die Blechbefehle anzuzeigen. In dieser Aufnahme ist diese Auswahl aktiv; die rechte Symbolleiste enthält „Blech“, „Biegung“, „Profil“ und „Umformen“.",
+        "x": 82,
+        "y": 11.7
+      },
+      {
+        "title": "Körperhistorie lesen",
+        "body": "Die grüne Zeile B01 kennzeichnet den aktiven Körper. Seine Historie enthält das Ausgangsblech F01, dessen Skizze S01 und die folgende Umformung der Öffnung.",
+        "x": 5.3,
+        "y": 22.1
+      },
+      {
+        "title": "Umgeformte Geometrie prüfen",
+        "body": "Die schmale erhabene Öffnung ist das berechnete Umformergebnis. Die braunen Ebenen und farbigen Achsen darum gehören zum angezeigten Körperursprung.",
+        "x": 52.5,
+        "y": 57.6
+      },
+      {
+        "title": "Abwicklungssteuerungen finden",
+        "body": "„Abwickeln“ ist der Befehl zum Abwickeln. „Zurückbiegen“ steht direkt darunter, gefolgt vom DXF-Export. Diese Aufnahme zeigt das gebogene Modell, keine exportierte Abwicklung.",
+        "x": 92,
+        "y": 51.1
+      }
+    ]
+  },
+  "fem": {
+    "alt": "ZIMA-CAD FEM mit vernetztem Stab, aktivem Körper B2, Lagerung C1, Kraft C2 = 100 N und einer von-Mises-Spannungsskala in MPa.",
+    "markers": [
+      {
+        "title": "Analysedefinition lesen",
+        "body": "B2 ist der aktive Analysekörper mit B1 als Quelle. Unter B2 stehen die Lagerung C1 und die Kraft C2.",
+        "x": 5.2,
+        "y": 27.5
+      },
+      {
+        "title": "Lasten und Lagerungen prüfen",
+        "body": "Die gelben Markierungen zeigen C2 = 100 N und die Lagerung C1 mit UX=0, UY=0, UZ=0. Sie beschreiben die Lasten und Lagerungen dieses Beispiels linearer Statik.",
+        "x": 53.6,
+        "y": 33.8
+      },
+      {
+        "title": "Ergebnisskala lesen",
+        "body": "Die Legende „Von-Mises-Spannung [MPa]“ zeigt die gemittelte Elementspannung. Blau markiert das untere, Rot das obere Ende; das angezeigte Maximum beträgt etwa 0,93978 MPa.",
+        "x": 81,
+        "y": 30.5
+      },
+      {
+        "title": "Ergebnisdarstellung wählen",
+        "body": "Wählen Sie rechts „Verschiebung [mm]“ oder „Von-Mises-Spannung [MPa]“. „Verformung anzeigen“ schaltet die Ergebnisanzeige um. Unten links stehen die Vergrößerung ×1 und das statische Ergebnis.",
+        "x": 94,
+        "y": 50.8
+      }
+    ]
+  },
+  "cam": {
+    "alt": "Der ZIMA-CAD-Inspektor für das generische NC-Programm zeigt eine ausgewählte lineare Bewegung, Steuerungen zum schrittweisen Durchlaufen der Bewegungen, einen Schalter für das Rohteilergebnis und die entsprechende Werkzeugposition über einem Werkstück.",
+    "markers": [
+      {
+        "title": "Bewegung auswählen",
+        "body": "Klicken Sie auf eine Bewegungszeile, um ihre Werkzeugposition anzuzeigen. Hier ist Zeile 8, LINEAR X0 Y-2 Z2, ausgewählt. Die Kopfzeile kennzeichnet dies als generisches NC, das eine Nachbearbeitung durch einen Steuerungspostprozessor erfordert."
+      },
+      {
+        "title": "Programm schrittweise durchlaufen",
+        "body": "„Nächste Bewegung“ und „Vorherige Bewegung“ wechseln zwischen Bewegungen. Der rechte Schieberegler verändert die Werkzeugposition innerhalb der ausgewählten Bewegung, nicht im gesamten Programm."
+      },
+      {
+        "title": "Berechnetes Restmaterial anzeigen",
+        "body": "Schalten Sie „Berechnetes Restmaterial anzeigen“ um, um das berechnete Restmaterial zu prüfen. Das Kontrollkästchen ist in diesem Screenshot nicht aktiviert."
+      },
+      {
+        "title": "Programm und Ansicht zuordnen",
+        "body": "Die Modellansicht platziert das angezeigte Werkzeug über dem Werkstück an der ausgewählten Programmbewegung. Betrachten Sie beim Prüfen des Pfads diese Ansicht zusammen mit der ausgewählten NC-Zeile."
+      }
+    ]
+  },
+  "getting-started": {
+    "alt": "ZIMA-CAD-Dialog Neues Dokument mit ausgewähltem Bauteil, dem Namen model, der Umgebung Modellierung sowie OK und Abbrechen.",
+    "markers": [
+      {
+        "title": "Dokument benennen",
+        "body": "Geben Sie den Dokumentnamen unter „Dateiname“ ein. Das Beispiel verwendet den benutzerdefinierten Namen model."
+      },
+      {
+        "title": "Bauteil wählen",
+        "body": "Wählen Sie „Bauteil“ für ein Bauteildokument. „Baugruppe“ erstellt eine Baugruppe und „Zeichnung“ eine Zeichnung; ihre Optionsfelder stehen darunter."
+      },
+      {
+        "title": "Bauteilumgebung auswählen",
+        "body": "Wählen Sie neben „Bauteil“ die Bauteilumgebung. Hier ist „Modellierung“ für die gewöhnliche Bauteilmodellierung ausgewählt."
+      },
+      {
+        "title": "Ausgewähltes Dokument erstellen",
+        "body": "Klicken Sie nach dem Prüfen von Name, Dokumenttyp und Umgebung auf OK. Dieser Screenshot zeigt den Erstellungsdialog, bevor ein Dokument erstellt wurde."
+      }
+    ]
+  },
+  "sweep": {
+    "alt": "Der anfängliche ZIMA-CAD-Dialog für 2D-Sweep-Eigenschaften zeigt die Auswahl XY, die Schaltfläche Pfadskizze, zwei Profilstationen und leere Platzierungsreferenzen.",
+    "markers": [
+      {
+        "title": "Pfadebene wählen",
+        "body": "Klicken Sie auf XY, XZ oder YZ, um die Containerebene für die Pfadskizze zu wählen. In dieser Aufnahme ist XY ausgewählt.",
+        "x": 3.18,
+        "y": 51.6
+      },
+      {
+        "title": "Pfadskizze definieren",
+        "body": "Klicken Sie auf „Bahnskizze…“, um den Sweep-Pfad zu bearbeiten. Die Tabelle der Platzierungsreferenzen darüber ist in dieser anfänglichen Definition leer.",
+        "x": 92.22,
+        "y": 51.66
+      },
+      {
+        "title": "Stationsprofile definieren",
+        "body": "Klicken Sie in der Stationszeile auf „Skizze“, um deren Profil zu bearbeiten. Die erste Zeile lautet „1 — Anfang“ und die zweite „1 — Ende“. Beide fordern derzeit mit „Erstes Profil ausfüllen“ zur Eingabe des ersten Profils auf.",
+        "x": 42.56,
+        "y": 65.01
+      },
+      {
+        "title": "Vollständigen Sweep bestätigen",
+        "body": "Klicken Sie nach dem Definieren des Pfads und der benötigten Profile auf OK, um den Sweep zu validieren und zu berechnen. „Abbrechen“ verwirft ausstehende Änderungen. Diese Aufnahme zeigt die Einrichtungssteuerungen, kein berechnetes Sweep-Ergebnis.",
+        "x": 75.25,
+        "y": 97.79
+      }
+    ]
+  },
+  "assembly": {
+    "alt": "Die ZIMA-CAD-Komponenteneigenschaften in einer Baugruppe zeigen ein Quellbauteil, drei zugeordnete Ursprungsebenen mit Nullversatz, unabhängige Inspektionsaugen und null verbleibende Freiheitsgrade.",
+    "markers": [
+      {
+        "title": "Quellbauteil prüfen",
+        "body": "Das Feld „Quelle“ weist component-reference.prtz als Quelle dieses Vorkommens aus. Der Baugruppenbaum enthält zwei Vorkommen dieses Bauteils."
+      },
+      {
+        "title": "Platzierungspaare lesen",
+        "body": "Die Spalten „Dieses Teil“ und „Ziel“ ordnen die Komponenten- und Zielreferenzen einander zu. Hier sind XY, YZ und XZ gepaart, jeweils mit dem Typ „Fläche“ und einem Versatz von 0,000 mm."
+      },
+      {
+        "title": "Jede Referenz unabhängig prüfen",
+        "body": "Klicken Sie auf das Auge unter „Teil anzeigen“, um die Komponentenreferenz zu prüfen, oder auf das benachbarte Auge unter „Ziel anzeigen“, um die Zielreferenz zu prüfen."
+      },
+      {
+        "title": "Verbleibende Freiheit prüfen",
+        "body": "„Verbleibende Freiheitsgrade: 0“ meldet für diese drei Ebenenpaare keine verbleibenden Freiheitsgrade. Klicken Sie unten rechts auf OK, um die ausstehende Platzierung zu bestätigen; „Abbrechen“ verwirft deren Änderungen."
+      }
+    ]
+  },
+  "drawings": {
+    "alt": "Die ZIMA-CAD-Eigenschaften einer Zeichnungsansicht zeigen das Quellmodell, Zeilen für die Ansichtsbezeichnung, eine benutzerdefinierte Ausrichtung, den Modus für sichtbare Kanten, den Maßstab 0.500 und die Blattposition.",
+    "markers": [
+      {
+        "title": "Quellmodell wählen",
+        "body": "Öffnen Sie „Quelle“, um die Ansichtsquelle auszuwählen, oder klicken Sie auf „Datei“, um eine Datei auszuwählen. Die aktuelle Quelle lautet Drawing source — „Basismodell (nativ)“."
+      },
+      {
+        "title": "Projektionsausrichtung einstellen",
+        "body": "Öffnen Sie „Standardansicht:“, um eine Grundansicht zu wählen. Hier ist „Benutzerdefinierte Orientierung“ ausgewählt, mit den Winkeln horizontal 17°, vertikal −23° und in der Ebene 31° in den Feldern darunter."
+      },
+      {
+        "title": "Zeichnungsmaßstab einstellen",
+        "body": "Die Auswahl „Maßstab:“ steht auf „Benutzerdefiniert“ und „Wert“ beträgt 0,500, entsprechend der Bezeichnung M1:2 darüber. Die Felder X und Y darunter positionieren die Ansicht auf dem Blatt in Millimetern."
+      },
+      {
+        "title": "Ansichtseigenschaften bestätigen",
+        "body": "Klicken Sie auf OK, um die Ansichtseinstellungen zu bestätigen, oder auf „Abbrechen“, um ausstehende Änderungen zu verwerfen. Diese Aufnahme zeigt den Dialog zur Ansichtsdefinition; die projizierte Blattgeometrie liegt außerhalb des Screenshots."
+      }
+    ]
+  },
+  "render": {
+    "alt": "Die ZIMA-CAD-Eigenschaften eines Scheinwerfers in einem Render-Körper zeigen das ausgewählte Licht im Baum, Platzierungssteuerungen, die weiße Farbe, 1000 lm Lichtstrom und einen 45-Grad-Kegel mit seinem Szenensymbol.",
+    "markers": [
+      {
+        "title": "Szenenlicht identifizieren",
+        "body": "Unter „Render-Körper 1“ ist „Strahler 1“ neben „Kamera 1“ und „Sonne 1“ ausgewählt. Die geöffneten Eigenschaften bearbeiten den Scheinwerfer."
+      },
+      {
+        "title": "Farbe und Lichtstrom einstellen",
+        "body": "Bearbeiten Sie „Farbe (#RRGGBB)“ für die Lichtfarbe und „Lichtstrom“ für den Lichtstrom. Dieses Beispiel verwendet #ffffff und 1000 lm, wobei „Licht aktiviert“ aktiviert ist."
+      },
+      {
+        "title": "Scheinwerferkegel einstellen",
+        "body": "Bearbeiten Sie „Kegelwinkel“, um den Kegelwinkel zu ändern; er beträgt hier 45°. „Lichtradius“ beträgt 5 mm und „Randweichheit“ 0,25 in den benachbarten Feldern."
+      },
+      {
+        "title": "Licht und Szene zuordnen",
+        "body": "Der cyanfarbene Kegel in der Modellansicht ist das Scheinwerfersymbol. „Markierung in der Ansicht anzeigen“ ist im Dialog aktiviert. Klicken Sie unten rechts auf OK, um die ausstehenden Lichteinstellungen zu bestätigen."
+      }
+    ]
+  }
+}

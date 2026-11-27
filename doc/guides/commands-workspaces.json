@@ -1,0 +1,2704 @@
+{
+  "viewSelectionAction": {
+    "slug": "command-view-selection",
+    "group": "shared",
+    "sources": [
+      "cpp/app/workspace/actions.cpp"
+    ],
+    "locales": {
+      "cs": {
+        "title": "Výběr",
+        "intro": "Zapíná běžný výběr objektů v modelovém pohledu.",
+        "prerequisites": "Otevřete model; dostupné objekty určuje aktivní dokument, těleso a pracovní režim.",
+        "steps": [
+          "Zapněte tlačítko Výběr, pokud není stisknuté.",
+          "Najeďte na objekt a potvrďte jej jedním levým kliknutím.",
+          "Sledujte odpovídající výběr ve stromu; dvojklikem na prvek zobrazte jeho kóty."
+        ],
+        "result": "Objekt je vybrán pro následnou práci bez změny geometrie.",
+        "note": "Mimo skicu tlačítko přepíná výběr. Ve skice ukončí aktuální kreslicí nástroj a obnoví výběr; dvojklik na prvek sám neotevírá Vlastnosti."
+      },
+      "en": {
+        "title": "Selection",
+        "intro": "Enables ordinary object selection in the model view.",
+        "prerequisites": "Open a model; the active document, Body and workspace determine eligible objects.",
+        "steps": [
+          "Turn Selection on if its button is unchecked.",
+          "Hover over an object and confirm it with one left click.",
+          "Check the corresponding Tree selection; double-click a feature to expose its dimensions."
+        ],
+        "result": "The object is selected for subsequent work without changing geometry.",
+        "note": "Outside Sketch editing the button toggles selection. In a Sketch it finishes the current drawing tool and restores selection; double-clicking a feature does not itself open Properties."
+      },
+      "de": {
+        "title": "Auswahl",
+        "intro": "Aktiviert die normale Objektauswahl in der Modellansicht.",
+        "prerequisites": "Öffnen Sie ein Modell; aktives Dokument, Körper und Arbeitsbereich bestimmen die verfügbaren Objekte.",
+        "steps": [
+          "Schalten Sie Auswahl ein, falls die Schaltfläche nicht gedrückt ist.",
+          "Zeigen Sie auf ein Objekt und bestätigen Sie es mit einem Linksklick.",
+          "Prüfen Sie die entsprechende Baumauswahl; ein Doppelklick auf ein Formelement zeigt seine Maße."
+        ],
+        "result": "Das Objekt ist ohne Geometrieänderung für weitere Arbeit ausgewählt.",
+        "note": "Außerhalb der Skizzenbearbeitung schaltet die Taste die Auswahl um. In einer Skizze beendet sie das Zeichenwerkzeug. Ein Doppelklick auf ein Formelement öffnet nicht automatisch Eigenschaften."
+      },
+      "fr": {
+        "title": "Sélection",
+        "intro": "Active la sélection ordinaire des objets dans la vue du modèle.",
+        "prerequisites": "Ouvrez un modèle ; le document, le corps et l’espace de travail actifs déterminent les objets accessibles.",
+        "steps": [
+          "Activez Sélection si le bouton est désactivé.",
+          "Survolez un objet et confirmez par un clic gauche.",
+          "Vérifiez la sélection correspondante dans l’arbre ; double-cliquez sur une fonction pour afficher ses cotes."
+        ],
+        "result": "L’objet est sélectionné pour la suite sans modifier sa géométrie.",
+        "note": "Hors esquisse, le bouton bascule la sélection. Dans une esquisse, il termine l’outil de dessin et rétablit la sélection. Le double-clic sur une fonction n’ouvre pas ses propriétés."
+      },
+      "ru": {
+        "title": "Выбор",
+        "intro": "Включает обычный выбор объектов в окне модели.",
+        "prerequisites": "Откройте модель; доступные объекты определяются активным документом, телом и рабочим режимом.",
+        "steps": [
+          "Включите кнопку Выбор, если она не нажата.",
+          "Наведите указатель на объект и подтвердите одним щелчком левой кнопки.",
+          "Проверьте соответствующий выбор в дереве; двойной щелчок по элементу показывает его размеры."
+        ],
+        "result": "Объект выбран для дальнейшей работы без изменения геометрии.",
+        "note": "Вне редактирования эскиза кнопка переключает выбор. В эскизе она завершает текущий инструмент рисования. Двойной щелчок по элементу сам по себе не открывает свойства."
+      }
+    }
+  },
+  "createSectionAction": {
+    "slug": "command-create-section",
+    "group": "shared",
+    "dialogCapture": "section",
+    "sources": [
+      "cpp/app/workspace/actions.cpp",
+      "cpp/app/section_command.cpp",
+      "cpp/app/section_properties_dialog.hpp"
+    ],
+    "locales": {
+      "cs": {
+        "title": "Vytvořit řez",
+        "intro": "Vytvoří uložený řez pro prohlížení dílu nebo sestavy.",
+        "prerequisites": "Aktivní dokument musí být současně zobrazeným dílem nebo sestavou; ukončete skicu a ostatní Vlastnosti.",
+        "steps": [
+          "Spusťte příkaz a nastavte umístění řezu pomocí referencí nebo číselných hodnot.",
+          "Otevřete jeho skicu a nakreslete otevřenou čáru nebo navazující lomenou čáru.",
+          "Potvrďte skicu, zkontrolujte směr řezu a nastavení řezání či šrafování jednotlivých těles.",
+          "Potvrďte Vlastnosti tlačítkem OK."
+        ],
+        "result": "Definice řezu zůstane v dokumentu pro opakované použití.",
+        "note": "Řez neslouží k odebrání materiálu. Zrušit zahodí rozepsanou definici; uzavřený profil není platnou řeznou cestou."
+      },
+      "en": {
+        "title": "Create section",
+        "intro": "Creates a saved section for inspecting a Part or Assembly.",
+        "prerequisites": "The active document must also be the displayed Part or Assembly; finish Sketch editing and other Properties first.",
+        "steps": [
+          "Start the command and position the section with references or numeric values.",
+          "Open its Sketch and draw an open line or connected polyline.",
+          "Confirm the Sketch, then review the cutting direction and per-component cutting or hatching settings.",
+          "Confirm Properties with OK."
+        ],
+        "result": "The section definition remains in the document for reuse.",
+        "note": "A section does not remove model material. Cancel discards the pending definition; a closed profile is not a valid cutting path."
+      },
+      "de": {
+        "title": "Schnitt erstellen",
+        "intro": "Erstellt einen gespeicherten Schnitt zur Betrachtung eines Teils oder einer Baugruppe.",
+        "prerequisites": "Das aktive Dokument muss zugleich das angezeigte Teil oder die angezeigte Baugruppe sein; schließen Sie Skizze und Eigenschaften.",
+        "steps": [
+          "Starten Sie den Befehl und platzieren Sie den Schnitt über Referenzen oder Zahlenwerte.",
+          "Öffnen Sie seine Skizze und zeichnen Sie eine offene Linie oder zusammenhängende Polylinie.",
+          "Bestätigen Sie die Skizze und prüfen Sie Schnittrichtung sowie Schnitt- und Schraffureinstellungen der Komponenten.",
+          "Bestätigen Sie die Eigenschaften mit OK."
+        ],
+        "result": "Die Schnittdefinition bleibt zur Wiederverwendung gespeichert.",
+        "note": "Der Schnitt entfernt kein Modellmaterial. Abbrechen verwirft den Entwurf; geschlossene Profile sind als Schnittpfad unzulässig."
+      },
+      "fr": {
+        "title": "Créer une coupe",
+        "intro": "Crée une coupe enregistrée pour examiner une pièce ou un assemblage.",
+        "prerequisites": "Le document actif doit être la pièce ou l’assemblage affiché ; terminez l’esquisse et fermez les autres propriétés.",
+        "steps": [
+          "Lancez la commande et placez la coupe par références ou valeurs numériques.",
+          "Ouvrez son esquisse et dessinez une ligne ouverte ou une polyligne continue.",
+          "Validez l’esquisse, puis vérifiez le sens de coupe et les réglages de coupe ou de hachures par composant.",
+          "Validez les propriétés avec OK."
+        ],
+        "result": "La définition reste enregistrée pour être réutilisée.",
+        "note": "La coupe ne retire aucune matière du modèle. Annuler abandonne le brouillon ; un profil fermé ne constitue pas un trajet de coupe valide."
+      },
+      "ru": {
+        "title": "Создать разрез",
+        "intro": "Создаёт сохранённый разрез для просмотра детали или сборки.",
+        "prerequisites": "Активный документ должен быть одновременно отображаемой деталью или сборкой; завершите эскиз и закройте другие свойства.",
+        "steps": [
+          "Запустите команду и задайте положение разреза ссылками или числовыми значениями.",
+          "Откройте его эскиз и начертите открытую линию или связную ломаную.",
+          "Подтвердите эскиз, проверьте направление разреза и настройки рассечения или штриховки компонентов.",
+          "Подтвердите свойства кнопкой OK."
+        ],
+        "result": "Определение разреза сохраняется в документе для повторного использования.",
+        "note": "Разрез не удаляет материал модели. Отмена отбрасывает черновик; замкнутый профиль недопустим в качестве линии разреза."
+      }
+    }
+  },
+  "mirrorAction": {
+    "slug": "command-mirror",
+    "group": "shared",
+    "dialogCapture": "mirror",
+    "sources": [
+      "cpp/app/workspace/actions.cpp",
+      "cpp/app/derived_copy_command.cpp",
+      "cpp/app/derived_copy_dialog.hpp"
+    ],
+    "locales": {
+      "cs": {
+        "title": "Zrcadlo",
+        "intro": "Vytváří odkazovanou zrcadlenou kopii zdrojového solidu, tělesa nebo komponenty.",
+        "prerequisites": "Uvnitř tělesa musí zdrojový solid předcházet vložení; na úrovni sestavy použijte její bezprostřední komponentu.",
+        "steps": [
+          "Spusťte Zrcadlo a vyberte Zdroj ve stromu nebo pohledu.",
+          "Umístěte vlastní počátek zrcadla pomocí společných referencí.",
+          "Vyberte jeho rovinu XY, YZ nebo XZ a zkontrolujte náhled.",
+          "Potvrďte OK."
+        ],
+        "result": "Vznikne kopie zachovávající odkaz na zdroj a jeho přidávací či odebírací význam.",
+        "note": "Cizí počátky a rovinné plochy nejsou rovinou zrcadlení. Zrušit zachová původní stav; skici a zaoblení nejsou samostatnými zdrojovými solidy."
+      },
+      "en": {
+        "title": "Mirror",
+        "intro": "Creates a referenced mirrored copy of a source solid, Body or component.",
+        "prerequisites": "Inside a Body, the source solid must precede insertion; in an Assembly use an immediate owned component.",
+        "steps": [
+          "Start Mirror and select the Source in the Tree or view.",
+          "Position the mirror's own Origin using the shared references.",
+          "Choose its XY, YZ or XZ plane and inspect the preview.",
+          "Confirm with OK."
+        ],
+        "result": "The copy retains its source reference and the source's additive or subtractive meaning.",
+        "note": "Foreign Origins and planar faces cannot define the mirror plane. Cancel preserves the original state; Sketches and Fillets are not independent source solids."
+      },
+      "de": {
+        "title": "Spiegelung",
+        "intro": "Erstellt eine referenzierte gespiegelte Kopie eines Volumenelements, Körpers oder einer Komponente.",
+        "prerequisites": "Innerhalb eines Körpers muss die Quelle vor der Einfügestelle liegen; in einer Baugruppe ist eine unmittelbar gehörende Komponente erforderlich.",
+        "steps": [
+          "Starten Sie Spiegelung und wählen Sie die Quelle im Baum oder in der Ansicht.",
+          "Platzieren Sie den eigenen Ursprung der Spiegelung über die gemeinsamen Referenzen.",
+          "Wählen Sie seine XY-, YZ- oder XZ-Ebene und prüfen Sie die Vorschau.",
+          "Bestätigen Sie mit OK."
+        ],
+        "result": "Die Kopie behält Quellreferenz und addierende beziehungsweise abtragende Wirkung.",
+        "note": "Fremde Ursprünge und ebene Flächen sind keine Spiegelebenen. Abbrechen erhält den Ausgangszustand; Skizzen und Verrundungen sind keine unabhängigen Volumenquellen."
+      },
+      "fr": {
+        "title": "Symétrie",
+        "intro": "Crée une copie symétrique liée à un solide, un corps ou un composant.",
+        "prerequisites": "Dans un corps, le solide source doit précéder l’insertion ; dans un assemblage, utilisez un composant directement possédé.",
+        "steps": [
+          "Lancez Symétrie et sélectionnez la source dans l’arbre ou la vue.",
+          "Placez l’origine propre de la symétrie avec les références communes.",
+          "Choisissez son plan XY, YZ ou XZ et examinez l’aperçu.",
+          "Validez avec OK."
+        ],
+        "result": "La copie conserve sa référence source et son rôle d’ajout ou de retrait de matière.",
+        "note": "Les origines étrangères et les faces planes ne définissent pas le plan de symétrie. Annuler conserve l’état initial ; esquisses et congés ne sont pas des solides sources indépendants."
+      },
+      "ru": {
+        "title": "Зеркальное отражение",
+        "intro": "Создаёт связанную зеркальную копию исходного объёмного элемента, тела или компонента.",
+        "prerequisites": "Внутри тела исходный элемент должен предшествовать месту вставки; в сборке используйте непосредственно принадлежащий ей компонент.",
+        "steps": [
+          "Запустите отражение и выберите источник в дереве или окне модели.",
+          "Разместите собственное начало координат отражения общими ссылками.",
+          "Выберите его плоскость XY, YZ или XZ и проверьте предварительный вид.",
+          "Нажмите OK."
+        ],
+        "result": "Копия сохраняет ссылку на источник и его добавляющий либо вычитающий смысл.",
+        "note": "Чужие начала координат и плоские грани не задают плоскость отражения. Отмена сохраняет исходное состояние; эскизы и скругления не являются независимыми объёмными источниками."
+      }
+    }
+  },
+  "patternAction": {
+    "slug": "command-pattern",
+    "group": "shared",
+    "dialogCapture": "linear-pattern",
+    "sources": [
+      "cpp/app/workspace/actions.cpp",
+      "cpp/app/derived_copy_command.cpp",
+      "cpp/app/derived_copy_dialog.hpp"
+    ],
+    "locales": {
+      "cs": {
+        "title": "Pole",
+        "intro": "Opakuje odkazovaný zdroj v lineárním nebo kruhovém poli.",
+        "prerequisites": "Připravte předcházející zdrojový solid, dostupné těleso nebo bezprostřední komponentu aktivní sestavy.",
+        "steps": [
+          "Vyberte Zdroj a umístěte vlastní počátek pole.",
+          "Zvolte lineární nebo kruhový typ; použijte pouze osy tohoto počátku.",
+          "Nastavte počty a rozteče, případně úhel; u lineárního pole určete směr každé řady.",
+          "Zkontrolujte náhled a potvrďte OK."
+        ],
+        "result": "Vzniknou odkazované kopie; původní zdroj zůstane samostatný.",
+        "note": "Počet zahrnuje zdroj a celkem lze mít nejvýše 1000 výskytů. Symetrický počet je lichý. Zrušit zahodí návrh."
+      },
+      "en": {
+        "title": "Pattern",
+        "intro": "Repeats a referenced source in a linear or circular pattern.",
+        "prerequisites": "Prepare a preceding source solid, available Body or immediate component of the active Assembly.",
+        "steps": [
+          "Select the Source and place the pattern's own Origin.",
+          "Choose linear or circular mode; use only axes of that Origin.",
+          "Set counts and spacings or angle; choose each linear direction's distribution.",
+          "Inspect the preview and confirm with OK."
+        ],
+        "result": "Referenced copies are created while the original source remains independent.",
+        "note": "Counts include the source, with at most 1000 total occurrences. Symmetric counts are odd. Cancel discards the draft."
+      },
+      "de": {
+        "title": "Muster",
+        "intro": "Wiederholt eine referenzierte Quelle als lineares oder kreisförmiges Muster.",
+        "prerequisites": "Bereiten Sie ein vorhergehendes Volumenelement, einen verfügbaren Körper oder eine unmittelbare Komponente der aktiven Baugruppe vor.",
+        "steps": [
+          "Wählen Sie die Quelle und platzieren Sie den eigenen Musterursprung.",
+          "Wählen Sie linearen oder kreisförmigen Modus; verwenden Sie ausschließlich dessen Achsen.",
+          "Stellen Sie Anzahlen und Abstände oder Winkel sowie die Verteilung jeder linearen Richtung ein.",
+          "Prüfen Sie die Vorschau und bestätigen Sie mit OK."
+        ],
+        "result": "Referenzierte Kopien entstehen; die ursprüngliche Quelle bleibt unabhängig.",
+        "note": "Die Anzahl enthält die Quelle, insgesamt höchstens 1000 Vorkommen. Symmetrische Anzahlen sind ungerade. Abbrechen verwirft den Entwurf."
+      },
+      "fr": {
+        "title": "Répétition",
+        "intro": "Répète une source liée selon un réseau linéaire ou circulaire.",
+        "prerequisites": "Préparez un solide antérieur, un corps disponible ou un composant direct de l’assemblage actif.",
+        "steps": [
+          "Sélectionnez la source et placez l’origine propre de la répétition.",
+          "Choisissez le mode linéaire ou circulaire et uniquement les axes de cette origine.",
+          "Réglez les nombres et espacements ou l’angle, puis la répartition de chaque direction linéaire.",
+          "Examinez l’aperçu et validez avec OK."
+        ],
+        "result": "Des copies liées sont créées ; la source originale reste indépendante.",
+        "note": "Le nombre inclut la source, avec au maximum 1000 occurrences au total. Les nombres symétriques sont impairs. Annuler abandonne le brouillon."
+      },
+      "ru": {
+        "title": "Массив",
+        "intro": "Повторяет связанный источник в линейном или круговом массиве.",
+        "prerequisites": "Подготовьте предшествующий объёмный элемент, доступное тело либо непосредственный компонент активной сборки.",
+        "steps": [
+          "Выберите источник и разместите собственное начало координат массива.",
+          "Выберите линейный или круговой режим; используйте только оси этого начала координат.",
+          "Задайте количества и шаги либо угол, а также распределение каждого линейного направления.",
+          "Проверьте предварительный вид и нажмите OK."
+        ],
+        "result": "Создаются связанные копии, а исходный объект остаётся независимым.",
+        "note": "Количество включает источник; допускается не более 1000 вхождений всего. Симметричное количество нечётное. Отмена отбрасывает черновик."
+      }
+    }
+  },
+  "insertSymbolAction": {
+    "slug": "command-insert-symbol",
+    "group": "shared",
+    "sources": [
+      "cpp/app/workspace/actions.cpp",
+      "cpp/app/symbol_command.cpp",
+      "cpp/app/symbol_properties_dialog.hpp",
+      "cpp/app/symbol_attachment_dialog.hpp"
+    ],
+    "locales": {
+      "cs": {
+        "title": "Symbol",
+        "intro": "Vkládá nativní knihovní symbol do skici nebo jako anotaci modelu.",
+        "prerequisites": "Otevřete upravitelný kontext a připravte soubor .symz; v samotné skice dokumentu Symbol není toto vložení dostupné.",
+        "steps": [
+          "Spusťte Symbol a vyberte knihovní soubor.",
+          "Zvolte variantu a vyplňte nabízené textové hodnoty.",
+          "Ve skice určete polohu; v modelu vyberte geometrii pro uchycení a nastavte odkazovou čáru či odsazení.",
+          "Zkontrolujte měřítko a potvrďte OK."
+        ],
+        "result": "Dokument obsahuje vlastní vloženou definici a hodnoty symbolu.",
+        "note": "Změna knihovny již vloženou kopii automaticky neaktualizuje. Zrušit zahodí náhled a knihovní soubor nemění."
+      },
+      "en": {
+        "title": "Symbol",
+        "intro": "Inserts a native library symbol into a Sketch or as a model annotation.",
+        "prerequisites": "Open an editable context and prepare a .symz file; insertion is unavailable inside the Sketch of a Symbol document itself.",
+        "steps": [
+          "Start Symbol and choose the library file.",
+          "Select its variant and fill the offered text values.",
+          "In a Sketch set its position; in the model choose attachment geometry and adjust the leader or offsets.",
+          "Review the scale and confirm with OK."
+        ],
+        "result": "The document contains its own embedded symbol definition and values.",
+        "note": "Changing the library does not automatically update inserted copies. Cancel discards the preview without modifying the library file."
+      },
+      "de": {
+        "title": "Symbol",
+        "intro": "Fügt ein natives Bibliothekssymbol in eine Skizze oder als Modellannotation ein.",
+        "prerequisites": "Öffnen Sie einen bearbeitbaren Kontext und halten Sie eine .symz-Datei bereit; in der Skizze eines Symboldokuments ist diese Einfügung nicht verfügbar.",
+        "steps": [
+          "Starten Sie Symbol und wählen Sie die Bibliotheksdatei.",
+          "Wählen Sie Variante und angebotene Textwerte.",
+          "Bestimmen Sie in der Skizze die Position; wählen Sie im Modell die Befestigungsgeometrie und passen Sie Führungslinie oder Versätze an.",
+          "Prüfen Sie den Maßstab und bestätigen Sie mit OK."
+        ],
+        "result": "Definition und Werte werden im Dokument eingebettet.",
+        "note": "Bibliotheksänderungen aktualisieren vorhandene Kopien nicht automatisch. Abbrechen verwirft die Vorschau ohne Änderung der Bibliotheksdatei."
+      },
+      "fr": {
+        "title": "Symbole",
+        "intro": "Insère un symbole natif de bibliothèque dans une esquisse ou comme annotation du modèle.",
+        "prerequisites": "Ouvrez un contexte modifiable et préparez un fichier .symz ; cette insertion est indisponible dans l’esquisse d’un document Symbole.",
+        "steps": [
+          "Lancez Symbole et choisissez le fichier.",
+          "Sélectionnez sa variante et renseignez les textes proposés.",
+          "Dans une esquisse, placez-le ; dans le modèle, sélectionnez la géométrie d’attache et réglez le repère ou les décalages.",
+          "Vérifiez l’échelle et validez avec OK."
+        ],
+        "result": "Le document intègre sa propre définition du symbole et ses valeurs.",
+        "note": "Modifier la bibliothèque n’actualise pas les copies insérées. Annuler abandonne l’aperçu sans modifier le fichier source."
+      },
+      "ru": {
+        "title": "Символ",
+        "intro": "Вставляет собственный библиотечный символ в эскиз или как аннотацию модели.",
+        "prerequisites": "Откройте редактируемый контекст и подготовьте файл .symz; вставка недоступна внутри эскиза самого документа символа.",
+        "steps": [
+          "Запустите Символ и выберите библиотечный файл.",
+          "Выберите вариант и заполните предложенные текстовые значения.",
+          "В эскизе задайте положение; в модели выберите геометрию привязки и настройте выноску либо смещения.",
+          "Проверьте масштаб и нажмите OK."
+        ],
+        "result": "Документ содержит собственное встроенное определение символа и его значения.",
+        "note": "Изменение библиотеки не обновляет ранее вставленные копии автоматически. Отмена отбрасывает предварительный вид, не меняя библиотечный файл."
+      }
+    }
+  },
+  "createRenderAction": {
+    "slug": "command-create-render",
+    "group": "shared",
+    "sources": [
+      "cpp/app/workspace/toolbars.cpp",
+      "cpp/app/render_body_command.cpp",
+      "cpp/app/render_body_dialog.hpp"
+    ],
+    "locales": {
+      "cs": {
+        "title": "Vytvořit render",
+        "intro": "Vytvoří renderovací těleso se společnou scénou pro vypočtená tělesa dílu.",
+        "prerequisites": "Na úrovni seznamu těles dílu musí být dostupné platné vypočtené materiálové zdroje před místem vložení.",
+        "steps": [
+          "Spusťte Vytvořit render.",
+          "Zvolte viditelná tělesa nebo explicitní výběr zdrojů.",
+          "Zkontrolujte aktivní kameru, velikost obrázku, počet vzorků a další nastavení.",
+          "Potvrďte OK a aktivujte renderovací těleso pro další práci."
+        ],
+        "result": "Nová scéna obsahuje počáteční kameru podle aktuálního pohledu a slunce.",
+        "note": "Tento příkaz ještě nepočítá obrázek; použijte Vyrenderovat obrázek. Zrušit nevloží nové těleso."
+      },
+      "en": {
+        "title": "Create Render",
+        "intro": "Creates a Render Body sharing one scene across calculated Part Bodies.",
+        "prerequisites": "At the Part's Body-list level, valid calculated material sources must be available before the insertion point.",
+        "steps": [
+          "Start Create Render.",
+          "Choose visible Bodies or an explicit selection of sources.",
+          "Review the active camera, image size, sample count and other settings.",
+          "Confirm with OK and activate the Render Body for further work."
+        ],
+        "result": "The new scene includes an initial camera from the current view and a sun.",
+        "note": "This command does not render an image; use Render image separately. Cancel does not insert a new Body."
+      },
+      "de": {
+        "title": "Rendering erstellen",
+        "intro": "Erstellt einen Render-Körper mit gemeinsamer Szene für berechnete Körper eines Teils.",
+        "prerequisites": "Auf der Körperlistenebene des Teils müssen gültige berechnete Materialquellen vor der Einfügestelle verfügbar sein.",
+        "steps": [
+          "Starten Sie Rendering erstellen.",
+          "Wählen Sie sichtbare Körper oder eine ausdrückliche Quellauswahl.",
+          "Prüfen Sie aktive Kamera, Bildgröße, Abtastzahl und weitere Einstellungen.",
+          "Bestätigen Sie mit OK und aktivieren Sie den Render-Körper für die weitere Arbeit."
+        ],
+        "result": "Die neue Szene enthält eine Kamera aus der aktuellen Ansicht und eine Sonne.",
+        "note": "Dieser Befehl berechnet noch kein Bild; verwenden Sie anschließend Bild rendern. Abbrechen fügt keinen Körper ein."
+      },
+      "fr": {
+        "title": "Créer un rendu",
+        "intro": "Crée un corps de rendu partageant une scène entre plusieurs corps calculés d’une pièce.",
+        "prerequisites": "Au niveau de la liste des corps, des sources matérielles calculées valides doivent précéder l’insertion.",
+        "steps": [
+          "Lancez Créer un rendu.",
+          "Choisissez les corps visibles ou une sélection explicite de sources.",
+          "Vérifiez la caméra active, les dimensions de l’image, les échantillons et les autres réglages.",
+          "Validez avec OK puis activez le corps de rendu."
+        ],
+        "result": "La nouvelle scène contient une caméra issue de la vue actuelle et un soleil.",
+        "note": "Cette commande ne calcule pas encore l’image ; utilisez Calculer le rendu. Annuler n’insère aucun corps."
+      },
+      "ru": {
+        "title": "Создать визуализацию",
+        "intro": "Создаёт тело визуализации с общей сценой для рассчитанных тел детали.",
+        "prerequisites": "На уровне списка тел детали перед местом вставки должны быть доступны корректные рассчитанные материальные источники.",
+        "steps": [
+          "Запустите Создать визуализацию.",
+          "Выберите видимые тела либо задайте источники явно.",
+          "Проверьте активную камеру, размер изображения, число выборок и остальные параметры.",
+          "Нажмите OK и активируйте тело визуализации для дальнейшей работы."
+        ],
+        "result": "Новая сцена содержит начальную камеру из текущего вида и солнце.",
+        "note": "Команда ещё не рассчитывает изображение; отдельно используйте Выполнить визуализацию. Отмена не вставляет новое тело."
+      }
+    }
+  },
+  "createCamAction": {
+    "slug": "command-create-cam",
+    "group": "shared",
+    "sources": [
+      "cpp/app/workspace/toolbars.cpp",
+      "cpp/app/cam_body_command.cpp",
+      "cpp/app/cam_body_dialog.hpp"
+    ],
+    "locales": {
+      "cs": {
+        "title": "Vytvořit CAM",
+        "intro": "Vytvoří nastavení CAM pro obrábění polotovaru na cílový tvar.",
+        "prerequisites": "Otevřete samotný zdrojový díl na úrovni seznamu těles; potřebujete platný vypočtený polotovar a cílové těleso před vložením.",
+        "steps": [
+          "Spusťte Vytvořit CAM a vyberte polotovar, cíl a případné přípravky.",
+          "Nastavte pracovní souřadný systém a tříosý frézovací stroj.",
+          "Definujte nástroje, upínací skici a požadované obráběcí operace.",
+          "Potvrďte podřízené dialogy a nakonec celé nastavení tlačítkem OK."
+        ],
+        "result": "V historii vznikne nastavení připravené k explicitnímu výpočtu CAM.",
+        "note": "Vytvoření samo nepočítá úběr materiálu. Zrušit v hlavním dialogu zahodí i rozpracované podřízené změny."
+      },
+      "en": {
+        "title": "Create CAM",
+        "intro": "Creates a CAM setup for machining stock into a target shape.",
+        "prerequisites": "Open the source Part itself at Body-list level; valid calculated stock and target Bodies must precede insertion.",
+        "steps": [
+          "Start Create CAM and select stock, target and optional fixtures.",
+          "Set the work frame and three-axis milling machine.",
+          "Define tools, clamping Sketches and the required machining operations.",
+          "Confirm child dialogs, then confirm the complete setup with OK."
+        ],
+        "result": "A setup is added to history, ready for explicit CAM calculation.",
+        "note": "Creation does not calculate material removal. Cancel in the main dialog discards pending child-dialog changes as well."
+      },
+      "de": {
+        "title": "CAM erstellen",
+        "intro": "Erstellt eine CAM-Aufspannung zum Bearbeiten eines Rohteils auf die Zielform.",
+        "prerequisites": "Öffnen Sie das Quellteil selbst auf Körperlistenebene; gültige berechnete Rohteil- und Zielkörper müssen vor der Einfügestelle liegen.",
+        "steps": [
+          "Starten Sie CAM erstellen und wählen Sie Rohteil, Ziel und gegebenenfalls Vorrichtungen.",
+          "Definieren Sie Arbeitskoordinatensystem und dreiachsige Fräsmaschine.",
+          "Legen Sie Werkzeuge, Spannskizzen und Bearbeitungsoperationen fest.",
+          "Bestätigen Sie die Unterdialoge und anschließend die gesamte Aufspannung mit OK."
+        ],
+        "result": "Die Aufspannung wird für die ausdrückliche CAM-Berechnung in die Historie eingefügt.",
+        "note": "Das Erstellen berechnet keinen Materialabtrag. Abbrechen im Hauptdialog verwirft auch ausstehende Unterdialogänderungen."
+      },
+      "fr": {
+        "title": "Créer une FAO",
+        "intro": "Crée une configuration FAO pour usiner un brut jusqu’à la forme cible.",
+        "prerequisites": "Ouvrez la pièce source elle-même au niveau de la liste des corps ; brut et cible calculés doivent précéder l’insertion.",
+        "steps": [
+          "Lancez Créer une FAO et choisissez brut, cible et montages éventuels.",
+          "Définissez le repère de travail et la fraiseuse trois axes.",
+          "Préparez outils, esquisses de serrage et opérations d’usinage.",
+          "Validez les sous-dialogues, puis toute la configuration avec OK."
+        ],
+        "result": "Une configuration prête au calcul explicite est ajoutée à l’historique.",
+        "note": "La création ne calcule aucun enlèvement de matière. Annuler dans le dialogue principal abandonne aussi les modifications provisoires des sous-dialogues."
+      },
+      "ru": {
+        "title": "Создать CAM",
+        "intro": "Создаёт наладку CAM для обработки заготовки до целевой формы.",
+        "prerequisites": "Откройте саму исходную деталь на уровне списка тел; корректные рассчитанные заготовка и целевое тело должны предшествовать вставке.",
+        "steps": [
+          "Запустите Создать CAM и выберите заготовку, цель и при необходимости приспособления.",
+          "Задайте рабочую систему координат и трёхосевой фрезерный станок.",
+          "Определите инструменты, эскизы закрепления и операции обработки.",
+          "Подтвердите вложенные диалоги, затем всю наладку кнопкой OK."
+        ],
+        "result": "Наладка добавляется в историю для явного расчёта CAM.",
+        "note": "Создание не рассчитывает съём материала. Отмена в основном диалоге также отбрасывает неподтверждённые изменения вложенных диалогов."
+      }
+    }
+  },
+  "returnToAssemblyAction": {
+    "slug": "command-return-to-assembly",
+    "group": "shared",
+    "sources": [
+      "cpp/app/workspace/toolbars.cpp",
+      "cpp/app/workspace/context_menu.cpp",
+      "cpp/modules/workspace/src/component_source_operations.cpp"
+    ],
+    "locales": {
+      "cs": {
+        "title": "Zpět do sestavy",
+        "intro": "Ukončuje úpravy aktivovaného zdrojového dokumentu uvnitř zobrazené sestavy.",
+        "prerequisites": "Příkaz je dostupný při aktivované komponentě; nejprve dokončete její skicu a zavřete Vlastnosti.",
+        "steps": [
+          "Zkontrolujte, že rozpracované změny byly potvrzeny nebo zrušeny.",
+          "Klikněte na Zpět do sestavy.",
+          "Ověřte aktivní kontext ve stromu a dostupnost příkazů sestavy."
+        ],
+        "result": "Zobrazená sestava převezme aktivní editační kontext; celý sestavový pohled zůstává zachován.",
+        "note": "Přepnutí kontextu není příkaz Uložit ani Regenerovat. Změny zdrojového dílu zůstávají v jeho dokumentu."
+      },
+      "en": {
+        "title": "Return to assembly",
+        "intro": "Ends editing of an activated source document inside the displayed Assembly.",
+        "prerequisites": "The command is available while a component is activated; first finish its Sketch and close Properties.",
+        "steps": [
+          "Ensure pending edits have been confirmed or canceled.",
+          "Click Return to assembly.",
+          "Check the active Tree context and available Assembly commands."
+        ],
+        "result": "The displayed Assembly regains the active editing context while the complete assembly view remains visible.",
+        "note": "Changing context is neither Save nor Regenerate. Source Part changes remain in their source document."
+      },
+      "de": {
+        "title": "Zurück zur Baugruppe",
+        "intro": "Beendet die Bearbeitung eines aktivierten Quelldokuments innerhalb der angezeigten Baugruppe.",
+        "prerequisites": "Der Befehl ist bei aktivierter Komponente verfügbar; beenden Sie zunächst deren Skizze und schließen Sie Eigenschaften.",
+        "steps": [
+          "Bestätigen oder verwerfen Sie ausstehende Änderungen.",
+          "Klicken Sie auf Zurück zur Baugruppe.",
+          "Prüfen Sie den aktiven Baumkontext und die verfügbaren Baugruppenbefehle."
+        ],
+        "result": "Die angezeigte Baugruppe übernimmt wieder den aktiven Bearbeitungskontext; die vollständige Baugruppenansicht bleibt sichtbar.",
+        "note": "Der Kontextwechsel ist weder Speichern noch Regenerieren. Änderungen am Quellteil bleiben in dessen Dokument."
+      },
+      "fr": {
+        "title": "Retour à l’assemblage",
+        "intro": "Termine l’édition du document source activé dans l’assemblage affiché.",
+        "prerequisites": "La commande est disponible lorsqu’un composant est activé ; terminez son esquisse et fermez ses propriétés.",
+        "steps": [
+          "Validez ou annulez les modifications en cours.",
+          "Cliquez sur Retour à l’assemblage.",
+          "Vérifiez le contexte actif dans l’arbre et les commandes d’assemblage disponibles."
+        ],
+        "result": "L’assemblage affiché redevient le contexte modifiable, tout en conservant la vue complète.",
+        "note": "Changer de contexte n’enregistre ni ne régénère le modèle. Les modifications de la pièce source restent dans son propre document."
+      },
+      "ru": {
+        "title": "Вернуться к сборке",
+        "intro": "Завершает редактирование активированного исходного документа внутри отображаемой сборки.",
+        "prerequisites": "Команда доступна при активированном компоненте; сначала завершите его эскиз и закройте свойства.",
+        "steps": [
+          "Подтвердите либо отмените незавершённые изменения.",
+          "Нажмите Вернуться к сборке.",
+          "Проверьте активный контекст дерева и доступные команды сборки."
+        ],
+        "result": "Отображаемая сборка вновь становится активным контекстом редактирования, сохраняя полный вид сборки.",
+        "note": "Смена контекста не выполняет сохранение или регенерацию. Изменения исходной детали остаются в её собственном документе."
+      }
+    }
+  },
+  "createComponentAction": {
+    "slug": "command-create-component",
+    "group": "assembly",
+    "sources": [
+      "cpp/app/workspace/toolbars.cpp",
+      "cpp/app/workspace/documents.cpp"
+    ],
+    "locales": {
+      "cs": {
+        "title": "Vytvořit komponentu",
+        "intro": "Vytvoří nový zdrojový díl nebo podsestavu a vloží je do aktivní sestavy.",
+        "prerequisites": "Aktivujte sestavu, která má novou komponentu přímo vlastnit; zavřete ostatní Vlastnosti.",
+        "steps": [
+          "Spusťte Vytvořit komponentu a vyberte díl nebo sestavu.",
+          "Zadejte nový název souboru a potvrďte vytvoření dokumentu.",
+          "V následných Vlastnostech komponenty nastavte umístění a požadované reference.",
+          "Potvrďte OK a pokračujte v aktivovaném zdrojovém dokumentu."
+        ],
+        "result": "Nový nativní dokument se stane zdrojem bezprostředního výskytu komponenty.",
+        "note": "Zdrojový soubor je samostatný dokument. Zrušení následného vložení neznamená odstranění již vytvořeného souboru."
+      },
+      "en": {
+        "title": "Create component",
+        "intro": "Creates a new source Part or subassembly and inserts it into the active Assembly.",
+        "prerequisites": "Activate the Assembly that must directly own the component; close other Properties.",
+        "steps": [
+          "Start Create component and choose Part or Assembly.",
+          "Enter a new file name and confirm document creation.",
+          "In the following component Properties, set placement and the required references.",
+          "Confirm with OK and continue in the activated source document."
+        ],
+        "result": "The new native document becomes the source of an immediate component occurrence.",
+        "note": "The source file is a separate document. Canceling the subsequent insertion does not mean deleting the already created file."
+      },
+      "de": {
+        "title": "Komponente erstellen",
+        "intro": "Erstellt ein neues Quellteil oder eine Unterbaugruppe und fügt es in die aktive Baugruppe ein.",
+        "prerequisites": "Aktivieren Sie die Baugruppe, der die Komponente unmittelbar gehören soll; schließen Sie andere Eigenschaften.",
+        "steps": [
+          "Starten Sie Komponente erstellen und wählen Sie Teil oder Baugruppe.",
+          "Geben Sie einen neuen Dateinamen ein und bestätigen Sie die Dokumenterstellung.",
+          "Definieren Sie in den anschließenden Komponenteneigenschaften Platzierung und Referenzen.",
+          "Bestätigen Sie mit OK und arbeiten Sie im aktivierten Quelldokument weiter."
+        ],
+        "result": "Das neue native Dokument wird Quelle eines unmittelbaren Komponentenvorkommens.",
+        "note": "Die Quelldatei bleibt ein eigenes Dokument. Abbrechen der anschließenden Einfügung löscht nicht die bereits erstellte Datei."
+      },
+      "fr": {
+        "title": "Créer un composant",
+        "intro": "Crée une pièce source ou un sous-assemblage et l’insère dans l’assemblage actif.",
+        "prerequisites": "Activez l’assemblage qui doit posséder directement le composant ; fermez les autres propriétés.",
+        "steps": [
+          "Lancez Créer un composant et choisissez pièce ou assemblage.",
+          "Saisissez un nouveau nom de fichier et validez sa création.",
+          "Dans les propriétés du composant qui suivent, réglez placement et références.",
+          "Validez avec OK et poursuivez dans le document source activé."
+        ],
+        "result": "Le nouveau document natif devient la source d’une occurrence directement possédée.",
+        "note": "Le fichier source est un document distinct. Annuler l’insertion suivante ne supprime pas le fichier déjà créé."
+      },
+      "ru": {
+        "title": "Создать компонент",
+        "intro": "Создаёт новую исходную деталь или подсборку и вставляет её в активную сборку.",
+        "prerequisites": "Активируйте сборку, которой компонент должен принадлежать непосредственно; закройте другие свойства.",
+        "steps": [
+          "Запустите Создать компонент и выберите деталь либо сборку.",
+          "Введите новое имя файла и подтвердите создание документа.",
+          "В следующих свойствах компонента задайте положение и необходимые ссылки.",
+          "Нажмите OK и продолжите работу в активированном исходном документе."
+        ],
+        "result": "Новый собственный документ становится источником непосредственного вхождения компонента.",
+        "note": "Исходный файл является отдельным документом. Отмена последующей вставки не означает удаления уже созданного файла."
+      }
+    }
+  },
+  "insertComponentAction": {
+    "slug": "command-insert-component",
+    "group": "assembly",
+    "sources": [
+      "cpp/app/workspace/actions.cpp",
+      "cpp/app/workspace/assembly_commands.cpp"
+    ],
+    "locales": {
+      "cs": {
+        "title": "Vložit komponentu",
+        "intro": "Vkládá existující díl nebo podsestavu jako odkazovanou komponentu.",
+        "prerequisites": "Aktivujte vlastnící sestavu a připravte soubor .prtz nebo .asmz.",
+        "steps": [
+          "Spusťte Vložit komponentu a vyberte zdrojový soubor.",
+          "V otevřených Vlastnostech zkontrolujte zdroj a případnou variantu.",
+          "Zadejte polohové a orientační reference, případně číselné korekce.",
+          "Zkontrolujte zbývající stupně volnosti a potvrďte OK."
+        ],
+        "result": "Aktivní sestava získá vlastní bezprostřední výskyt zdrojového dokumentu.",
+        "note": "Zrušit obnoví sestavu před vložením. Vložení nesmí vytvořit cyklus závislostí; vnitřní komponenty podsestavy umisťuje jen jejich vlastní sestava."
+      },
+      "en": {
+        "title": "Insert component",
+        "intro": "Inserts an existing Part or subassembly as a referenced component.",
+        "prerequisites": "Activate the owning Assembly and prepare a .prtz or .asmz file.",
+        "steps": [
+          "Start Insert component and choose the source file.",
+          "Review the source and any variant in the opened Properties.",
+          "Enter position and orientation references, with numeric corrections where needed.",
+          "Review remaining degrees of freedom and confirm with OK."
+        ],
+        "result": "The active Assembly gains its own immediate occurrence of the source document.",
+        "note": "Cancel restores the Assembly before insertion. Insertion must not create a dependency cycle; internal subassembly components are positioned only by their own Assembly."
+      },
+      "de": {
+        "title": "Komponente einfügen",
+        "intro": "Fügt ein vorhandenes Teil oder eine Unterbaugruppe als referenzierte Komponente ein.",
+        "prerequisites": "Aktivieren Sie die besitzende Baugruppe und halten Sie eine .prtz- oder .asmz-Datei bereit.",
+        "steps": [
+          "Starten Sie Komponente einfügen und wählen Sie die Quelldatei.",
+          "Prüfen Sie Quelle und gegebenenfalls Variante in den Eigenschaften.",
+          "Definieren Sie Positions- und Orientierungsreferenzen sowie erforderliche Zahlenkorrekturen.",
+          "Prüfen Sie verbleibende Freiheitsgrade und bestätigen Sie mit OK."
+        ],
+        "result": "Die aktive Baugruppe erhält ein eigenes unmittelbares Vorkommen des Quelldokuments.",
+        "note": "Abbrechen stellt den Zustand vor dem Einfügen wieder her. Abhängigkeitszyklen sind unzulässig; interne Komponenten einer Unterbaugruppe werden nur von ihrer eigenen Baugruppe positioniert."
+      },
+      "fr": {
+        "title": "Insérer un composant",
+        "intro": "Insère une pièce ou un sous-assemblage existant comme composant lié.",
+        "prerequisites": "Activez l’assemblage propriétaire et préparez un fichier .prtz ou .asmz.",
+        "steps": [
+          "Lancez Insérer un composant et sélectionnez le fichier source.",
+          "Vérifiez la source et sa variante éventuelle dans les propriétés.",
+          "Définissez les références de position et d’orientation, avec les corrections numériques nécessaires.",
+          "Contrôlez les degrés de liberté restants et validez avec OK."
+        ],
+        "result": "L’assemblage actif reçoit sa propre occurrence directe du document source.",
+        "note": "Annuler restaure l’assemblage avant insertion. Aucun cycle de dépendances n’est autorisé ; les composants internes d’un sous-assemblage sont placés uniquement par leur assemblage propriétaire."
+      },
+      "ru": {
+        "title": "Вставить компонент",
+        "intro": "Вставляет существующую деталь или подсборку как связанный компонент.",
+        "prerequisites": "Активируйте владеющую сборку и подготовьте файл .prtz либо .asmz.",
+        "steps": [
+          "Запустите Вставить компонент и выберите исходный файл.",
+          "Проверьте источник и при необходимости вариант в открывшихся свойствах.",
+          "Задайте ссылки положения и ориентации, при необходимости числовые поправки.",
+          "Проверьте оставшиеся степени свободы и нажмите OK."
+        ],
+        "result": "Активная сборка получает собственное непосредственное вхождение исходного документа.",
+        "note": "Отмена восстанавливает сборку до вставки. Циклы зависимостей недопустимы; внутренние компоненты подсборки размещает только их собственная сборка."
+      }
+    }
+  },
+  "assemblyProjectCurveAction": {
+    "slug": "command-assembly-project-curve",
+    "group": "assembly",
+    "sources": [
+      "cpp/app/workspace/toolbars.cpp",
+      "cpp/app/workspace/primitive_properties.cpp",
+      "cpp/app/feature_parameter_panel.hpp"
+    ],
+    "locales": {
+      "cs": {
+        "title": "Promítnout křivku",
+        "intro": "Promítá rovinnou skicu na vybrané plochy jako referenční křivky sestavy.",
+        "prerequisites": "Aktivujte vlastnící sestavu s dostupnou cílovou geometrií; příkaz potřebuje vlastní vstupní skicu.",
+        "steps": [
+          "Spusťte Promítnout křivku a umístěte počátek prvku.",
+          "Otevřete a vytvořte jeho vstupní skicu, potom se vraťte do Vlastností.",
+          "Vyberte cílové plochy a směr promítání; podle potřeby jej obraťte.",
+          "Zkontrolujte náhled a potvrďte OK."
+        ],
+        "result": "Vzniknou prostorové křivky navázané na vstupní skicu a cílové reference.",
+        "note": "V sestavě je dostupný pouze křivkový výstup; příkaz nepřidává materiál ani nevytváří reliéf. Zrušit zahodí návrh."
+      },
+      "en": {
+        "title": "Project curve",
+        "intro": "Projects a planar Sketch onto selected faces as Assembly reference curves.",
+        "prerequisites": "Activate the owning Assembly with available target geometry; the command requires its own input Sketch.",
+        "steps": [
+          "Start Project curve and place the feature Origin.",
+          "Create its input Sketch, then return to Properties.",
+          "Select target faces and the projection direction; reverse it if needed.",
+          "Inspect the preview and confirm with OK."
+        ],
+        "result": "Spatial curves are linked to the input Sketch and target references.",
+        "note": "Only curve output is available in an Assembly; the command does not add material or create relief. Cancel discards the draft."
+      },
+      "de": {
+        "title": "Kurve projizieren",
+        "intro": "Projiziert eine ebene Skizze als Baugruppenreferenzkurven auf ausgewählte Flächen.",
+        "prerequisites": "Aktivieren Sie die besitzende Baugruppe mit verfügbarer Zielgeometrie; der Befehl benötigt eine eigene Eingabeskizze.",
+        "steps": [
+          "Starten Sie Kurve projizieren und platzieren Sie den Formelementursprung.",
+          "Erstellen Sie seine Eingabeskizze und kehren Sie zu den Eigenschaften zurück.",
+          "Wählen Sie Zielflächen und Projektionsrichtung; kehren Sie diese bei Bedarf um.",
+          "Prüfen Sie die Vorschau und bestätigen Sie mit OK."
+        ],
+        "result": "Raumkurven bleiben mit Eingabeskizze und Zielreferenzen verbunden.",
+        "note": "In Baugruppen ist nur Kurvenausgabe verfügbar; der Befehl fügt kein Material und kein Relief hinzu. Abbrechen verwirft den Entwurf."
+      },
+      "fr": {
+        "title": "Projeter une courbe",
+        "intro": "Projette une esquisse plane sur des faces sélectionnées comme courbes de référence d’assemblage.",
+        "prerequisites": "Activez l’assemblage propriétaire contenant la géométrie cible ; la commande nécessite sa propre esquisse d’entrée.",
+        "steps": [
+          "Lancez Projeter une courbe et placez l’origine de la fonction.",
+          "Créez son esquisse puis revenez aux propriétés.",
+          "Sélectionnez les faces cibles et la direction de projection ; inversez-la si nécessaire.",
+          "Examinez l’aperçu et validez avec OK."
+        ],
+        "result": "Les courbes spatiales restent liées à l’esquisse et aux références cibles.",
+        "note": "Dans un assemblage, seule la sortie en courbes est disponible ; aucun ajout de matière ni relief. Annuler abandonne le brouillon."
+      },
+      "ru": {
+        "title": "Проецировать кривую",
+        "intro": "Проецирует плоский эскиз на выбранные грани как опорные кривые сборки.",
+        "prerequisites": "Активируйте владеющую сборку с доступной целевой геометрией; команде требуется собственный входной эскиз.",
+        "steps": [
+          "Запустите Проецировать кривую и разместите начало координат элемента.",
+          "Создайте его входной эскиз и вернитесь к свойствам.",
+          "Выберите целевые грани и направление проецирования; при необходимости разверните его.",
+          "Проверьте предварительный вид и нажмите OK."
+        ],
+        "result": "Пространственные кривые связаны со входным эскизом и целевыми ссылками.",
+        "note": "В сборке доступен только результат в виде кривых; команда не добавляет материал и не создаёт рельеф. Отмена отбрасывает черновик."
+      }
+    }
+  },
+  "assemblyWrapCurveAction": {
+    "slug": "command-assembly-wrap-curve",
+    "group": "assembly",
+    "sources": [
+      "cpp/app/workspace/toolbars.cpp",
+      "cpp/app/workspace/primitive_properties.cpp",
+      "cpp/app/feature_parameter_panel.hpp"
+    ],
+    "locales": {
+      "cs": {
+        "title": "Nabalit křivku",
+        "intro": "Nabaluje vlastní rovinnou skicu na analytické plochy jako křivky sestavy.",
+        "prerequisites": "Aktivujte sestavu s vhodnou rovinnou, válcovou, kuželovou nebo kulovou cílovou plochou.",
+        "steps": [
+          "Spusťte Nabalit křivku a umístěte počátek určující ukotvení.",
+          "Vytvořte vstupní skicu a vraťte se do Vlastností.",
+          "Vyberte cílové plochy; různé podporované navazující plochy zadávejte v pořadí pokračování.",
+          "Zkontrolujte stranu, orientaci a náhled, potom potvrďte OK."
+        ],
+        "result": "Vzniknou odkazované křivky na cílových podporách.",
+        "note": "Sestava nabízí jen křivkový výstup, nikoli reliéf nebo materiálové operace. Libovolné volné plochy nejsou podporovaným analytickým nabalením. Zrušit zahodí návrh."
+      },
+      "en": {
+        "title": "Wrap curve",
+        "intro": "Wraps an owned planar Sketch onto analytic faces as Assembly curves.",
+        "prerequisites": "Activate an Assembly with a suitable planar, cylindrical, conical or spherical target face.",
+        "steps": [
+          "Start Wrap curve and place the Origin that defines its anchor.",
+          "Create the input Sketch and return to Properties.",
+          "Select target faces; enter different supported continuation faces in continuation order.",
+          "Check side, orientation and preview, then confirm with OK."
+        ],
+        "result": "Referenced curves are created on the target supports.",
+        "note": "Assemblies offer only curve output, not relief or material operations. Arbitrary freeform faces are outside supported analytic wrapping. Cancel discards the draft."
+      },
+      "de": {
+        "title": "Kurve aufwickeln",
+        "intro": "Wickelt eine eigene ebene Skizze als Baugruppenkurven auf analytische Flächen.",
+        "prerequisites": "Aktivieren Sie eine Baugruppe mit geeigneter ebener, zylindrischer, konischer oder kugelförmiger Zielfläche.",
+        "steps": [
+          "Starten Sie Kurve aufwickeln und platzieren Sie den verankernden Ursprung.",
+          "Erstellen Sie die Eingabeskizze und kehren Sie zu den Eigenschaften zurück.",
+          "Wählen Sie Zielflächen; unterschiedliche unterstützte Anschlussflächen werden in Fortsetzungsreihenfolge angegeben.",
+          "Prüfen Sie Seite, Orientierung und Vorschau und bestätigen Sie mit OK."
+        ],
+        "result": "Referenzierte Kurven entstehen auf den Zielstützflächen.",
+        "note": "Baugruppen bieten nur Kurvenausgabe, keine Relief- oder Materialoperationen. Beliebige Freiformflächen gehören nicht zum analytischen Aufwickeln. Abbrechen verwirft den Entwurf."
+      },
+      "fr": {
+        "title": "Enrouler une courbe",
+        "intro": "Enroule une esquisse plane propre sur des faces analytiques pour créer des courbes d’assemblage.",
+        "prerequisites": "Activez un assemblage avec une face cible plane, cylindrique, conique ou sphérique adaptée.",
+        "steps": [
+          "Lancez Enrouler une courbe et placez l’origine définissant son ancrage.",
+          "Créez l’esquisse d’entrée puis revenez aux propriétés.",
+          "Sélectionnez les faces cibles ; indiquez les différentes faces de continuation compatibles dans leur ordre.",
+          "Vérifiez côté, orientation et aperçu, puis validez avec OK."
+        ],
+        "result": "Des courbes liées sont créées sur les supports cibles.",
+        "note": "L’assemblage propose uniquement des courbes, sans relief ni opération matérielle. Les faces libres arbitraires ne sont pas compatibles. Annuler abandonne le brouillon."
+      },
+      "ru": {
+        "title": "Нанести кривую",
+        "intro": "Наносит собственный плоский эскиз на аналитические грани как кривые сборки.",
+        "prerequisites": "Активируйте сборку с подходящей плоской, цилиндрической, конической или сферической целевой гранью.",
+        "steps": [
+          "Запустите Нанести кривую и разместите начало координат, задающее привязку.",
+          "Создайте входной эскиз и вернитесь к свойствам.",
+          "Выберите целевые грани; различные поддерживаемые продолжающие грани указывайте в порядке продолжения.",
+          "Проверьте сторону, ориентацию и предварительный вид, затем нажмите OK."
+        ],
+        "result": "На целевых поверхностях создаются связанные кривые.",
+        "note": "В сборке доступны только кривые, без рельефа и материальных операций. Произвольные свободные поверхности не поддерживаются аналитическим нанесением. Отмена отбрасывает черновик."
+      }
+    }
+  },
+  "renderCameraAction": {
+    "slug": "command-render-camera",
+    "group": "render",
+    "sources": [
+      "cpp/app/workspace/toolbars.cpp",
+      "cpp/app/render_body_command.cpp",
+      "cpp/app/render_object_dialog.hpp"
+    ],
+    "locales": {
+      "cs": {
+        "title": "Kamera",
+        "intro": "Přidává kameru do aktivního renderovacího tělesa.",
+        "prerequisites": "Nejprve vytvořte a aktivujte renderovací těleso dílu; zavřete ostatní Vlastnosti.",
+        "steps": [
+          "Spusťte Kamera a nastavte její název a umístění.",
+          "Zvolte ortografickou kameru s výškou záběru, nebo perspektivní kameru se zorným úhlem.",
+          "Zapněte pohled z kamery pro kontrolu záběru a potvrďte OK.",
+          "Ve Vlastnostech Render tělesa zvolte tuto kameru jako aktivní pro výpočet."
+        ],
+        "result": "Scéna získá uloženou kameru s vlastní polohou a projekcí.",
+        "note": "Náhled z kamery není vyrenderovaný obrázek. Zrušit zahodí změny kamery a zavření dialogu obnoví běžný pohled."
+      },
+      "en": {
+        "title": "Camera",
+        "intro": "Adds a camera to the active Render Body.",
+        "prerequisites": "First create and activate a Part Render Body; close other Properties.",
+        "steps": [
+          "Start Camera and set its name and placement.",
+          "Choose an orthographic camera with frame height, or a perspective camera with field of view.",
+          "Enable View from camera to check framing, then confirm with OK.",
+          "In Render Body properties choose this camera as active for rendering."
+        ],
+        "result": "The scene gains a saved camera with its own placement and projection.",
+        "note": "The camera preview is not a rendered image. Cancel discards camera changes; closing the dialog restores the ordinary view."
+      },
+      "de": {
+        "title": "Kamera",
+        "intro": "Fügt dem aktiven Render-Körper eine Kamera hinzu.",
+        "prerequisites": "Erstellen und aktivieren Sie zunächst einen Render-Körper im Teil; schließen Sie andere Eigenschaften.",
+        "steps": [
+          "Starten Sie Kamera und definieren Sie Namen und Platzierung.",
+          "Wählen Sie orthografische Projektion mit Bildhöhe oder Perspektive mit Sichtwinkel.",
+          "Aktivieren Sie die Kameraansicht zur Bildausschnittkontrolle und bestätigen Sie mit OK.",
+          "Wählen Sie diese Kamera in den Render-Körpereigenschaften als aktiv."
+        ],
+        "result": "Die Szene erhält eine gespeicherte Kamera mit eigener Platzierung und Projektion.",
+        "note": "Die Kameravorschau ist kein gerendertes Bild. Abbrechen verwirft Kameraänderungen; Schließen des Dialogs stellt die normale Ansicht wieder her."
+      },
+      "fr": {
+        "title": "Caméra",
+        "intro": "Ajoute une caméra au corps de rendu actif.",
+        "prerequisites": "Créez et activez d’abord un corps de rendu de pièce ; fermez les autres propriétés.",
+        "steps": [
+          "Lancez Caméra et définissez son nom et son placement.",
+          "Choisissez une caméra orthographique avec hauteur de cadrage, ou perspective avec angle de champ.",
+          "Activez la vue depuis la caméra pour vérifier le cadrage, puis validez avec OK.",
+          "Choisissez cette caméra comme active dans les propriétés du corps de rendu."
+        ],
+        "result": "La scène reçoit une caméra enregistrée avec son placement et sa projection.",
+        "note": "L’aperçu caméra n’est pas une image calculée. Annuler abandonne ses modifications ; fermer le dialogue restaure la vue ordinaire."
+      },
+      "ru": {
+        "title": "Камера",
+        "intro": "Добавляет камеру в активное тело визуализации.",
+        "prerequisites": "Сначала создайте и активируйте тело визуализации детали; закройте другие свойства.",
+        "steps": [
+          "Запустите Камера и задайте имя и положение.",
+          "Выберите ортографическую камеру с высотой кадра либо перспективную с углом обзора.",
+          "Включите вид из камеры для проверки кадрирования и нажмите OK.",
+          "В свойствах тела визуализации выберите эту камеру активной для расчёта."
+        ],
+        "result": "Сцена получает сохранённую камеру с собственным положением и проекцией.",
+        "note": "Предварительный вид камеры не является рассчитанным изображением. Отмена отбрасывает изменения; закрытие диалога восстанавливает обычный вид."
+      }
+    }
+  },
+  "renderPointLightAction": {
+    "slug": "command-render-point-light",
+    "group": "render",
+    "sources": [
+      "cpp/app/workspace/toolbars.cpp",
+      "cpp/app/render_body_command.cpp",
+      "cpp/app/render_object_dialog.hpp"
+    ],
+    "locales": {
+      "cs": {
+        "title": "Světlo",
+        "intro": "Přidává bodové světlo do společné renderovací scény.",
+        "prerequisites": "Aktivujte renderovací těleso dílu a zavřete ostatní Vlastnosti.",
+        "steps": [
+          "Spusťte Světlo a nastavte název a polohu pomocí referencí nebo souřadnic.",
+          "Povolte světlo, zvolte barvu #RRGGBB a světelný tok v lm.",
+          "Nastavte poloměr světla v mm a viditelnost značky v pohledu.",
+          "Potvrďte OK a spusťte nový výpočet obrázku pro posouzení osvětlení."
+        ],
+        "result": "Scéna obsahuje uložené bodové světlo se zadanými parametry.",
+        "note": "Skrytí značky nevypíná světlo; k tomu slouží jeho povolení. Zrušit nepřidá rozpracované světlo."
+      },
+      "en": {
+        "title": "Light",
+        "intro": "Adds a point light to the shared render scene.",
+        "prerequisites": "Activate a Part Render Body and close other Properties.",
+        "steps": [
+          "Start Light and set its name and position using references or coordinates.",
+          "Enable the light, choose a #RRGGBB color and luminous power in lm.",
+          "Set light radius in mm and marker visibility in the view.",
+          "Confirm with OK, then render a new image to assess illumination."
+        ],
+        "result": "The scene contains a saved point light with the specified parameters.",
+        "note": "Hiding its marker does not disable illumination; use the light-enabled control. Cancel does not add the pending light."
+      },
+      "de": {
+        "title": "Licht",
+        "intro": "Fügt der gemeinsamen Render-Szene ein Punktlicht hinzu.",
+        "prerequisites": "Aktivieren Sie einen Render-Körper des Teils und schließen Sie andere Eigenschaften.",
+        "steps": [
+          "Starten Sie Licht und definieren Sie Namen sowie Position über Referenzen oder Koordinaten.",
+          "Aktivieren Sie das Licht, wählen Sie eine Farbe #RRGGBB und den Lichtstrom in lm.",
+          "Stellen Sie Lichtradius in mm und Markierungssichtbarkeit ein.",
+          "Bestätigen Sie mit OK und rendern Sie ein neues Bild zur Beurteilung."
+        ],
+        "result": "Die Szene enthält ein gespeichertes Punktlicht mit den angegebenen Parametern.",
+        "note": "Eine ausgeblendete Markierung schaltet die Beleuchtung nicht aus; verwenden Sie die Lichtaktivierung. Abbrechen fügt das entworfene Licht nicht hinzu."
+      },
+      "fr": {
+        "title": "Lumière",
+        "intro": "Ajoute une lumière ponctuelle à la scène de rendu commune.",
+        "prerequisites": "Activez un corps de rendu de pièce et fermez les autres propriétés.",
+        "steps": [
+          "Lancez Lumière et définissez son nom et sa position par références ou coordonnées.",
+          "Activez la lumière, choisissez sa couleur #RRGGBB et son flux lumineux en lm.",
+          "Réglez son rayon en mm et la visibilité du marqueur dans la vue.",
+          "Validez avec OK, puis calculez une nouvelle image pour examiner l’éclairage."
+        ],
+        "result": "La scène contient une lumière ponctuelle enregistrée avec ses paramètres.",
+        "note": "Masquer le marqueur ne désactive pas l’éclairage ; utilisez son contrôle d’activation. Annuler n’ajoute pas la lumière provisoire."
+      },
+      "ru": {
+        "title": "Свет",
+        "intro": "Добавляет точечный источник света в общую сцену визуализации.",
+        "prerequisites": "Активируйте тело визуализации детали и закройте другие свойства.",
+        "steps": [
+          "Запустите Свет и задайте имя и положение ссылками либо координатами.",
+          "Включите источник, выберите цвет #RRGGBB и световой поток в lm.",
+          "Задайте радиус источника в mm и видимость маркера в окне модели.",
+          "Нажмите OK и рассчитайте новое изображение для оценки освещения."
+        ],
+        "result": "Сцена содержит сохранённый точечный источник с указанными параметрами.",
+        "note": "Скрытие маркера не выключает освещение; используйте отдельное включение света. Отмена не добавляет незавершённый источник."
+      }
+    }
+  },
+  "renderSunAction": {
+    "slug": "command-render-sun",
+    "group": "render",
+    "sources": [
+      "cpp/app/workspace/toolbars.cpp",
+      "cpp/app/render_body_command.cpp",
+      "cpp/app/render_object_dialog.hpp"
+    ],
+    "locales": {
+      "cs": {
+        "title": "Slunce",
+        "intro": "Přidává směrové sluneční osvětlení renderovací scény.",
+        "prerequisites": "Aktivujte renderovací těleso a zavřete ostatní Vlastnosti.",
+        "steps": [
+          "Spusťte Slunce a zadejte jeho název.",
+          "Nastavte orientaci společnými referencemi nebo číselnými hodnotami.",
+          "Povolte světlo a upravte barvu, osvětlenost v lx a úhlový poloměr ve stupních.",
+          "Potvrďte OK a porovnejte výsledek v novém renderu."
+        ],
+        "result": "Uložené slunce osvětluje zdrojová tělesa scény podle zadaného směru.",
+        "note": "Viditelnost značky a povolení osvětlení jsou nezávislé. Zrušit zahodí rozpracované nastavení; již vypočtený obrázek se změnou světla nepřepočítá."
+      },
+      "en": {
+        "title": "Sun",
+        "intro": "Adds directional sunlight to the render scene.",
+        "prerequisites": "Activate a Render Body and close other Properties.",
+        "steps": [
+          "Start Sun and enter its name.",
+          "Set orientation using shared references or numeric values.",
+          "Enable the light and adjust color, illuminance in lx and angular radius in degrees.",
+          "Confirm with OK and compare a newly rendered image."
+        ],
+        "result": "The saved sun illuminates the scene's source Bodies from the specified direction.",
+        "note": "Marker visibility and illumination enablement are independent. Cancel discards pending settings; changing a light does not recalculate an existing image."
+      },
+      "de": {
+        "title": "Sonne",
+        "intro": "Fügt der Render-Szene gerichtetes Sonnenlicht hinzu.",
+        "prerequisites": "Aktivieren Sie einen Render-Körper und schließen Sie andere Eigenschaften.",
+        "steps": [
+          "Starten Sie Sonne und geben Sie einen Namen ein.",
+          "Definieren Sie die Orientierung über gemeinsame Referenzen oder Zahlenwerte.",
+          "Aktivieren Sie das Licht und stellen Sie Farbe, Beleuchtungsstärke in lx und Winkelradius in Grad ein.",
+          "Bestätigen Sie mit OK und vergleichen Sie ein neu gerendertes Bild."
+        ],
+        "result": "Die gespeicherte Sonne beleuchtet die Quellkörper aus der angegebenen Richtung.",
+        "note": "Markierungssichtbarkeit und Lichtaktivierung sind unabhängig. Abbrechen verwirft ausstehende Einstellungen; eine Lichtänderung berechnet vorhandene Bilder nicht neu."
+      },
+      "fr": {
+        "title": "Soleil",
+        "intro": "Ajoute un éclairage solaire directionnel à la scène de rendu.",
+        "prerequisites": "Activez un corps de rendu et fermez les autres propriétés.",
+        "steps": [
+          "Lancez Soleil et saisissez son nom.",
+          "Définissez son orientation par les références communes ou des valeurs numériques.",
+          "Activez l’éclairage et réglez couleur, éclairement en lx et rayon angulaire en degrés.",
+          "Validez avec OK et comparez une nouvelle image calculée."
+        ],
+        "result": "Le soleil enregistré éclaire les corps sources suivant la direction définie.",
+        "note": "La visibilité du marqueur et l’activation de l’éclairage sont indépendantes. Annuler abandonne les réglages provisoires ; modifier la lumière ne recalcule pas une image existante."
+      },
+      "ru": {
+        "title": "Солнце",
+        "intro": "Добавляет направленное солнечное освещение в сцену визуализации.",
+        "prerequisites": "Активируйте тело визуализации и закройте другие свойства.",
+        "steps": [
+          "Запустите Солнце и введите имя.",
+          "Задайте ориентацию общими ссылками либо числовыми значениями.",
+          "Включите свет и настройте цвет, освещённость в lx и угловой радиус в градусах.",
+          "Нажмите OK и сравните вновь рассчитанное изображение."
+        ],
+        "result": "Сохранённое солнце освещает исходные тела сцены в заданном направлении.",
+        "note": "Видимость маркера и включение освещения независимы. Отмена отбрасывает незавершённые настройки; изменение света не пересчитывает существующее изображение."
+      }
+    }
+  },
+  "renderSpotLightAction": {
+    "slug": "command-render-spot-light",
+    "group": "render",
+    "sources": [
+      "cpp/app/workspace/toolbars.cpp",
+      "cpp/app/render_body_command.cpp",
+      "cpp/app/render_object_dialog.hpp"
+    ],
+    "locales": {
+      "cs": {
+        "title": "Reflektor",
+        "intro": "Přidává směrovaný reflektor s nastavitelným světelným kuželem.",
+        "prerequisites": "Aktivujte renderovací těleso dílu a zavřete ostatní Vlastnosti.",
+        "steps": [
+          "Spusťte Reflektor, zadejte název a umístěte i natočte světlo.",
+          "Povolte osvětlení a nastavte barvu, světelný tok v lm a poloměr v mm.",
+          "Upravte úhel kužele a měkkost jeho okraje; zkontrolujte značku směru.",
+          "Potvrďte OK a spusťte nový render."
+        ],
+        "result": "Scéna získá reflektor s uloženým kuželem a umístěním.",
+        "note": "Směr odpovídá místní ose +X. Skrytá značka nevypíná světlo. Zrušit zachová scénu bez rozpracovaných změn."
+      },
+      "en": {
+        "title": "Spotlight",
+        "intro": "Adds a directed spotlight with an adjustable light cone.",
+        "prerequisites": "Activate a Part Render Body and close other Properties.",
+        "steps": [
+          "Start Spotlight, enter a name, then position and orient the light.",
+          "Enable illumination and set color, luminous power in lm and radius in mm.",
+          "Adjust cone angle and edge softness; inspect its direction marker.",
+          "Confirm with OK and render a new image."
+        ],
+        "result": "The scene gains a spotlight with saved cone parameters and placement.",
+        "note": "Direction follows local +X. Hiding the marker does not disable the light. Cancel preserves the scene without pending changes."
+      },
+      "de": {
+        "title": "Strahler",
+        "intro": "Fügt einen gerichteten Strahler mit einstellbarem Lichtkegel hinzu.",
+        "prerequisites": "Aktivieren Sie einen Render-Körper des Teils und schließen Sie andere Eigenschaften.",
+        "steps": [
+          "Starten Sie Strahler, benennen Sie ihn und definieren Sie Position und Orientierung.",
+          "Aktivieren Sie die Beleuchtung und stellen Sie Farbe, Lichtstrom in lm und Radius in mm ein.",
+          "Passen Sie Kegelwinkel und Randweichheit an; prüfen Sie die Richtungsmarkierung.",
+          "Bestätigen Sie mit OK und rendern Sie ein neues Bild."
+        ],
+        "result": "Die Szene erhält einen Strahler mit gespeicherten Kegelparametern und Platzierung.",
+        "note": "Die Richtung folgt lokal +X. Ausblenden der Markierung deaktiviert das Licht nicht. Abbrechen verwirft ausstehende Änderungen."
+      },
+      "fr": {
+        "title": "Projecteur",
+        "intro": "Ajoute un projecteur directionnel doté d’un cône lumineux réglable.",
+        "prerequisites": "Activez un corps de rendu de pièce et fermez les autres propriétés.",
+        "steps": [
+          "Lancez Projecteur, nommez-le, puis placez et orientez la lumière.",
+          "Activez l’éclairage et définissez couleur, flux lumineux en lm et rayon en mm.",
+          "Réglez l’angle du cône et la douceur du bord ; vérifiez le marqueur de direction.",
+          "Validez avec OK et calculez une nouvelle image."
+        ],
+        "result": "La scène reçoit un projecteur avec ses paramètres de cône et son placement enregistrés.",
+        "note": "La direction suit l’axe local +X. Masquer le marqueur n’éteint pas la lumière. Annuler abandonne les modifications provisoires."
+      },
+      "ru": {
+        "title": "Прожектор",
+        "intro": "Добавляет направленный прожектор с регулируемым световым конусом.",
+        "prerequisites": "Активируйте тело визуализации детали и закройте другие свойства.",
+        "steps": [
+          "Запустите Прожектор, введите имя, задайте положение и ориентацию.",
+          "Включите освещение и настройте цвет, световой поток в lm и радиус в mm.",
+          "Установите угол конуса и мягкость края; проверьте маркер направления.",
+          "Нажмите OK и рассчитайте новое изображение."
+        ],
+        "result": "Сцена получает прожектор с сохранёнными параметрами конуса и положением.",
+        "note": "Направление соответствует локальной оси +X. Скрытие маркера не выключает свет. Отмена сохраняет сцену без незавершённых изменений."
+      }
+    }
+  },
+  "renderBodyPropertiesAction": {
+    "slug": "command-render-body-properties",
+    "group": "render",
+    "sources": [
+      "cpp/app/workspace/toolbars.cpp",
+      "cpp/app/render_body_command.cpp",
+      "cpp/app/render_body_dialog.hpp"
+    ],
+    "locales": {
+      "cs": {
+        "title": "Vlastnosti Render tělesa",
+        "intro": "Upravuje zdroje a parametry existující renderovací scény.",
+        "prerequisites": "Aktivujte požadované renderovací těleso; jeho zdroje musí být platná dostupná vypočtená tělesa.",
+        "steps": [
+          "Otevřete Vlastnosti Render tělesa.",
+          "Zvolte viditelná tělesa nebo upravte explicitní seznam zdrojů.",
+          "Vyberte aktivní kameru a nastavte rozlišení, vzorky, odrazy a expozici.",
+          "Zvolte převzetí povrchu z modelu nebo společnou drsnost a kovovost; potvrďte OK."
+        ],
+        "result": "Scéna uloží změněné nastavení pro příští render.",
+        "note": "Existující obrázky se automaticky nepřepočítávají. Zrušit zachová původní nastavení; geometrie a vzhled zdrojových těles zůstávají ve vlastnictví modelu."
+      },
+      "en": {
+        "title": "Render Body properties",
+        "intro": "Edits the sources and settings of an existing render scene.",
+        "prerequisites": "Activate the intended Render Body; its sources must be valid available calculated Bodies.",
+        "steps": [
+          "Open Render Body properties.",
+          "Choose visible Bodies or edit the explicit source list.",
+          "Select the active camera and set resolution, samples, bounces and exposure.",
+          "Choose model surface finish or common roughness and metallic values, then confirm with OK."
+        ],
+        "result": "The scene stores revised settings for the next render.",
+        "note": "Existing images are not automatically recalculated. Cancel preserves previous settings; source Body geometry and appearance remain owned by Modeling."
+      },
+      "de": {
+        "title": "Render-Körpereigenschaften",
+        "intro": "Bearbeitet Quellen und Einstellungen einer vorhandenen Render-Szene.",
+        "prerequisites": "Aktivieren Sie den gewünschten Render-Körper; seine Quellen müssen gültige verfügbare berechnete Körper sein.",
+        "steps": [
+          "Öffnen Sie Render-Körpereigenschaften.",
+          "Wählen Sie sichtbare Körper oder bearbeiten Sie die ausdrückliche Quellenliste.",
+          "Wählen Sie aktive Kamera und stellen Sie Auflösung, Abtastungen, Reflexionen und Belichtung ein.",
+          "Übernehmen Sie Modelloberflächen oder gemeinsame Rauheits- und Metallizitätswerte und bestätigen Sie mit OK."
+        ],
+        "result": "Die Szene speichert die geänderten Einstellungen für den nächsten Renderlauf.",
+        "note": "Vorhandene Bilder werden nicht automatisch neu berechnet. Abbrechen erhält vorherige Einstellungen; Quellgeometrie und Erscheinungsbild gehören weiterhin zum Modell."
+      },
+      "fr": {
+        "title": "Propriétés du corps de rendu",
+        "intro": "Modifie les sources et réglages d’une scène de rendu existante.",
+        "prerequisites": "Activez le corps de rendu souhaité ; ses sources doivent être des corps calculés valides et disponibles.",
+        "steps": [
+          "Ouvrez Propriétés du corps de rendu.",
+          "Choisissez les corps visibles ou modifiez la liste explicite des sources.",
+          "Sélectionnez la caméra active et réglez résolution, échantillons, rebonds et exposition.",
+          "Reprenez la finition du modèle ou une rugosité et une métallicité communes, puis validez avec OK."
+        ],
+        "result": "La scène conserve les nouveaux réglages pour le prochain rendu.",
+        "note": "Les images existantes ne sont pas recalculées automatiquement. Annuler conserve les anciens réglages ; géométrie et apparence sources restent définies dans le modèle."
+      },
+      "ru": {
+        "title": "Свойства тела визуализации",
+        "intro": "Изменяет источники и параметры существующей сцены визуализации.",
+        "prerequisites": "Активируйте нужное тело визуализации; его источники должны быть корректными доступными рассчитанными телами.",
+        "steps": [
+          "Откройте Свойства тела визуализации.",
+          "Выберите видимые тела либо измените явный список источников.",
+          "Выберите активную камеру, задайте разрешение, выборки, отражения и экспозицию.",
+          "Используйте отделку модели либо общие значения шероховатости и металличности, затем нажмите OK."
+        ],
+        "result": "Сцена сохраняет новые настройки для следующей визуализации.",
+        "note": "Существующие изображения автоматически не пересчитываются. Отмена сохраняет прежние настройки; геометрия и внешний вид исходных тел принадлежат моделированию."
+      }
+    }
+  },
+  "renderImageAction": {
+    "slug": "command-render-image",
+    "group": "render",
+    "sources": [
+      "cpp/app/workspace/toolbars.cpp",
+      "cpp/app/render_job.cpp"
+    ],
+    "locales": {
+      "cs": {
+        "title": "Vyrenderovat obrázek",
+        "intro": "Počítá obrázek aktivní renderovací scény na pozadí.",
+        "prerequisites": "Aktivujte renderovací těleso s platnými zdroji a kamerou; jiný render nesmí právě běžet.",
+        "steps": [
+          "Zkontrolujte kameru a nastavení ve Vlastnostech Render tělesa.",
+          "Spusťte Vyrenderovat obrázek a sledujte průběh v renderovací stránce.",
+          "Po dokončení posuďte obrázek a podle potřeby jej uchovejte v galerii.",
+          "Exportujte vybraný výsledek jako JPEG nebo PNG."
+        ],
+        "result": "Vznikne výsledek odpovídající zachyceným vstupům výpočtu.",
+        "note": "Zastavení není dokončený render. Samotné zavření výsledkové záložky výpočet nezastavuje; použijte jeho ovládání zastavení."
+      },
+      "en": {
+        "title": "Render image",
+        "intro": "Calculates an image of the active render scene in the background.",
+        "prerequisites": "Activate a Render Body with valid sources and camera; another render must not already be running.",
+        "steps": [
+          "Review camera and settings in Render Body properties.",
+          "Start Render image and watch progress on the render page.",
+          "After completion, inspect the image and retain it in the gallery if needed.",
+          "Export the selected result as JPEG or PNG."
+        ],
+        "result": "A result is produced from the inputs captured for the calculation.",
+        "note": "Stopping is not a completed render. Merely closing the result tab does not stop calculation; use its Stop control."
+      },
+      "de": {
+        "title": "Bild rendern",
+        "intro": "Berechnet im Hintergrund ein Bild der aktiven Render-Szene.",
+        "prerequisites": "Aktivieren Sie einen Render-Körper mit gültigen Quellen und Kamera; es darf kein anderer Renderlauf aktiv sein.",
+        "steps": [
+          "Prüfen Sie Kamera und Einstellungen in den Render-Körpereigenschaften.",
+          "Starten Sie Bild rendern und verfolgen Sie den Fortschritt auf der Render-Seite.",
+          "Prüfen Sie nach Abschluss das Bild und übernehmen Sie es bei Bedarf in die Galerie.",
+          "Exportieren Sie das ausgewählte Ergebnis als JPEG oder PNG."
+        ],
+        "result": "Ein Ergebnis aus den zu Berechnungsbeginn erfassten Eingaben entsteht.",
+        "note": "Ein abgebrochener Lauf ist kein abgeschlossener Render. Das Schließen der Ergebnisregisterkarte stoppt die Berechnung nicht; verwenden Sie Stopp."
+      },
+      "fr": {
+        "title": "Calculer le rendu",
+        "intro": "Calcule en arrière-plan une image de la scène de rendu active.",
+        "prerequisites": "Activez un corps de rendu avec sources et caméra valides ; aucun autre calcul de rendu ne doit être en cours.",
+        "steps": [
+          "Vérifiez caméra et réglages dans les propriétés du corps de rendu.",
+          "Lancez Calculer le rendu et suivez sa progression sur la page de rendu.",
+          "Une fois terminé, examinez l’image et conservez-la dans la galerie si nécessaire.",
+          "Exportez le résultat sélectionné en JPEG ou PNG."
+        ],
+        "result": "Une image est produite à partir des données capturées pour le calcul.",
+        "note": "Un arrêt n’est pas un rendu terminé. Fermer l’onglet de résultat n’arrête pas le calcul ; utilisez sa commande d’arrêt."
+      },
+      "ru": {
+        "title": "Выполнить визуализацию",
+        "intro": "Рассчитывает изображение активной сцены визуализации в фоне.",
+        "prerequisites": "Активируйте тело визуализации с корректными источниками и камерой; другой расчёт не должен уже выполняться.",
+        "steps": [
+          "Проверьте камеру и настройки в свойствах тела визуализации.",
+          "Запустите Выполнить визуализацию и следите за ходом расчёта на странице результата.",
+          "После завершения проверьте изображение и при необходимости сохраните его в галерее.",
+          "Экспортируйте выбранный результат в JPEG или PNG."
+        ],
+        "result": "Получается результат из входных данных, зафиксированных для расчёта.",
+        "note": "Остановка не означает завершённую визуализацию. Закрытие вкладки результата не останавливает расчёт; используйте отдельную кнопку остановки."
+      }
+    }
+  },
+  "renderShowResultAction": {
+    "slug": "command-render-show-result",
+    "group": "render",
+    "sources": [
+      "cpp/app/workspace/toolbars.cpp",
+      "cpp/app/render_job.cpp"
+    ],
+    "locales": {
+      "cs": {
+        "title": "Galerie renderů",
+        "intro": "Otevírá galerii a dostupný výsledek aktivního renderovacího tělesa.",
+        "prerequisites": "Aktivujte renderovací těleso s dostupnou galerií nebo výsledkem výpočtu.",
+        "steps": [
+          "Spusťte Galerie renderů.",
+          "Vyberte uložený obrázek nebo dostupný aktuální výsledek.",
+          "Dokončený aktuální výsledek podle potřeby uchovejte a exportujte vybraný obrázek jako JPEG nebo PNG.",
+          "Uložte nativní díl, aby zůstaly uchované obrázky součástí dokumentu."
+        ],
+        "result": "Můžete prohlížet a exportovat výsledky bez nového renderování.",
+        "note": "Export obrázku a uchování v dokumentu jsou různé operace. Zavření záložky nemaže uloženou galerii ani nezastavuje probíhající výpočet."
+      },
+      "en": {
+        "title": "Render gallery",
+        "intro": "Opens the gallery and available result of the active Render Body.",
+        "prerequisites": "Activate a Render Body with an available gallery or calculation result.",
+        "steps": [
+          "Start Render gallery.",
+          "Select a retained image or the available current result.",
+          "Retain the completed current result if needed, and export the selected image as JPEG or PNG.",
+          "Save the native Part to persist retained images with the document."
+        ],
+        "result": "Results can be inspected and exported without rendering again.",
+        "note": "Image export and retention in the document are separate operations. Closing the tab neither deletes the saved gallery nor stops an ongoing calculation."
+      },
+      "de": {
+        "title": "Render-Galerie",
+        "intro": "Öffnet die Galerie und das verfügbare Ergebnis des aktiven Render-Körpers.",
+        "prerequisites": "Aktivieren Sie einen Render-Körper mit verfügbarer Galerie oder Berechnungsergebnis.",
+        "steps": [
+          "Starten Sie Render-Galerie.",
+          "Wählen Sie ein übernommenes Bild oder das verfügbare aktuelle Ergebnis.",
+          "Übernehmen Sie bei Bedarf das abgeschlossene aktuelle Ergebnis und exportieren Sie das gewählte Bild als JPEG oder PNG.",
+          "Speichern Sie das native Teil, um übernommene Bilder im Dokument zu sichern."
+        ],
+        "result": "Ergebnisse lassen sich ohne erneuten Renderlauf betrachten und exportieren.",
+        "note": "Bildexport und Übernahme ins Dokument sind getrennte Vorgänge. Schließen der Registerkarte löscht weder die Galerie noch stoppt es laufende Berechnungen."
+      },
+      "fr": {
+        "title": "Galerie de rendus",
+        "intro": "Ouvre la galerie et le résultat disponible du corps de rendu actif.",
+        "prerequisites": "Activez un corps de rendu possédant une galerie ou un résultat de calcul disponible.",
+        "steps": [
+          "Lancez Galerie de rendus.",
+          "Sélectionnez une image conservée ou le résultat actuel disponible.",
+          "Conservez le résultat actuel terminé si nécessaire et exportez l’image choisie en JPEG ou PNG.",
+          "Enregistrez la pièce native pour conserver les images dans le document."
+        ],
+        "result": "Vous pouvez examiner et exporter les résultats sans nouveau calcul.",
+        "note": "Exporter une image et la conserver dans le document sont deux opérations distinctes. Fermer l’onglet ne supprime pas la galerie et n’arrête pas un calcul en cours."
+      },
+      "ru": {
+        "title": "Галерея визуализаций",
+        "intro": "Открывает галерею и доступный результат активного тела визуализации.",
+        "prerequisites": "Активируйте тело визуализации с доступной галереей или результатом расчёта.",
+        "steps": [
+          "Запустите Галерея визуализаций.",
+          "Выберите сохранённое изображение либо доступный текущий результат.",
+          "При необходимости сохраните завершённый текущий результат и экспортируйте выбранное изображение в JPEG или PNG.",
+          "Сохраните собственный файл детали, чтобы изображения остались в документе."
+        ],
+        "result": "Результаты можно просматривать и экспортировать без повторной визуализации.",
+        "note": "Экспорт изображения и сохранение внутри документа — разные операции. Закрытие вкладки не удаляет галерею и не останавливает текущий расчёт."
+      }
+    }
+  },
+  "camBodyPropertiesAction": {
+    "slug": "command-cam-body-properties",
+    "group": "cam",
+    "sources": [
+      "cpp/app/workspace/toolbars.cpp",
+      "cpp/app/cam_body_command.cpp",
+      "cpp/app/cam_operations_dialog.hpp",
+      "cpp/app/cam_body_dialog.hpp"
+    ],
+    "locales": {
+      "cs": {
+        "title": "Vlastnosti nastavení CAM",
+        "intro": "Upravuje vstupy, pracovní souřadnice a operace existujícího nastavení CAM.",
+        "prerequisites": "Otevřete samotný zdrojový díl a aktivujte jeho CAM těleso; zdroje musí být dostupné před nastavením.",
+        "steps": [
+          "Otevřete Vlastnosti nastavení CAM a zkontrolujte polotovar, cíl i přípravky.",
+          "Nastavte pracovní systém, stroj, nástroje a případné upínací skici.",
+          "V Obráběcích operacích přidejte čelní frézování, kapsu, konturu nebo podporovanou ruční operaci.",
+          "Potvrďte podřízené dialogy a hlavní nastavení tlačítkem OK."
+        ],
+        "result": "Uloží se změněná definice; následně spusťte Vypočítat CAM.",
+        "note": "Kapsa a kontura používají předcházející uzavřenou skicu v rovině rovnoběžné s pracovním XY. Zrušit v hlavním dialogu zahodí rozpracované změny."
+      },
+      "en": {
+        "title": "CAM setup properties",
+        "intro": "Edits inputs, work coordinates and operations of an existing CAM setup.",
+        "prerequisites": "Open the source Part itself and activate its CAM Body; sources must be available before the setup.",
+        "steps": [
+          "Open CAM setup properties and check stock, target and fixtures.",
+          "Set the work frame, machine, tools and optional clamping Sketches.",
+          "In Machining operations add facing, pocket, contour or a supported manual operation.",
+          "Confirm child dialogs and the main setup with OK."
+        ],
+        "result": "The revised definition is saved; run Calculate CAM afterward.",
+        "note": "Pocket and contour use a preceding closed Sketch parallel to work XY. Cancel in the main dialog discards pending edits."
+      },
+      "de": {
+        "title": "CAM-Aufspannungseigenschaften",
+        "intro": "Bearbeitet Eingaben, Arbeitskoordinaten und Operationen einer bestehenden CAM-Aufspannung.",
+        "prerequisites": "Öffnen Sie das Quellteil selbst und aktivieren Sie seinen CAM-Körper; Quellen müssen vor der Aufspannung verfügbar sein.",
+        "steps": [
+          "Öffnen Sie CAM-Aufspannungseigenschaften und prüfen Sie Rohteil, Ziel und Vorrichtungen.",
+          "Definieren Sie Arbeitskoordinatensystem, Maschine, Werkzeuge und gegebenenfalls Spannskizzen.",
+          "Fügen Sie in Bearbeitungsoperationen Planfräsen, Tasche, Kontur oder eine unterstützte manuelle Operation hinzu.",
+          "Bestätigen Sie Unterdialoge und Hauptaufspannung mit OK."
+        ],
+        "result": "Die geänderte Definition wird gespeichert; führen Sie anschließend CAM berechnen aus.",
+        "note": "Tasche und Kontur benötigen eine vorhergehende geschlossene Skizze parallel zur Arbeitsebene XY. Abbrechen im Hauptdialog verwirft ausstehende Änderungen."
+      },
+      "fr": {
+        "title": "Propriétés de la configuration FAO",
+        "intro": "Modifie les entrées, coordonnées de travail et opérations d’une configuration FAO existante.",
+        "prerequisites": "Ouvrez la pièce source elle-même et activez son corps FAO ; les sources doivent précéder la configuration.",
+        "steps": [
+          "Ouvrez ses propriétés et vérifiez brut, cible et montages.",
+          "Définissez repère de travail, machine, outils et éventuelles esquisses de serrage.",
+          "Dans Opérations d’usinage, ajoutez surfaçage, poche, contour ou opération manuelle compatible.",
+          "Validez les sous-dialogues puis la configuration avec OK."
+        ],
+        "result": "La définition modifiée est enregistrée ; lancez ensuite Calculer la FAO.",
+        "note": "Poche et contour utilisent une esquisse fermée antérieure, parallèle au plan XY de travail. Annuler dans le dialogue principal abandonne les modifications provisoires."
+      },
+      "ru": {
+        "title": "Свойства наладки CAM",
+        "intro": "Изменяет входные данные, рабочие координаты и операции существующей наладки CAM.",
+        "prerequisites": "Откройте саму исходную деталь и активируйте её тело CAM; источники должны быть доступны перед наладкой.",
+        "steps": [
+          "Откройте свойства наладки и проверьте заготовку, цель и приспособления.",
+          "Задайте рабочую систему, станок, инструменты и при необходимости эскизы закрепления.",
+          "В операциях обработки добавьте торцевое фрезерование, карман, контур либо поддерживаемую ручную операцию.",
+          "Подтвердите вложенные диалоги и основную наладку кнопкой OK."
+        ],
+        "result": "Изменённое определение сохраняется; затем запустите Рассчитать CAM.",
+        "note": "Карман и контур используют предшествующий замкнутый эскиз, параллельный рабочей плоскости XY. Отмена в основном диалоге отбрасывает незавершённые изменения."
+      }
+    }
+  },
+  "camCalculateAction": {
+    "slug": "command-cam-calculate",
+    "group": "cam",
+    "sources": [
+      "cpp/app/workspace/toolbars.cpp",
+      "cpp/app/cam_body_command.cpp",
+      "cpp/app/cam_calculation_dialog.hpp",
+      "cpp/modules/workspace/src/cam_calculation.cpp"
+    ],
+    "locales": {
+      "cs": {
+        "title": "Vypočítat CAM",
+        "intro": "Počítá dráhy nástroje, zbývající polotovar a kontroly kolizí.",
+        "prerequisites": "Aktivujte CAM těleso v jeho zobrazeném zdrojovém dílu; dokončete platné nastavení nástrojů, zdrojů a operací.",
+        "steps": [
+          "Zavřete Vlastnosti nastavení a spusťte Vypočítat CAM.",
+          "Sledujte průběh; pro ukončení bez zveřejnění částečného výsledku použijte Zrušit.",
+          "Po úspěšném dokončení prohlédněte otevřený obecný NC program a hlášení kolizí i upnutí.",
+          "Opravte příčiny nalezených problémů před dalším použitím výsledku."
+        ],
+        "result": "Úplný výsledek se uloží pouze pro nezměněné vstupy.",
+        "note": "Aktuální výsledek se znovu otevře bez přepočtu. Výsledek s kolizí neposkytuje použitelný navazující polotovar."
+      },
+      "en": {
+        "title": "Calculate CAM",
+        "intro": "Calculates tool paths, remaining stock and collision checks.",
+        "prerequisites": "Activate the CAM Body in its displayed source Part; complete valid tools, sources and operations first.",
+        "steps": [
+          "Close setup Properties and start Calculate CAM.",
+          "Watch progress; use Cancel to stop without publishing a partial result.",
+          "After successful completion inspect the opened generic NC program, collision reports and clamping warnings.",
+          "Correct reported problems before further use of the result."
+        ],
+        "result": "A complete result is saved only for unchanged inputs.",
+        "note": "An already current result opens without recalculation. A collision result cannot supply usable downstream stock."
+      },
+      "de": {
+        "title": "CAM berechnen",
+        "intro": "Berechnet Werkzeugbahnen, Restmaterial und Kollisionsprüfungen.",
+        "prerequisites": "Aktivieren Sie den CAM-Körper im angezeigten Quellteil; vervollständigen Sie gültige Werkzeuge, Quellen und Operationen.",
+        "steps": [
+          "Schließen Sie die Aufspannungseigenschaften und starten Sie CAM berechnen.",
+          "Verfolgen Sie den Fortschritt; Abbrechen beendet ohne Veröffentlichung eines Teilergebnisses.",
+          "Prüfen Sie nach erfolgreichem Abschluss das geöffnete generische NC-Programm, Kollisionsmeldungen und Spannwarnungen.",
+          "Beheben Sie gemeldete Probleme vor weiterer Nutzung."
+        ],
+        "result": "Ein vollständiges Ergebnis wird nur für unveränderte Eingaben gespeichert.",
+        "note": "Ein aktuelles Ergebnis öffnet ohne Neuberechnung. Ein Kollisionsergebnis kann kein nutzbares nachfolgendes Rohteil liefern."
+      },
+      "fr": {
+        "title": "Calculer la FAO",
+        "intro": "Calcule les trajectoires, le brut restant et les collisions.",
+        "prerequisites": "Activez le corps FAO dans sa pièce source affichée ; définissez d’abord outils, sources et opérations valides.",
+        "steps": [
+          "Fermez les propriétés et lancez Calculer la FAO.",
+          "Suivez la progression ; Annuler interrompt sans publier de résultat partiel.",
+          "Après réussite, examinez le programme CN générique ouvert, les collisions et les avertissements de serrage.",
+          "Corrigez les problèmes signalés avant de réutiliser le résultat."
+        ],
+        "result": "Un résultat complet est enregistré uniquement si les entrées sont inchangées.",
+        "note": "Un résultat déjà actuel s’ouvre sans recalcul. Un résultat comportant une collision ne fournit pas de brut exploitable pour la suite."
+      },
+      "ru": {
+        "title": "Рассчитать CAM",
+        "intro": "Рассчитывает траектории инструмента, оставшуюся заготовку и проверки столкновений.",
+        "prerequisites": "Активируйте тело CAM в отображаемой исходной детали; предварительно задайте корректные инструменты, источники и операции.",
+        "steps": [
+          "Закройте свойства наладки и запустите Рассчитать CAM.",
+          "Следите за ходом расчёта; Отмена останавливает его без публикации частичного результата.",
+          "После успешного завершения проверьте открытую общую управляющую программу, столкновения и предупреждения закрепления.",
+          "Устраните найденные проблемы перед дальнейшим использованием результата."
+        ],
+        "result": "Полный результат сохраняется только для неизменившихся входных данных.",
+        "note": "Актуальный результат открывается без перерасчёта. Результат со столкновением не предоставляет пригодную заготовку для последующих операций."
+      }
+    }
+  },
+  "camNcAction": {
+    "slug": "command-cam-nc",
+    "group": "cam",
+    "sources": [
+      "cpp/app/workspace/toolbars.cpp",
+      "cpp/app/cam_body_command.cpp",
+      "cpp/app/cam_nc_dialog.hpp"
+    ],
+    "locales": {
+      "cs": {
+        "title": "Obecný NC program",
+        "intro": "Zobrazuje vypočtený obecný program, pohyby a výsledný polotovar.",
+        "prerequisites": "Aktivujte CAM těleso s aktuálním výpočtem; při chybějícím nebo zastaralém výsledku nejprve spusťte Vypočítat CAM.",
+        "steps": [
+          "Otevřete Obecný NC program a vyberte pohyb tlačítky předchozí či další.",
+          "Posuvníkem prohlížejte polohu uvnitř vybraného pohybu.",
+          "Přepněte zobrazení konečného polotovaru a zkontrolujte kolize a upínací kontakty.",
+          "Podle potřeby exportujte obecný NC text do souboru .txt."
+        ],
+        "result": "Prohlédnete vypočtené dráhy bez nové simulace úběru.",
+        "note": "Posuvník nepočítá průběžný polotovar. Obecný text vyžaduje postprocesor pro konkrétní řídicí systém; geometrický kontakt není ověřením upínacích sil."
+      },
+      "en": {
+        "title": "Generic NC program",
+        "intro": "Displays the calculated generic program, motions and final stock.",
+        "prerequisites": "Activate a CAM Body with a current calculation; run Calculate CAM first if its result is absent or stale.",
+        "steps": [
+          "Open Generic NC program and select a motion with previous or next.",
+          "Use the slider to inspect positions within that selected motion.",
+          "Toggle final stock display and inspect collisions and clamping contacts.",
+          "Export generic NC text to a .txt file if needed."
+        ],
+        "result": "Calculated paths can be inspected without another material-removal simulation.",
+        "note": "The slider does not calculate intermediate stock. Generic text requires controller-specific postprocessing; geometric contact does not verify clamping forces."
+      },
+      "de": {
+        "title": "Generisches NC-Programm",
+        "intro": "Zeigt berechnetes generisches Programm, Bewegungen und endgültiges Restmaterial.",
+        "prerequisites": "Aktivieren Sie einen CAM-Körper mit aktueller Berechnung; bei fehlendem oder veraltetem Ergebnis zunächst CAM berechnen.",
+        "steps": [
+          "Öffnen Sie Generisches NC-Programm und wählen Sie eine Bewegung mit Zurück oder Weiter.",
+          "Untersuchen Sie mit dem Schieber Positionen innerhalb dieser Bewegung.",
+          "Schalten Sie die endgültige Restmaterialanzeige um und prüfen Sie Kollisionen sowie Spannkontakte.",
+          "Exportieren Sie bei Bedarf generischen NC-Text als .txt."
+        ],
+        "result": "Berechnete Bahnen lassen sich ohne erneute Abtragssimulation betrachten.",
+        "note": "Der Schieber berechnet kein Zwischenmaterial. Generischer Text benötigt steuerungsspezifische Nachbearbeitung; geometrischer Kontakt weist keine Spannkräfte nach."
+      },
+      "fr": {
+        "title": "Programme CN générique",
+        "intro": "Affiche le programme générique calculé, ses mouvements et le brut final.",
+        "prerequisites": "Activez un corps FAO avec un calcul actuel ; sinon, lancez d’abord Calculer la FAO.",
+        "steps": [
+          "Ouvrez Programme CN générique et choisissez un mouvement avec précédent ou suivant.",
+          "Utilisez le curseur pour examiner les positions dans ce mouvement.",
+          "Affichez le brut final et contrôlez collisions et contacts de serrage.",
+          "Exportez si nécessaire le texte CN générique dans un fichier .txt."
+        ],
+        "result": "Les trajectoires se consultent sans nouvelle simulation d’enlèvement de matière.",
+        "note": "Le curseur ne calcule pas de brut intermédiaire. Le texte exige un postprocesseur adapté au contrôleur ; un contact géométrique ne vérifie pas les efforts de serrage."
+      },
+      "ru": {
+        "title": "Общая управляющая программа",
+        "intro": "Показывает рассчитанную общую программу, движения и конечную заготовку.",
+        "prerequisites": "Активируйте тело CAM с актуальным расчётом; при отсутствии или устаревании результата сначала запустите Рассчитать CAM.",
+        "steps": [
+          "Откройте общую управляющую программу и выберите движение кнопками предыдущего или следующего.",
+          "Ползунком просмотрите положения внутри выбранного движения.",
+          "Включите показ конечной заготовки и проверьте столкновения и контакты закрепления.",
+          "При необходимости экспортируйте общий текст УП в файл .txt."
+        ],
+        "result": "Рассчитанные траектории доступны без повторной симуляции съёма материала.",
+        "note": "Ползунок не рассчитывает промежуточную заготовку. Текст требует постпроцессора конкретной системы управления; геометрический контакт не подтверждает силы закрепления."
+      }
+    }
+  },
+  "drawingSelectionAction": {
+    "slug": "command-drawing-selection",
+    "group": "drawing",
+    "sources": [
+      "cpp/app/drawing_window.cpp"
+    ],
+    "locales": {
+      "cs": {
+        "title": "Výběr",
+        "intro": "Obnovuje běžný výběr pohledů a anotací na výkresovém listu.",
+        "prerequisites": "Otevřete výkres s aktivním listem; nejprve dokončete případné Vlastnosti.",
+        "steps": [
+          "Klikněte na Výběr.",
+          "Najeďte na pohled nebo anotaci a potvrďte nabídnutý objekt levým kliknutím.",
+          "Podle potřeby vyberte jeho úchyt pro přesun nebo otevřete odpovídající Vlastnosti."
+        ],
+        "result": "Vybraný objekt je připraven k další úpravě; samotný výběr nic nepřepočítává.",
+        "note": "Přepnutí ukončuje režimy zarovnání a úprav vynášecích čar. Escape ruší rozpracované tažení; změnu už potvrzenou přesunem vrací Zpět."
+      },
+      "en": {
+        "title": "Selection",
+        "intro": "Restores ordinary selection of views and annotations on a Drawing sheet.",
+        "prerequisites": "Open a Drawing with an active sheet; finish any Properties first.",
+        "steps": [
+          "Click Selection.",
+          "Hover over a view or annotation and confirm the offered object with a left click.",
+          "Use its handle to move it or open the appropriate Properties when required."
+        ],
+        "result": "The selected object is ready for further editing; selection itself does not recalculate geometry.",
+        "note": "Switching ends alignment and witness-line editing modes. Escape cancels a pending drag; use Undo for a move that was already committed."
+      },
+      "de": {
+        "title": "Auswahl",
+        "intro": "Stellt die normale Auswahl von Ansichten und Annotationen auf dem Zeichnungsblatt wieder her.",
+        "prerequisites": "Öffnen Sie eine Zeichnung mit aktivem Blatt und schließen Sie gegebenenfalls Eigenschaften.",
+        "steps": [
+          "Klicken Sie auf Auswahl.",
+          "Zeigen Sie auf eine Ansicht oder Annotation und bestätigen Sie das angebotene Objekt mit einem Linksklick.",
+          "Verwenden Sie bei Bedarf dessen Griff zum Verschieben oder öffnen Sie passende Eigenschaften."
+        ],
+        "result": "Das Objekt ist zur weiteren Bearbeitung ausgewählt; die Auswahl berechnet keine Geometrie neu.",
+        "note": "Der Wechsel beendet Ausrichtungs- und Maßhilfslinienmodi. Escape verwirft einen laufenden Ziehvorgang; bereits bestätigte Bewegungen werden mit Rückgängig aufgehoben."
+      },
+      "fr": {
+        "title": "Sélection",
+        "intro": "Rétablit la sélection ordinaire des vues et annotations sur une feuille de dessin.",
+        "prerequisites": "Ouvrez un dessin avec une feuille active et terminez les éventuelles propriétés.",
+        "steps": [
+          "Cliquez sur Sélection.",
+          "Survolez une vue ou une annotation et confirmez l’objet proposé par un clic gauche.",
+          "Utilisez sa poignée pour le déplacer ou ouvrez ses propriétés si nécessaire."
+        ],
+        "result": "L’objet sélectionné est prêt à être modifié ; la sélection ne recalcule aucune géométrie.",
+        "note": "Ce changement termine les modes d’alignement et d’édition des lignes d’attache. Échap annule un déplacement en cours ; utilisez Annuler l’action pour un déplacement déjà validé."
+      },
+      "ru": {
+        "title": "Выбор",
+        "intro": "Восстанавливает обычный выбор видов и аннотаций на листе чертежа.",
+        "prerequisites": "Откройте чертёж с активным листом; сначала завершите работу в свойствах.",
+        "steps": [
+          "Нажмите Выбор.",
+          "Наведите указатель на вид или аннотацию и подтвердите предложенный объект левой кнопкой.",
+          "При необходимости используйте его ручку для перемещения либо откройте соответствующие свойства."
+        ],
+        "result": "Выбранный объект готов к редактированию; сам выбор не пересчитывает геометрию.",
+        "note": "Переключение завершает режимы выравнивания и правки выносных линий. Escape отменяет текущее перетаскивание; уже подтверждённое перемещение отменяется командой отмены действия."
+      }
+    }
+  },
+  "insertDrawingViewAction": {
+    "slug": "command-insert-drawing-view",
+    "group": "drawing",
+    "sources": [
+      "cpp/app/drawing_window.cpp"
+    ],
+    "locales": {
+      "cs": {
+        "title": "Vložit pohled",
+        "intro": "Vkládá nový základní pohled z vybraného zdroje výkresu.",
+        "prerequisites": "Výkres musí mít aktivní list a přiřazený zdrojový díl nebo sestavu; zkontrolujte vybranou variantu zdroje.",
+        "steps": [
+          "Spusťte Vložit pohled.",
+          "Přesuňte lehký náhled na požadované místo listu a klikněte.",
+          "V otevřených Vlastnostech nastavte orientaci, měřítko a způsob zobrazení.",
+          "Zkontrolujte náhled a potvrďte OK."
+        ],
+        "result": "Na list se uloží pohled navázaný na vybraný zdroj.",
+        "note": "Escape před umístěním ruší vložení; Zrušit ve Vlastnostech zahodí nový pohled. Odvozený projekční pohled má samostatný příkaz a jiný způsob potvrzení."
+      },
+      "en": {
+        "title": "Insert View",
+        "intro": "Inserts a new base view from the Drawing's selected source.",
+        "prerequisites": "The Drawing needs an active sheet and an assigned source Part or Assembly; check the selected source variant.",
+        "steps": [
+          "Start Insert View.",
+          "Move the lightweight preview to the required sheet position and click.",
+          "In the opened Properties set orientation, scale and display style.",
+          "Inspect the preview and confirm with OK."
+        ],
+        "result": "A view linked to the selected source is saved on the sheet.",
+        "note": "Escape before placement cancels insertion; Cancel in Properties discards the new view. Projected views use a separate command and a different confirmation workflow."
+      },
+      "de": {
+        "title": "Ansicht einfügen",
+        "intro": "Fügt eine neue Grundansicht aus der ausgewählten Zeichnungsquelle ein.",
+        "prerequisites": "Die Zeichnung benötigt ein aktives Blatt und ein zugeordnetes Quellteil oder eine Baugruppe; prüfen Sie die gewählte Quellvariante.",
+        "steps": [
+          "Starten Sie Ansicht einfügen.",
+          "Bewegen Sie die vereinfachte Vorschau zur gewünschten Blattposition und klicken Sie.",
+          "Stellen Sie in den geöffneten Eigenschaften Orientierung, Maßstab und Darstellungsart ein.",
+          "Prüfen Sie die Vorschau und bestätigen Sie mit OK."
+        ],
+        "result": "Eine mit der Quelle verknüpfte Ansicht wird auf dem Blatt gespeichert.",
+        "note": "Escape vor der Platzierung bricht ab; Abbrechen in den Eigenschaften verwirft die neue Ansicht. Projektionsansichten haben einen eigenen Befehl und Bestätigungsablauf."
+      },
+      "fr": {
+        "title": "Insérer une vue",
+        "intro": "Insère une nouvelle vue de base à partir de la source sélectionnée du dessin.",
+        "prerequisites": "Le dessin doit posséder une feuille active et une pièce ou un assemblage source ; vérifiez la variante choisie.",
+        "steps": [
+          "Lancez Insérer une vue.",
+          "Déplacez l’aperçu léger à l’emplacement voulu sur la feuille et cliquez.",
+          "Dans les propriétés ouvertes, réglez orientation, échelle et style d’affichage.",
+          "Examinez l’aperçu et validez avec OK."
+        ],
+        "result": "Une vue liée à la source sélectionnée est enregistrée sur la feuille.",
+        "note": "Échap avant le placement annule l’insertion ; Annuler dans les propriétés abandonne la nouvelle vue. Les vues projetées utilisent une autre commande et une confirmation différente."
+      },
+      "ru": {
+        "title": "Вставить вид",
+        "intro": "Вставляет новый основной вид из выбранного источника чертежа.",
+        "prerequisites": "Чертежу необходимы активный лист и назначенная исходная деталь или сборка; проверьте выбранный вариант источника.",
+        "steps": [
+          "Запустите Вставить вид.",
+          "Переместите облегчённый предварительный вид в нужное место листа и щёлкните.",
+          "В открывшихся свойствах задайте ориентацию, масштаб и стиль отображения.",
+          "Проверьте предварительный вид и нажмите OK."
+        ],
+        "result": "На листе сохраняется вид, связанный с выбранным источником.",
+        "note": "Escape до размещения отменяет вставку; Отмена в свойствах отбрасывает новый вид. Проекционные виды используют отдельную команду и другой порядок подтверждения."
+      }
+    }
+  },
+  "insertDrawingDetailAction": {
+    "slug": "command-insert-drawing-detail",
+    "group": "drawing",
+    "sources": [
+      "cpp/app/drawing_window.cpp",
+      "cpp/app/drawing_detail_dialog.hpp"
+    ],
+    "locales": {
+      "cs": {
+        "title": "Vložit detail…",
+        "intro": "Vytváří zvětšený detail vymezené oblasti existujícího pohledu.",
+        "prerequisites": "Aktivní list musí obsahovat alespoň jeden zdrojový pohled.",
+        "steps": [
+          "Spusťte Vložit detail a zvolte kruhovou, eliptickou nebo uzavřenou spline hranici.",
+          "Vyberte bod ve zdrojovém pohledu a dokončete hranici oblasti.",
+          "Umístěte náhled detailu na list.",
+          "Upravte název, měřítko, popis i zobrazení hranice a potvrďte OK."
+        ],
+        "result": "Vznikne detail navázaný na zdrojový pohled se samostatným měřítkem.",
+        "note": "Nový detail potřebuje zdroj, platnou hranici a umístění. Zrušit zahodí celý návrh; úprava existujícího detailu nenabízí výměnu zdrojového pohledu."
+      },
+      "en": {
+        "title": "Insert detail…",
+        "intro": "Creates an enlarged detail of a bounded region in an existing view.",
+        "prerequisites": "The active sheet must contain at least one source view.",
+        "steps": [
+          "Start Insert detail and choose a circular, elliptical or closed-spline boundary.",
+          "Pick a point in the source view and complete the region boundary.",
+          "Place the detail preview on the sheet.",
+          "Adjust name, scale, caption and boundary visibility, then confirm with OK."
+        ],
+        "result": "A detail linked to its source view is created with its own scale.",
+        "note": "A new detail requires a source, valid boundary and placement. Cancel discards the draft; editing an existing detail does not offer source-view replacement."
+      },
+      "de": {
+        "title": "Detail einfügen…",
+        "intro": "Erstellt ein vergrößertes Detail eines begrenzten Bereichs einer vorhandenen Ansicht.",
+        "prerequisites": "Das aktive Blatt muss mindestens eine Quellansicht enthalten.",
+        "steps": [
+          "Starten Sie Detail einfügen und wählen Sie Kreis, Ellipse oder geschlossene Spline als Grenze.",
+          "Wählen Sie einen Punkt in der Quellansicht und vervollständigen Sie die Bereichsgrenze.",
+          "Platzieren Sie die Detailvorschau auf dem Blatt.",
+          "Passen Sie Namen, Maßstab, Beschriftung und Grenzsichtbarkeit an und bestätigen Sie mit OK."
+        ],
+        "result": "Ein mit der Quellansicht verbundenes Detail mit eigenem Maßstab entsteht.",
+        "note": "Ein neues Detail benötigt Quelle, gültige Grenze und Platzierung. Abbrechen verwirft den Entwurf; bei bestehenden Details lässt sich die Quellansicht nicht austauschen."
+      },
+      "fr": {
+        "title": "Insérer un détail…",
+        "intro": "Crée un détail agrandi d’une région délimitée dans une vue existante.",
+        "prerequisites": "La feuille active doit contenir au moins une vue source.",
+        "steps": [
+          "Lancez Insérer un détail et choisissez une limite circulaire, elliptique ou en spline fermée.",
+          "Choisissez un point dans la vue source et terminez la limite de la région.",
+          "Placez l’aperçu du détail sur la feuille.",
+          "Réglez nom, échelle, légende et visibilité de la limite, puis validez avec OK."
+        ],
+        "result": "Un détail lié à sa vue source est créé avec sa propre échelle.",
+        "note": "Un nouveau détail nécessite source, limite valide et placement. Annuler abandonne le brouillon ; une édition ultérieure ne propose pas de remplacer la vue source."
+      },
+      "ru": {
+        "title": "Вставить деталь вида…",
+        "intro": "Создаёт увеличенный выносной вид ограниченной области существующего вида.",
+        "prerequisites": "Активный лист должен содержать хотя бы один исходный вид.",
+        "steps": [
+          "Запустите вставку детали вида и выберите круговую, эллиптическую либо замкнутую сплайновую границу.",
+          "Укажите точку на исходном виде и завершите границу области.",
+          "Разместите предварительный вид детали на листе.",
+          "Настройте имя, масштаб, подпись и видимость границы, затем нажмите OK."
+        ],
+        "result": "Создаётся связанный с исходным видом выносной вид с собственным масштабом.",
+        "note": "Новому виду нужны источник, допустимая граница и положение. Отмена отбрасывает черновик; при редактировании существующего выносного вида замена исходного вида не предлагается."
+      }
+    }
+  },
+  "drawingShowEraseAction": {
+    "slug": "command-drawing-show-erase",
+    "group": "drawing",
+    "sources": [
+      "cpp/app/drawing_window.cpp"
+    ],
+    "locales": {
+      "cs": {
+        "title": "Zobrazit / skrýt kóty…",
+        "intro": "Řídí viditelnost původních modelových anotací v jednotlivých výkresových pohledech.",
+        "prerequisites": "Připravte pohled se zdrojovými anotacemi; po změnách zdroje použijte podle potřeby explicitní regeneraci.",
+        "steps": [
+          "Otevřete Zobrazit / skrýt kóty a vyberte pohled.",
+          "Zvolte zobrazení nebo skrytí a filtr požadovaných typů anotací.",
+          "Přepínejte nabízené položky v seznamu nebo kliknutím v pohledu.",
+          "Zkontrolujte náhled a potvrďte OK."
+        ],
+        "result": "Viditelnost se uloží zvlášť pro příslušné pohledy.",
+        "note": "Zrušit obnoví původní viditelnost. Příkaz nevytváří nové měřené kóty a samotné filtrování nepřepočítává model."
+      },
+      "en": {
+        "title": "Show / hide dimensions…",
+        "intro": "Controls visibility of original model annotations in individual Drawing views.",
+        "prerequisites": "Prepare a view containing source annotations; explicitly regenerate after source changes when needed.",
+        "steps": [
+          "Open Show / hide dimensions and choose a view.",
+          "Select showing or erasing and filter the required annotation types.",
+          "Toggle offered items in the list or by clicking the view.",
+          "Inspect the preview and confirm with OK."
+        ],
+        "result": "Visibility is stored separately for the affected views.",
+        "note": "Cancel restores the initial visibility. The command does not create new measurement dimensions, and changing filters does not recalculate the model."
+      },
+      "de": {
+        "title": "Bemaßungen ein-/ausblenden…",
+        "intro": "Steuert die Sichtbarkeit ursprünglicher Modellannotationen in einzelnen Zeichnungsansichten.",
+        "prerequisites": "Bereiten Sie eine Ansicht mit Quellannotationen vor; regenerieren Sie nach Quelländerungen bei Bedarf ausdrücklich.",
+        "steps": [
+          "Öffnen Sie Bemaßungen ein-/ausblenden und wählen Sie eine Ansicht.",
+          "Wählen Sie Ein- oder Ausblenden sowie Filter für die gewünschten Annotationstypen.",
+          "Schalten Sie angebotene Einträge in der Liste oder durch Klicken in der Ansicht um.",
+          "Prüfen Sie die Vorschau und bestätigen Sie mit OK."
+        ],
+        "result": "Die Sichtbarkeit wird getrennt für die betroffenen Ansichten gespeichert.",
+        "note": "Abbrechen stellt die ursprüngliche Sichtbarkeit wieder her. Der Befehl erzeugt keine neuen Messmaße; Filterwechsel berechnen das Modell nicht neu."
+      },
+      "fr": {
+        "title": "Afficher / masquer les cotes…",
+        "intro": "Règle la visibilité des annotations originales du modèle dans chaque vue du dessin.",
+        "prerequisites": "Préparez une vue contenant les annotations sources ; régénérez explicitement après modification de la source si nécessaire.",
+        "steps": [
+          "Ouvrez Afficher / masquer les cotes et choisissez une vue.",
+          "Choisissez affichage ou masquage et filtrez les types d’annotations souhaités.",
+          "Basculez les éléments proposés dans la liste ou en cliquant dans la vue.",
+          "Examinez l’aperçu et validez avec OK."
+        ],
+        "result": "La visibilité est enregistrée séparément pour les vues concernées.",
+        "note": "Annuler restaure la visibilité initiale. La commande ne crée pas de nouvelles cotes mesurées ; changer de filtre ne recalcule pas le modèle."
+      },
+      "ru": {
+        "title": "Показать / скрыть размеры…",
+        "intro": "Управляет видимостью исходных аннотаций модели в отдельных видах чертежа.",
+        "prerequisites": "Подготовьте вид с исходными аннотациями; после изменений источника при необходимости явно выполните регенерацию.",
+        "steps": [
+          "Откройте Показать / скрыть размеры и выберите вид.",
+          "Задайте показ либо скрытие и фильтр нужных типов аннотаций.",
+          "Переключайте предложенные элементы в списке или щелчком в виде.",
+          "Проверьте предварительный вид и нажмите OK."
+        ],
+        "result": "Видимость сохраняется отдельно для затронутых видов.",
+        "note": "Отмена восстанавливает исходную видимость. Команда не создаёт новые измерительные размеры, а изменение фильтров не пересчитывает модель."
+      }
+    }
+  },
+  "drawingDimensionAction": {
+    "slug": "command-drawing-dimension",
+    "group": "drawing",
+    "sources": [
+      "cpp/app/drawing_window.cpp",
+      "cpp/app/drawing_dimension_dialog.hpp"
+    ],
+    "locales": {
+      "cs": {
+        "title": "Kóta",
+        "intro": "Vytváří měřenou výkresovou kótu svázanou s geometrií pohledu.",
+        "prerequisites": "Aktivní list musí obsahovat pohled s dostupnou měřicí geometrií.",
+        "steps": [
+          "Spusťte Kóta a zvolte lineární, poloměrový, průměrový, úhlový, řetězový nebo automatický typ.",
+          "Klikněte do referenčních polí a vyberte odpovídající geometrii v pohledu.",
+          "Nastavte směr a text; umístěte kótu.",
+          "U lineárního či automatického režimu kliknutí umístění kótu uloží a připraví další; OK příkaz ukončí. Ostatní typy potvrďte OK."
+        ],
+        "result": "Vznikne asociativní měřená anotace výkresu.",
+        "note": "Kóta neřídí model. Zrušit zahodí aktuální návrh, nikoli již uložené kóty; dvojklik prostředním tlačítkem ukončuje opakované zadávání."
+      },
+      "en": {
+        "title": "Dimension",
+        "intro": "Creates a measured Drawing dimension linked to view geometry.",
+        "prerequisites": "The active sheet must contain a view with available measurement geometry.",
+        "steps": [
+          "Start Dimension and choose linear, radius, diameter, angular, chain or automatic type.",
+          "Click reference fields and select appropriate geometry in the view.",
+          "Set direction and text, then place the dimension.",
+          "In linear or automatic mode the placement click saves it and prepares another; OK finishes the command. Confirm other types with OK."
+        ],
+        "result": "An associative measured Drawing annotation is created.",
+        "note": "This dimension does not drive the model. Cancel discards the current draft, not previously saved dimensions; middle-button double-click finishes repeated entry."
+      },
+      "de": {
+        "title": "Bemaßung",
+        "intro": "Erstellt ein gemessenes Zeichnungsmaß mit Bezug zur Ansichtsgeometrie.",
+        "prerequisites": "Das aktive Blatt muss eine Ansicht mit verfügbarer Messgeometrie enthalten.",
+        "steps": [
+          "Starten Sie Bemaßung und wählen Sie Linear-, Radius-, Durchmesser-, Winkel-, Ketten- oder Automatiktyp.",
+          "Klicken Sie Referenzfelder an und wählen Sie passende Geometrie in der Ansicht.",
+          "Definieren Sie Richtung und Text und platzieren Sie das Maß.",
+          "Im linearen oder automatischen Modus speichert der Platzierungsklick und bereitet das nächste Maß vor; OK beendet. Andere Typen bestätigen Sie mit OK."
+        ],
+        "result": "Eine assoziative gemessene Zeichnungsannotation entsteht.",
+        "note": "Das Maß steuert das Modell nicht. Abbrechen verwirft nur den aktuellen Entwurf; ein Mitteltasten-Doppelklick beendet wiederholte Eingabe."
+      },
+      "fr": {
+        "title": "Cotation",
+        "intro": "Crée une cote mesurée liée à la géométrie d’une vue.",
+        "prerequisites": "La feuille active doit contenir une vue avec une géométrie de mesure disponible.",
+        "steps": [
+          "Lancez Cotation et choisissez le type linéaire, rayon, diamètre, angle, chaîne ou automatique.",
+          "Activez les champs de référence et sélectionnez la géométrie appropriée.",
+          "Réglez direction et texte, puis placez la cote.",
+          "En mode linéaire ou automatique, le clic de placement enregistre et prépare la suivante ; OK termine. Validez les autres types avec OK."
+        ],
+        "result": "Une annotation mesurée associative est créée.",
+        "note": "Cette cote ne pilote pas le modèle. Annuler abandonne le brouillon actuel, pas les cotes enregistrées ; un double-clic central termine la saisie répétée."
+      },
+      "ru": {
+        "title": "Размер",
+        "intro": "Создаёт измерительный размер чертежа, связанный с геометрией вида.",
+        "prerequisites": "Активный лист должен содержать вид с доступной измерительной геометрией.",
+        "steps": [
+          "Запустите Размер и выберите линейный, радиальный, диаметральный, угловой, цепной либо автоматический тип.",
+          "Активируйте поля ссылок и выберите подходящую геометрию.",
+          "Задайте направление и текст, затем разместите размер.",
+          "В линейном или автоматическом режиме щелчок размещения сохраняет размер и готовит следующий; OK завершает команду. Другие типы подтвердите кнопкой OK."
+        ],
+        "result": "Создаётся ассоциативная измерительная аннотация чертежа.",
+        "note": "Размер не управляет моделью. Отмена отбрасывает текущий черновик, но не сохранённые размеры; двойной щелчок средней кнопкой завершает повторный ввод."
+      }
+    }
+  },
+  "drawingChainDimensionAction": {
+    "slug": "command-drawing-chain-dimension",
+    "group": "drawing",
+    "sources": [
+      "cpp/app/drawing_window.cpp",
+      "cpp/app/drawing_dimension_dialog.hpp"
+    ],
+    "locales": {
+      "cs": {
+        "title": "Řetězová kóta",
+        "intro": "Vytváří nebo rozšiřuje řetězovou kótu v jednom výkresovém pohledu.",
+        "prerequisites": "Připravte pohled s platnými geometrickými referencemi; pro navázání lze použít existující řetězovou kótu.",
+        "steps": [
+          "Spusťte Řetězová kóta a vyberte počáteční reference, případně existující řetěz.",
+          "Umístěte základní kótu a přidávejte další reference na začátek nebo konec.",
+          "Zkontrolujte směr, hodnoty jednotlivých úseků a jejich textové nastavení.",
+          "Potvrďte OK; pro ukončení opakovaného zadávání použijte dvojklik prostředním tlačítkem."
+        ],
+        "result": "Navazující úseky zůstanou propojené prostřednictvím geometrických referencí.",
+        "note": "Příkaz nemění modelové rozměry. Zrušit zahodí neuložený návrh, dříve potvrzené kóty zůstávají."
+      },
+      "en": {
+        "title": "Chain dimension",
+        "intro": "Creates or extends a chain dimension in one Drawing view.",
+        "prerequisites": "Prepare a view with valid geometry references; an existing chain dimension can seed continuation.",
+        "steps": [
+          "Start Chain dimension and choose initial references or an existing chain.",
+          "Place the base dimension and add further references at the beginning or end.",
+          "Review direction, individual segment values and text settings.",
+          "Confirm with OK; use a middle-button double-click to finish repeated entry."
+        ],
+        "result": "Connected segments remain linked through their geometry references.",
+        "note": "The command does not change model dimensions. Cancel discards the unsaved draft; previously confirmed dimensions remain."
+      },
+      "de": {
+        "title": "Kettenbemaßung",
+        "intro": "Erstellt oder erweitert eine Kettenbemaßung innerhalb einer Zeichnungsansicht.",
+        "prerequisites": "Bereiten Sie eine Ansicht mit gültigen Geometriereferenzen vor; eine bestehende Kette kann als Ausgang dienen.",
+        "steps": [
+          "Starten Sie Kettenbemaßung und wählen Sie Anfangsreferenzen oder eine vorhandene Kette.",
+          "Platzieren Sie das Ausgangsmaß und ergänzen Sie Referenzen am Anfang oder Ende.",
+          "Prüfen Sie Richtung, einzelne Abschnittswerte und Texteinstellungen.",
+          "Bestätigen Sie mit OK; ein Mitteltasten-Doppelklick beendet wiederholte Eingabe."
+        ],
+        "result": "Zusammenhängende Abschnitte bleiben über ihre Geometriereferenzen verbunden.",
+        "note": "Der Befehl verändert keine Modellmaße. Abbrechen verwirft den ungespeicherten Entwurf; zuvor bestätigte Maße bleiben erhalten."
+      },
+      "fr": {
+        "title": "Cotation en chaîne",
+        "intro": "Crée ou prolonge une cotation en chaîne dans une même vue.",
+        "prerequisites": "Préparez une vue avec des références géométriques valides ; une chaîne existante peut servir de point de départ.",
+        "steps": [
+          "Lancez Cotation en chaîne et choisissez les références initiales ou une chaîne existante.",
+          "Placez la cote de base et ajoutez des références au début ou à la fin.",
+          "Vérifiez direction, valeurs des segments et réglages des textes.",
+          "Validez avec OK ; un double-clic central termine la saisie répétée."
+        ],
+        "result": "Les segments restent reliés par leurs références géométriques.",
+        "note": "La commande ne modifie pas les dimensions du modèle. Annuler abandonne le brouillon non enregistré ; les cotes déjà validées restent présentes."
+      },
+      "ru": {
+        "title": "Цепочка размеров",
+        "intro": "Создаёт или продолжает цепочку размеров в одном виде чертежа.",
+        "prerequisites": "Подготовьте вид с корректными геометрическими ссылками; для продолжения можно выбрать существующую цепочку.",
+        "steps": [
+          "Запустите Цепочка размеров и выберите начальные ссылки либо готовую цепочку.",
+          "Разместите базовый размер и добавьте ссылки в начало или конец.",
+          "Проверьте направление, значения отдельных участков и настройки текста.",
+          "Нажмите OK; двойной щелчок средней кнопкой завершает повторный ввод."
+        ],
+        "result": "Смежные участки сохраняют связь через геометрические ссылки.",
+        "note": "Команда не изменяет размеры модели. Отмена отбрасывает несохранённый черновик; ранее подтверждённые размеры остаются."
+      }
+    }
+  },
+  "drawingTextAction": {
+    "slug": "command-drawing-text",
+    "group": "drawing",
+    "sources": [
+      "cpp/app/drawing_window.cpp"
+    ],
+    "locales": {
+      "cs": {
+        "title": "Text",
+        "intro": "Přidává běžný víceřádkový text přímo na výkresový list.",
+        "prerequisites": "Otevřete aktivní list; pro volný text není nutný modelový pohled.",
+        "steps": [
+          "Spusťte Text a napište obsah ve víceřádkovém editoru.",
+          "Kliknutím na list umístěte kotevní bod.",
+          "Nastavte výšku, písmo, zarovnání, barvu a natočení; zkontrolujte náhled.",
+          "Potvrďte OK."
+        ],
+        "result": "Text se uloží na list a zobrazí se také při tisku a exportu.",
+        "note": "Zrušit zahodí návrh. Nový text má výšku 2.5 mm; prázdný text se v editoru ukazuje pomlčkou, která se neexportuje."
+      },
+      "en": {
+        "title": "Text",
+        "intro": "Adds ordinary multiline text directly to a Drawing sheet.",
+        "prerequisites": "Open an active sheet; free text does not require a model view.",
+        "steps": [
+          "Start Text and enter content in the multiline editor.",
+          "Click the sheet to place its anchor.",
+          "Set height, font, alignment, color and rotation; inspect the preview.",
+          "Confirm with OK."
+        ],
+        "result": "Text is saved on the sheet and appears in printing and export.",
+        "note": "Cancel discards the draft. New text starts at 2.5 mm height; empty text appears as an editing dash that is not exported."
+      },
+      "de": {
+        "title": "Text",
+        "intro": "Fügt normalen mehrzeiligen Text direkt auf einem Zeichnungsblatt hinzu.",
+        "prerequisites": "Öffnen Sie ein aktives Blatt; freier Text benötigt keine Modellansicht.",
+        "steps": [
+          "Starten Sie Text und geben Sie den Inhalt im mehrzeiligen Editor ein.",
+          "Klicken Sie auf das Blatt, um den Anker zu setzen.",
+          "Definieren Sie Höhe, Schrift, Ausrichtung, Farbe und Drehung und prüfen Sie die Vorschau.",
+          "Bestätigen Sie mit OK."
+        ],
+        "result": "Der Text wird auf dem Blatt gespeichert und beim Drucken sowie Export ausgegeben.",
+        "note": "Abbrechen verwirft den Entwurf. Neuer Text beginnt mit 2.5 mm Höhe; leerer Text erscheint als Bearbeitungsstrich, der nicht exportiert wird."
+      },
+      "fr": {
+        "title": "Texte",
+        "intro": "Ajoute du texte multiligne ordinaire directement sur une feuille de dessin.",
+        "prerequisites": "Ouvrez une feuille active ; le texte libre ne nécessite pas de vue de modèle.",
+        "steps": [
+          "Lancez Texte et saisissez le contenu dans l’éditeur multiligne.",
+          "Cliquez sur la feuille pour placer son ancrage.",
+          "Réglez hauteur, police, alignement, couleur et rotation ; examinez l’aperçu.",
+          "Validez avec OK."
+        ],
+        "result": "Le texte est enregistré sur la feuille et apparaît à l’impression et à l’exportation.",
+        "note": "Annuler abandonne le brouillon. Un nouveau texte mesure initialement 2.5 mm ; un texte vide apparaît comme un tiret d’édition qui n’est pas exporté."
+      },
+      "ru": {
+        "title": "Текст",
+        "intro": "Добавляет обычный многострочный текст непосредственно на лист чертежа.",
+        "prerequisites": "Откройте активный лист; свободному тексту не требуется вид модели.",
+        "steps": [
+          "Запустите Текст и введите содержимое в многострочном редакторе.",
+          "Щёлкните на листе для размещения опорной точки.",
+          "Задайте высоту, шрифт, выравнивание, цвет и поворот; проверьте предварительный вид.",
+          "Нажмите OK."
+        ],
+        "result": "Текст сохраняется на листе и выводится при печати и экспорте.",
+        "note": "Отмена отбрасывает черновик. Начальная высота текста — 2.5 mm; пустой текст обозначается редакторским тире, которое не экспортируется."
+      }
+    }
+  },
+  "drawingSymbolAction": {
+    "slug": "command-drawing-symbol",
+    "group": "drawing",
+    "sources": [
+      "cpp/app/drawing_window.cpp"
+    ],
+    "locales": {
+      "cs": {
+        "title": "Symbol",
+        "intro": "Vkládá knihovní symbol přímo jako anotaci výkresového listu.",
+        "prerequisites": "Otevřete list a připravte nativní soubor .symz; pro uchycení potřebujete vhodnou geometrii pohledu.",
+        "steps": [
+          "Spusťte Symbol a vyberte knihovní definici.",
+          "Zvolte variantu a vyplňte dostupné hodnoty symbolu.",
+          "Vyberte referenci pro uchycení, nastavte polohu, měřítko a případnou odkazovou čáru.",
+          "Zkontrolujte náhled a potvrďte OK."
+        ],
+        "result": "Symbol se vloží s vlastní definicí do výkresu a je zahrnut do exportu.",
+        "note": "Zrušit zahodí náhled. Změna knihovny neaktualizuje vložené kopie; zmizení reference zachová symbol pro opravu."
+      },
+      "en": {
+        "title": "Symbol",
+        "intro": "Inserts a library symbol directly as a Drawing-sheet annotation.",
+        "prerequisites": "Open a sheet and prepare a native .symz file; attachment requires suitable view geometry.",
+        "steps": [
+          "Start Symbol and choose the library definition.",
+          "Choose a variant and fill the available symbol values.",
+          "Select an attachment reference, then set position, scale and an optional leader.",
+          "Inspect the preview and confirm with OK."
+        ],
+        "result": "The symbol is embedded in the Drawing with its definition and included in export.",
+        "note": "Cancel discards the preview. Library changes do not update inserted copies; a missing reference retains the symbol for repair."
+      },
+      "de": {
+        "title": "Symbol",
+        "intro": "Fügt ein Bibliothekssymbol unmittelbar als Zeichnungsblattannotation ein.",
+        "prerequisites": "Öffnen Sie ein Blatt und halten Sie eine native .symz-Datei bereit; zur Befestigung wird passende Ansichtsgeometrie benötigt.",
+        "steps": [
+          "Starten Sie Symbol und wählen Sie die Bibliotheksdefinition.",
+          "Wählen Sie eine Variante und füllen Sie die verfügbaren Symbolwerte aus.",
+          "Wählen Sie eine Befestigungsreferenz und definieren Sie Position, Maßstab und gegebenenfalls Führungslinie.",
+          "Prüfen Sie die Vorschau und bestätigen Sie mit OK."
+        ],
+        "result": "Das Symbol wird samt Definition eingebettet und beim Export ausgegeben.",
+        "note": "Abbrechen verwirft die Vorschau. Bibliotheksänderungen aktualisieren eingefügte Kopien nicht; bei Referenzverlust bleibt das Symbol zur Reparatur erhalten."
+      },
+      "fr": {
+        "title": "Symbole",
+        "intro": "Insère un symbole de bibliothèque directement comme annotation de feuille.",
+        "prerequisites": "Ouvrez une feuille et préparez un fichier natif .symz ; une attache nécessite une géométrie de vue adaptée.",
+        "steps": [
+          "Lancez Symbole et choisissez la définition de bibliothèque.",
+          "Sélectionnez une variante et renseignez les valeurs disponibles.",
+          "Choisissez une référence d’attache, puis réglez position, échelle et éventuelle ligne de repère.",
+          "Examinez l’aperçu et validez avec OK."
+        ],
+        "result": "Le symbole et sa définition sont intégrés au dessin et inclus dans les exports.",
+        "note": "Annuler abandonne l’aperçu. Les changements de bibliothèque n’actualisent pas les copies ; une référence manquante conserve le symbole pour réparation."
+      },
+      "ru": {
+        "title": "Символ",
+        "intro": "Вставляет библиотечный символ непосредственно как аннотацию листа чертежа.",
+        "prerequisites": "Откройте лист и подготовьте собственный файл .symz; привязке нужна подходящая геометрия вида.",
+        "steps": [
+          "Запустите Символ и выберите библиотечное определение.",
+          "Выберите вариант и заполните доступные значения символа.",
+          "Выберите ссылку привязки, затем задайте положение, масштаб и при необходимости выноску.",
+          "Проверьте предварительный вид и нажмите OK."
+        ],
+        "result": "Символ вместе с определением встраивается в чертёж и включается в экспорт.",
+        "note": "Отмена отбрасывает предварительный вид. Изменения библиотеки не обновляют вставленные копии; при потере ссылки символ сохраняется для исправления."
+      }
+    }
+  },
+  "drawingBalloonAction": {
+    "slug": "command-drawing-balloon",
+    "group": "drawing",
+    "sources": [
+      "cpp/app/drawing_window.cpp",
+      "cpp/app/drawing_balloon_dialog.hpp"
+    ],
+    "locales": {
+      "cs": {
+        "title": "Pozice",
+        "intro": "Přidává číselné pozice odpovídající první úrovni kusovníku listu.",
+        "prerequisites": "Připravte výkresový pohled se zdrojem kusovníku a dostupnými hranami komponent.",
+        "steps": [
+          "Spusťte Pozice a vyberte pohled.",
+          "Použijte zobrazení všech pozic, nebo přidejte jednotlivou pozici výběrem hrany a následným umístěním kružnice.",
+          "Upravte úchyt, polohu, průměr kružnice a výšku textu.",
+          "Potvrďte OK."
+        ],
+        "result": "Pozice zůstane spojena s položkou kusovníku a geometrií konkrétního výskytu.",
+        "note": "Podsestava má jedno číslo; její vnitřní díly netvoří samostatné pozice první úrovně. Zrušit zahodí změny dialogu; skrytí není odstranění."
+      },
+      "en": {
+        "title": "Balloons",
+        "intro": "Adds numbered balloons corresponding to the sheet's first-level bill of materials.",
+        "prerequisites": "Prepare a Drawing view with a BOM source and available component edges.",
+        "steps": [
+          "Start Balloons and select the view.",
+          "Show all balloons, or add one by selecting an edge and then placing its circle.",
+          "Adjust attachment, position, circle diameter and text height.",
+          "Confirm with OK."
+        ],
+        "result": "The balloon remains linked to its BOM item and exact occurrence geometry.",
+        "note": "A subassembly has one number; its internal Parts are not separate first-level items. Cancel discards dialog changes; hiding is not deletion."
+      },
+      "de": {
+        "title": "Positionsnummern",
+        "intro": "Fügt nummerierte Positionsangaben entsprechend der ersten Stücklistenebene des Blatts hinzu.",
+        "prerequisites": "Bereiten Sie eine Zeichnungsansicht mit Stücklistenquelle und verfügbaren Komponentenkanten vor.",
+        "steps": [
+          "Starten Sie Positionsnummern und wählen Sie die Ansicht.",
+          "Zeigen Sie alle Positionen an oder fügen Sie eine durch Kantenauswahl und anschließende Kreisplatzierung hinzu.",
+          "Passen Sie Befestigung, Position, Kreisdurchmesser und Texthöhe an.",
+          "Bestätigen Sie mit OK."
+        ],
+        "result": "Die Positionsnummer bleibt mit Stücklisteneintrag und genauer Vorkommensgeometrie verbunden.",
+        "note": "Eine Unterbaugruppe erhält eine Nummer; ihre internen Teile sind keine eigenen Erstebeneneinträge. Abbrechen verwirft Dialogänderungen; Ausblenden ist kein Löschen."
+      },
+      "fr": {
+        "title": "Repères",
+        "intro": "Ajoute des repères numérotés correspondant au premier niveau de nomenclature de la feuille.",
+        "prerequisites": "Préparez une vue avec une source de nomenclature et des arêtes de composants disponibles.",
+        "steps": [
+          "Lancez Repères et sélectionnez la vue.",
+          "Affichez tous les repères ou ajoutez-en un en sélectionnant une arête puis en plaçant son cercle.",
+          "Réglez attache, position, diamètre du cercle et hauteur du texte.",
+          "Validez avec OK."
+        ],
+        "result": "Le repère reste lié à sa ligne de nomenclature et à la géométrie de l’occurrence exacte.",
+        "note": "Un sous-assemblage possède un seul numéro ; ses pièces internes ne sont pas des lignes distinctes du premier niveau. Annuler abandonne les modifications ; masquer ne supprime pas."
+      },
+      "ru": {
+        "title": "Позиции",
+        "intro": "Добавляет номера позиций первого уровня спецификации листа.",
+        "prerequisites": "Подготовьте вид чертежа с источником спецификации и доступными рёбрами компонентов.",
+        "steps": [
+          "Запустите Позиции и выберите вид.",
+          "Покажите все позиции либо добавьте одну, выбрав ребро и затем разместив окружность.",
+          "Настройте привязку, положение, диаметр окружности и высоту текста.",
+          "Нажмите OK."
+        ],
+        "result": "Позиция остаётся связанной со строкой спецификации и геометрией конкретного вхождения.",
+        "note": "Подсборка имеет один номер; её внутренние детали не являются отдельными позициями первого уровня. Отмена отбрасывает изменения диалога; скрытие не означает удаление."
+      }
+    }
+  },
+  "drawingDimensionJogAction": {
+    "slug": "command-drawing-dimension-jog",
+    "group": "drawing",
+    "sources": [
+      "cpp/app/drawing_window.cpp",
+      "cpp/app/drawing_witness_canvas.inc"
+    ],
+    "locales": {
+      "cs": {
+        "title": "Vložit zalomení",
+        "intro": "Vkládá zalomení do vynášecí čáry měřené výkresové kóty.",
+        "prerequisites": "Na listu musí být platná kóta s dostupnou vynášecí čárou; nejprve zavřete jiné Vlastnosti.",
+        "steps": [
+          "Spusťte Vložit zalomení a najeďte na požadovanou vynášecí čáru.",
+          "Kliknutím určete začátek zalomení.",
+          "Pohybem nastavte jeho rozsah a boční odsazení, poté druhým kliknutím potvrďte.",
+          "Zkontrolujte výsledek; vybrané zalomení lze dále upravovat jeho úchyty."
+        ],
+        "result": "Změní se místní vzhled vynášecí čáry bez změny měřené hodnoty.",
+        "note": "Escape ruší rozpracovanou úpravu. Příkaz neupravuje geometrii modelu ani nevytváří přerušení celého pohledu."
+      },
+      "en": {
+        "title": "Insert jog",
+        "intro": "Inserts a jog into a measured Drawing dimension's witness line.",
+        "prerequisites": "The sheet needs a valid dimension with an available witness line; close other Properties first.",
+        "steps": [
+          "Start Insert jog and hover over the required witness line.",
+          "Click to define the start of the jog.",
+          "Move to set its extent and sideways offset, then click again to commit.",
+          "Inspect the result; selected jogs can be adjusted with their handles."
+        ],
+        "result": "The local witness-line presentation changes without changing the measured value.",
+        "note": "Escape cancels the pending edit. This command neither changes model geometry nor creates a break in the whole view."
+      },
+      "de": {
+        "title": "Knick einfügen",
+        "intro": "Fügt einen Knick in die Maßhilfslinie eines gemessenen Zeichnungsmaßes ein.",
+        "prerequisites": "Das Blatt benötigt ein gültiges Maß mit verfügbarer Maßhilfslinie; schließen Sie andere Eigenschaften.",
+        "steps": [
+          "Starten Sie Knick einfügen und zeigen Sie auf die gewünschte Maßhilfslinie.",
+          "Klicken Sie zum Festlegen des Knickanfangs.",
+          "Bewegen Sie den Zeiger für Länge und seitlichen Versatz und bestätigen Sie mit einem zweiten Klick.",
+          "Prüfen Sie das Ergebnis; ausgewählte Knicke können über Griffe angepasst werden."
+        ],
+        "result": "Die lokale Darstellung der Maßhilfslinie ändert sich ohne Änderung des Messwerts.",
+        "note": "Escape verwirft die ausstehende Änderung. Der Befehl verändert weder Modellgeometrie noch unterbricht er die gesamte Ansicht."
+      },
+      "fr": {
+        "title": "Insérer un coude",
+        "intro": "Insère un coude dans la ligne d’attache d’une cote mesurée du dessin.",
+        "prerequisites": "La feuille doit contenir une cote valide avec une ligne d’attache accessible ; fermez les autres propriétés.",
+        "steps": [
+          "Lancez Insérer un coude et survolez la ligne d’attache souhaitée.",
+          "Cliquez pour définir le début du coude.",
+          "Déplacez le pointeur pour régler l’étendue et le décalage latéral, puis cliquez pour valider.",
+          "Examinez le résultat ; les poignées permettent d’ajuster un coude sélectionné."
+        ],
+        "result": "La présentation locale change sans modifier la valeur mesurée.",
+        "note": "Échap annule la modification en cours. La commande ne modifie pas le modèle et ne crée pas de rupture de vue."
+      },
+      "ru": {
+        "title": "Вставить излом",
+        "intro": "Вставляет излом в выносную линию измерительного размера чертежа.",
+        "prerequisites": "На листе нужен корректный размер с доступной выносной линией; сначала закройте другие свойства.",
+        "steps": [
+          "Запустите Вставить излом и наведите указатель на нужную выносную линию.",
+          "Щёлкните для задания начала излома.",
+          "Перемещением задайте его длину и боковое смещение, затем подтвердите вторым щелчком.",
+          "Проверьте результат; выбранный излом можно корректировать ручками."
+        ],
+        "result": "Меняется местное оформление выносной линии без изменения измеренного значения.",
+        "note": "Escape отменяет незавершённую правку. Команда не изменяет геометрию модели и не создаёт разрыв всего вида."
+      }
+    }
+  },
+  "drawingDimensionBreakAction": {
+    "slug": "command-drawing-dimension-break",
+    "group": "drawing",
+    "sources": [
+      "cpp/app/drawing_window.cpp",
+      "cpp/app/drawing_witness_canvas.inc"
+    ],
+    "locales": {
+      "cs": {
+        "title": "Vložit přerušení",
+        "intro": "Vkládá mezeru do vynášecí čáry měřené výkresové kóty.",
+        "prerequisites": "Připravte platnou kótu s dostupnou vynášecí čárou a zavřete ostatní Vlastnosti.",
+        "steps": [
+          "Spusťte Vložit přerušení a nejprve vyberte příslušnou kótu.",
+          "Najeďte na její vynášecí čáru a klikněte na začátek mezery.",
+          "Přesuňte ukazatel na konec požadovaného přerušení a kliknutím potvrďte.",
+          "Zkontrolujte mezeru a případně upravte její koncové úchyty."
+        ],
+        "result": "Čára obsahuje uložené místní přerušení; naměřená hodnota zůstane stejná.",
+        "note": "Escape zahodí rozpracovanou mezeru. Jde o úpravu vynášecí čáry, nikoli přerušení modelu nebo výkresového pohledu."
+      },
+      "en": {
+        "title": "Insert break",
+        "intro": "Inserts a gap in a measured Drawing dimension's witness line.",
+        "prerequisites": "Prepare a valid dimension with an available witness line and close other Properties.",
+        "steps": [
+          "Start Insert break and first select the dimension.",
+          "Hover over its witness line and click the start of the gap.",
+          "Move to the desired end of the break and click to commit.",
+          "Inspect the gap and adjust its endpoint handles if needed."
+        ],
+        "result": "The line contains a saved local gap while the measured value stays unchanged.",
+        "note": "Escape discards the pending gap. This edits a witness line, not the model or the Drawing view's break definition."
+      },
+      "de": {
+        "title": "Unterbrechung einfügen",
+        "intro": "Fügt eine Lücke in die Maßhilfslinie eines gemessenen Zeichnungsmaßes ein.",
+        "prerequisites": "Bereiten Sie ein gültiges Maß mit verfügbarer Maßhilfslinie vor und schließen Sie andere Eigenschaften.",
+        "steps": [
+          "Starten Sie Unterbrechung einfügen und wählen Sie zunächst das Maß.",
+          "Zeigen Sie auf seine Maßhilfslinie und klicken Sie auf den Lückenanfang.",
+          "Bewegen Sie den Zeiger zum gewünschten Ende und bestätigen Sie per Klick.",
+          "Prüfen Sie die Lücke und passen Sie bei Bedarf ihre Endgriffe an."
+        ],
+        "result": "Die Linie erhält eine gespeicherte lokale Lücke; der Messwert bleibt unverändert.",
+        "note": "Escape verwirft die ausstehende Lücke. Bearbeitet wird eine Maßhilfslinie, weder das Modell noch eine Ansichtsunterbrechung."
+      },
+      "fr": {
+        "title": "Insérer une interruption",
+        "intro": "Insère une interruption dans la ligne d’attache d’une cote mesurée.",
+        "prerequisites": "Préparez une cote valide avec une ligne d’attache accessible et fermez les autres propriétés.",
+        "steps": [
+          "Lancez Insérer une interruption et sélectionnez d’abord la cote.",
+          "Survolez sa ligne d’attache et cliquez au début de l’espace souhaité.",
+          "Déplacez le pointeur jusqu’à la fin souhaitée et cliquez pour valider.",
+          "Examinez l’interruption et ajustez ses poignées d’extrémité si nécessaire."
+        ],
+        "result": "La ligne contient une interruption locale enregistrée ; la valeur mesurée reste inchangée.",
+        "note": "Échap abandonne l’espace en cours. Cette commande modifie une ligne d’attache, pas le modèle ni la définition de rupture de la vue."
+      },
+      "ru": {
+        "title": "Вставить разрыв",
+        "intro": "Вставляет промежуток в выносную линию измерительного размера чертежа.",
+        "prerequisites": "Подготовьте корректный размер с доступной выносной линией и закройте другие свойства.",
+        "steps": [
+          "Запустите Вставить разрыв и сначала выберите размер.",
+          "Наведите указатель на его выносную линию и щёлкните в начале промежутка.",
+          "Переместите указатель к нужному концу разрыва и подтвердите щелчком.",
+          "Проверьте промежуток и при необходимости измените его крайние ручки."
+        ],
+        "result": "Линия получает сохранённый местный разрыв; измеренное значение остаётся прежним.",
+        "note": "Escape отбрасывает незавершённый промежуток. Изменяется выносная линия, а не модель или определение разрыва вида чертежа."
+      }
+    }
+  },
+  "drawingDimensionAlignAction": {
+    "slug": "command-drawing-dimension-align",
+    "group": "drawing",
+    "sources": [
+      "cpp/app/drawing_window.cpp",
+      "cpp/modules/workspace/src/drawing_dimension_operations.cpp"
+    ],
+    "locales": {
+      "cs": {
+        "title": "Zarovnat kóty",
+        "intro": "Zarovná rovnoběžné měřené kóty podle první vybrané kóty.",
+        "prerequisites": "Použijte vyřešené lineární nebo podporované jednotlivé řetězové úseky ve stejném pohledu, bez uchycení k vodítkům.",
+        "steps": [
+          "Spusťte Zarovnat kóty.",
+          "Klikněte na první kótu určující polohu kótovací čáry.",
+          "Klikněte na druhou nabízenou rovnoběžnou kótu.",
+          "Zkontrolujte nové zarovnání; potřebnou další dvojici zadejte novým spuštěním příkazu."
+        ],
+        "result": "Druhá kóta se přesune do stejné řady; její měřená hodnota se nemění.",
+        "note": "Nevhodné kóty se nenabízejí. Escape před dokončením výběru příkaz ukončí; již potvrzenou změnu vrací Zpět."
+      },
+      "en": {
+        "title": "Align dimensions",
+        "intro": "Aligns parallel measured dimensions to the first selected dimension.",
+        "prerequisites": "Use resolved linear dimensions or supported individual chain segments in the same view, unattached to guides.",
+        "steps": [
+          "Start Align dimensions.",
+          "Click the first dimension to define the dimension-line position.",
+          "Click the second offered parallel dimension.",
+          "Inspect the alignment; start the command again for another pair."
+        ],
+        "result": "The second dimension moves onto the same row without changing its measured value.",
+        "note": "Ineligible dimensions are not offered. Escape before completing selection ends the command; use Undo for an already committed alignment."
+      },
+      "de": {
+        "title": "Bemaßungen ausrichten",
+        "intro": "Richtet parallele gemessene Maße am zuerst ausgewählten Maß aus.",
+        "prerequisites": "Verwenden Sie aufgelöste lineare Maße oder unterstützte einzelne Kettenabschnitte derselben Ansicht ohne Führungslinienbindung.",
+        "steps": [
+          "Starten Sie Bemaßungen ausrichten.",
+          "Klicken Sie das erste Maß als Vorgabe für die Maßlinienposition an.",
+          "Klicken Sie das zweite angebotene parallele Maß an.",
+          "Prüfen Sie die Ausrichtung; starten Sie den Befehl für ein weiteres Paar erneut."
+        ],
+        "result": "Das zweite Maß wird auf dieselbe Reihe verschoben, ohne seinen Messwert zu ändern.",
+        "note": "Ungeeignete Maße werden nicht angeboten. Escape beendet vor vollständiger Auswahl; bereits bestätigte Ausrichtungen lassen sich mit Rückgängig aufheben."
+      },
+      "fr": {
+        "title": "Aligner les cotes",
+        "intro": "Aligne des cotes mesurées parallèles sur la première cote sélectionnée.",
+        "prerequisites": "Utilisez des cotes linéaires résolues ou des segments de chaîne compatibles, dans la même vue et sans attache aux guides.",
+        "steps": [
+          "Lancez Aligner les cotes.",
+          "Cliquez sur la première cote pour définir la position de la ligne de cote.",
+          "Cliquez sur la deuxième cote parallèle proposée.",
+          "Vérifiez l’alignement ; relancez la commande pour une autre paire."
+        ],
+        "result": "La deuxième cote rejoint la même rangée sans changer sa valeur mesurée.",
+        "note": "Les cotes incompatibles ne sont pas proposées. Échap termine avant la sélection complète ; une modification validée peut être annulée par l’historique."
+      },
+      "ru": {
+        "title": "Выровнять размеры",
+        "intro": "Выравнивает параллельные измерительные размеры по первому выбранному размеру.",
+        "prerequisites": "Используйте разрешённые линейные размеры либо поддерживаемые отдельные участки цепочки в одном виде без привязки к направляющим.",
+        "steps": [
+          "Запустите Выровнять размеры.",
+          "Щёлкните первый размер, задающий положение размерной линии.",
+          "Щёлкните второй предложенный параллельный размер.",
+          "Проверьте выравнивание; для следующей пары запустите команду заново."
+        ],
+        "result": "Второй размер перемещается в тот же ряд без изменения измеренного значения.",
+        "note": "Неподходящие размеры не предлагаются. Escape до завершения выбора заканчивает команду; подтверждённое выравнивание отменяется через историю."
+      }
+    }
+  },
+  "drawingQuickExportPdfAction": {
+    "slug": "command-drawing-quick-export-pdf",
+    "group": "drawing",
+    "sources": [
+      "cpp/app/drawing_window.cpp",
+      "cpp/app/application_settings.cpp"
+    ],
+    "locales": {
+      "cs": {
+        "title": "PDF",
+        "intro": "Rychle exportuje celý výkres do PDF v nastavené relativní složce.",
+        "prerequisites": "Výkres musí být uložený a mít aktivní list; složka PDF musí být nastavena relativně k jeho souboru.",
+        "steps": [
+          "Zkontrolujte obsah všech listů a podle potřeby regenerujte pohledy.",
+          "Uložte výkres a ověřte nastavení cílové složky.",
+          "Klikněte na PDF.",
+          "Zkontrolujte oznámenou cestu a otevřete výsledný soubor .pdf."
+        ],
+        "result": "Vznikne PDF se stejným základním názvem jako výkres v nastavené složce, výchozí je pdf.",
+        "note": "Rychlý export neotevírá výběr souboru a může přepsat stejnojmenný výstup. DXF naopak exportuje pouze aktuální list."
+      },
+      "en": {
+        "title": "PDF",
+        "intro": "Quickly exports the complete Drawing to PDF in its configured relative folder.",
+        "prerequisites": "The Drawing must be saved and have an active sheet; the PDF folder must be relative to its file.",
+        "steps": [
+          "Check every sheet and regenerate views when needed.",
+          "Save the Drawing and verify the output-folder setting.",
+          "Click PDF.",
+          "Check the reported path and open the resulting .pdf file."
+        ],
+        "result": "A PDF named after the Drawing is created in the configured folder, which defaults to pdf.",
+        "note": "Quick export opens no file chooser and can overwrite the same output name. DXF instead exports only the active sheet."
+      },
+      "de": {
+        "title": "PDF",
+        "intro": "Exportiert die gesamte Zeichnung schnell als PDF in den eingestellten relativen Ordner.",
+        "prerequisites": "Die Zeichnung muss gespeichert sein und ein aktives Blatt haben; der PDF-Ordner muss relativ zur Datei sein.",
+        "steps": [
+          "Prüfen Sie alle Blätter und regenerieren Sie bei Bedarf die Ansichten.",
+          "Speichern Sie die Zeichnung und prüfen Sie den Ausgabeordner.",
+          "Klicken Sie auf PDF.",
+          "Prüfen Sie den gemeldeten Pfad und öffnen Sie die erzeugte .pdf-Datei."
+        ],
+        "result": "Ein PDF mit dem Zeichnungsnamen entsteht im eingestellten Ordner, standardmäßig pdf.",
+        "note": "Der Schnellexport öffnet keine Dateiauswahl und kann gleichnamige Ausgaben überschreiben. DXF exportiert dagegen nur das aktive Blatt."
+      },
+      "fr": {
+        "title": "PDF",
+        "intro": "Exporte rapidement tout le dessin en PDF dans le dossier relatif configuré.",
+        "prerequisites": "Le dessin doit être enregistré avec une feuille active ; le dossier PDF doit être relatif à son fichier.",
+        "steps": [
+          "Vérifiez toutes les feuilles et régénérez les vues si nécessaire.",
+          "Enregistrez le dessin et vérifiez le dossier de sortie.",
+          "Cliquez sur PDF.",
+          "Contrôlez le chemin annoncé et ouvrez le fichier .pdf produit."
+        ],
+        "result": "Un PDF portant le nom du dessin est créé dans le dossier configuré, pdf par défaut.",
+        "note": "L’export rapide n’ouvre pas de sélecteur de fichier et peut écraser une sortie de même nom. L’export DXF concerne seulement la feuille active."
+      },
+      "ru": {
+        "title": "PDF",
+        "intro": "Быстро экспортирует весь чертёж в PDF в настроенную относительную папку.",
+        "prerequisites": "Чертёж должен быть сохранён и иметь активный лист; папка PDF должна задаваться относительно его файла.",
+        "steps": [
+          "Проверьте все листы и при необходимости регенерируйте виды.",
+          "Сохраните чертёж и проверьте настройку выходной папки.",
+          "Нажмите PDF.",
+          "Проверьте сообщённый путь и откройте полученный файл .pdf."
+        ],
+        "result": "В настроенной папке, по умолчанию pdf, создаётся PDF с базовым именем чертежа.",
+        "note": "Быстрый экспорт не открывает выбор файла и может перезаписать одноимённый результат. DXF экспортирует только активный лист."
+      }
+    }
+  },
+  "drawingQuickExportDxfAction": {
+    "slug": "command-drawing-quick-export-dxf",
+    "group": "drawing",
+    "sources": [
+      "cpp/app/drawing_window.cpp",
+      "cpp/app/application_settings.cpp"
+    ],
+    "locales": {
+      "cs": {
+        "title": "DXF",
+        "intro": "Rychle exportuje právě aktivní výkresový list do DXF.",
+        "prerequisites": "Uložte výkres a nastavte složku DXF relativně k jeho souboru.",
+        "steps": [
+          "Aktivujte list, který chcete exportovat, a zkontrolujte jeho pohledy i anotace.",
+          "Podle potřeby regenerujte a uložte výkres.",
+          "Klikněte na DXF.",
+          "Zkontrolujte oznámenou cestu a otevřete výsledný soubor .dxf."
+        ],
+        "result": "Soubor vznikne v nastavené složce, výchozí je export; název tvoří jméno výkresu a podtržítko s číslem listu od 1.",
+        "note": "Exportuje se pouze aktuální list. Příkaz neotevírá výběr souboru a může přepsat stejný výstup."
+      },
+      "en": {
+        "title": "DXF",
+        "intro": "Quickly exports the currently active Drawing sheet to DXF.",
+        "prerequisites": "Save the Drawing and configure a DXF folder relative to its file.",
+        "steps": [
+          "Activate the sheet to export and review its views and annotations.",
+          "Regenerate when needed and save the Drawing.",
+          "Click DXF.",
+          "Check the reported path and open the resulting .dxf file."
+        ],
+        "result": "The file is written to the configured folder, defaulting to export; its name combines the Drawing name, an underscore and the sheet number starting at 1.",
+        "note": "Only the active sheet is exported. No file chooser opens, and the same output can be overwritten."
+      },
+      "de": {
+        "title": "DXF",
+        "intro": "Exportiert das aktuell aktive Zeichnungsblatt schnell als DXF.",
+        "prerequisites": "Speichern Sie die Zeichnung und definieren Sie den DXF-Ordner relativ zu ihrer Datei.",
+        "steps": [
+          "Aktivieren Sie das gewünschte Blatt und prüfen Sie Ansichten und Annotationen.",
+          "Regenerieren Sie bei Bedarf und speichern Sie die Zeichnung.",
+          "Klicken Sie auf DXF.",
+          "Prüfen Sie den gemeldeten Pfad und öffnen Sie die erzeugte .dxf-Datei."
+        ],
+        "result": "Die Datei entsteht im eingestellten Ordner, standardmäßig export; der Name besteht aus Zeichnungsname, Unterstrich und Blattnummer ab 1.",
+        "note": "Nur das aktive Blatt wird exportiert. Es öffnet keine Dateiauswahl; gleichnamige Ausgaben können überschrieben werden."
+      },
+      "fr": {
+        "title": "DXF",
+        "intro": "Exporte rapidement la feuille de dessin actuellement active en DXF.",
+        "prerequisites": "Enregistrez le dessin et configurez un dossier DXF relatif à son fichier.",
+        "steps": [
+          "Activez la feuille à exporter et vérifiez ses vues et annotations.",
+          "Régénérez si nécessaire et enregistrez le dessin.",
+          "Cliquez sur DXF.",
+          "Contrôlez le chemin annoncé et ouvrez le fichier .dxf produit."
+        ],
+        "result": "Le fichier est écrit dans le dossier configuré, export par défaut ; son nom associe celui du dessin, un trait de soulignement et le numéro de feuille à partir de 1.",
+        "note": "Seule la feuille active est exportée. Aucun sélecteur de fichier ne s’ouvre ; un résultat existant peut être écrasé."
+      },
+      "ru": {
+        "title": "DXF",
+        "intro": "Быстро экспортирует текущий активный лист чертежа в DXF.",
+        "prerequisites": "Сохраните чертёж и задайте папку DXF относительно его файла.",
+        "steps": [
+          "Активируйте нужный лист и проверьте его виды и аннотации.",
+          "При необходимости выполните регенерацию и сохраните чертёж.",
+          "Нажмите DXF.",
+          "Проверьте сообщённый путь и откройте полученный файл .dxf."
+        ],
+        "result": "Файл записывается в настроенную папку, по умолчанию export; имя состоит из имени чертежа, подчёркивания и номера листа начиная с 1.",
+        "note": "Экспортируется только активный лист. Диалог выбора файла не открывается; существующий одноимённый результат может быть перезаписан."
+      }
+    }
+  }
+}

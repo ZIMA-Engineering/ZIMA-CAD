@@ -23,21 +23,32 @@
     }
   });
   const lightbox = document.querySelector('.lightbox');
+  const zoom = lightbox?.querySelector('.lightbox-zoom');
+  const imageViewport = lightbox?.querySelector('.lightbox-viewport');
+  const setImageSize = actual => {
+    if (!lightbox || !zoom || !imageViewport) return;
+    lightbox.dataset.actualSize = String(actual);
+    zoom.textContent = actual ? zoom.dataset.fit : zoom.dataset.actual;
+    imageViewport.scrollTop = 0;
+    imageViewport.scrollLeft = 0;
+  };
   let opener;
   document.querySelectorAll('.image-open').forEach(button => {
     button.addEventListener('click', () => {
       opener = button;
       const image = button.querySelector('img');
       const large = lightbox.querySelector('img');
+      setImageSize(false);
       large.src = image.currentSrc || image.src;
       large.alt = image.alt;
       lightbox.querySelector('p').textContent = image.alt;
       lightbox.showModal();
     });
   });
+  zoom?.addEventListener('click', () => setImageSize(lightbox.dataset.actualSize !== 'true'));
   lightbox?.querySelector('.lightbox-close').addEventListener('click', () => lightbox.close());
   lightbox?.addEventListener('click', event => { if (event.target === lightbox) lightbox.close(); });
-  lightbox?.addEventListener('close', () => opener?.focus());
+  lightbox?.addEventListener('close', () => { setImageSize(false); opener?.focus(); });
 
   const showcase = document.querySelector('.showcase');
   if (showcase) {
@@ -103,16 +114,32 @@
 
   const search = document.querySelector('#guide-search');
   if (search) {
-    const normalize = value => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase();
-    search.addEventListener('input', () => {
-      const query = normalize(search.value.trim());
+    const normalize = value => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase(root.lang);
+    const groups = [...document.querySelectorAll('.guide-group')];
+    const filters = [...document.querySelectorAll('[data-guide-filter]')];
+    const counter = document.querySelector('#guide-result-count');
+    const entries = [...document.querySelectorAll('.guide-tile')].map(tile => ({
+      tile, text: normalize(tile.dataset.search), group: tile.closest('.guide-group')?.dataset.guideGroup
+    }));
+    let selectedGroup = 'all';
+    const update = () => {
+      const words = normalize(search.value.trim()).split(/\s+/).filter(Boolean);
       let count = 0;
-      document.querySelectorAll('.guide-tile').forEach(tile => {
-        tile.hidden = !normalize(tile.dataset.search).includes(query);
+      entries.forEach(({ tile, text, group }) => {
+        tile.hidden = (selectedGroup !== 'all' && selectedGroup !== group) || !words.every(word => text.includes(word));
         if (!tile.hidden) count++;
       });
+      groups.forEach(group => { group.hidden = !group.querySelector('.guide-tile:not([hidden])'); });
+      filters.forEach(button => button.setAttribute('aria-pressed', String(button.dataset.guideFilter === selectedGroup)));
+      if (counter) counter.textContent = counter.dataset.template.replace('{count}', String(count));
       document.querySelector('#no-results').hidden = count !== 0;
-    });
+    };
+    search.addEventListener('input', update);
+    filters.forEach(button => button.addEventListener('click', () => {
+      selectedGroup = button.dataset.guideFilter;
+      update();
+    }));
+    update();
   }
   document.querySelectorAll('[data-marker]').forEach(button => {
     button.addEventListener('click', () => {

@@ -460,6 +460,9 @@ int verify_drawing_source_picker() {
 }
 int verify_drawing_ui() {
     try {
+        const auto guide_directory=qEnvironmentVariable("ZIMA_CAPTURE_GUIDE_DIALOGS");
+        require(guide_directory.isEmpty()||QDir::isAbsolutePath(guide_directory),
+            "ZIMA_CAPTURE_GUIDE_DIALOGS requires an absolute output directory");
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_EMPTY_ROUGHNESS_ONLY"))return verify_empty_roughness_ui();
         if(const auto output=qEnvironmentVariable("ZIMA_VERIFY_TITLE_BLOCK_EDGES");!output.isEmpty()) {
             const auto directory=std::filesystem::path(output.toStdString());std::filesystem::create_directories(directory);
@@ -584,7 +587,7 @@ int verify_drawing_ui() {
         });
         modal_catcher.start(30);
         zima::workspace::Workspace workspace;
-        auto part=zima::document::PartDocument::create_default(); part.name="Drawing source";
+        auto part=zima::document::PartDocument::create_default(); part.name=guide_directory.isEmpty()?"Drawing source":"P01";
         zima::kernel::BodyResult cache;
         cache.mesh.edges={
             {{{-30,0,-20},{30,0,-20}},{"profile","curve:bottom",""}},
@@ -610,7 +613,7 @@ int verify_drawing_ui() {
         const auto& state=window.document_for_test();
         const auto count=[&]{return state.sheets.front().views.size();};
         auto* variants=window.findChild<QComboBox*>("drawingSourceVariant");
-        require(variants && variants->count()==1 && variants->currentText().startsWith("Drawing source"),
+        require(variants && variants->count()==1 && variants->currentText().startsWith(QString::fromStdString(part.name)),
             "Source variant does not show the model name");
         window.grab();flush();
         const QPointF center=window.sheet_rectangle_for_test().center();
@@ -907,6 +910,44 @@ int verify_drawing_ui() {
             properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
             require(state.sheets.front().dimensions==original_dimensions,"Rotation Cancel removed dimensions");
             const auto saved_camera=state.sheets.front().views.front().camera;
+            if(!guide_directory.isEmpty()) {
+                const auto saved_settings=zima::app::ApplicationSettings::load();
+                const auto capture_revision=workspace.open_drawing(drawing.document_id)->revision();
+                const auto catalogs=std::filesystem::absolute("config/localization");
+                QTemporaryDir language_directory;
+                require(language_directory.isValid(),"Drawing guide settings directory unavailable");
+                for(const QString language:{"cs","en","de","fr","ru"}) {
+                    QSettings config(language_directory.filePath("config.ini"),QSettings::IniFormat);
+                    config.setValue("Application/Language",language);
+                    config.setValue("Paths/Localization",QString::fromStdString(catalogs.generic_string()));config.sync();
+                    const auto settings=zima::app::ApplicationSettings::load(language_directory.path());
+                    zima::app::apply_application_translations(*qApp,settings);
+                    window.select_view_for_test(original.id);action("editDrawingViewAction")->trigger();flush();
+                    auto* captured=dialog();require(captured,"Drawing guide Properties did not open");
+                    captured->findChild<QLineEdit*>("drawingViewName")->setText("V01");
+                    for(auto* field:captured->findChildren<QLineEdit*>())
+                        if(field->text().startsWith("CUT NOTE"))field->setText("&document.file_stem");
+                    require(captured->windowTitle()==settings.qt_translations.value("Vlastnosti pohledu"),
+                        "Drawing guide Properties did not use the requested language");
+                    captured->findChild<QDoubleSpinBox*>("drawingRotationHorizontal")->setValue(17);
+                    captured->findChild<QDoubleSpinBox*>("drawingRotationVertical")->setValue(-23);
+                    captured->findChild<QDoubleSpinBox*>("drawingRotationRoll")->setValue(31);
+                    captured->findChild<QComboBox*>("drawingViewScaleMode")->setCurrentIndex(1);
+                    captured->findChild<QDoubleSpinBox*>("drawingViewScale")->setValue(0.5);
+                    captured->findChild<QComboBox*>("drawingViewDisplay")->setCurrentIndex(0);flush();
+                    const QDir output(QDir(guide_directory).filePath(language));
+                    require(QDir().mkpath(output.absolutePath()),"Cannot create Drawing guide capture directory");
+                    // Capture only the freshly translated dialog: the existing
+                    // surrounding DrawingWindow was created in another locale.
+                    require(captured->grab().save(output.filePath("drawings.png")),
+                        "Drawing guide screenshot failed");
+                    captured->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
+                    require(workspace.open_drawing(drawing.document_id)->revision()==capture_revision&&
+                        state.sheets.front().dimensions==original_dimensions,
+                        "Drawing guide capture changed the document or Undo history");
+                }
+                zima::app::apply_application_translations(*qApp,saved_settings);
+            }
             window.select_view_for_test(original.id);action("editDrawingViewAction")->trigger();flush();properties=dialog();
             properties->findChild<QDoubleSpinBox*>("drawingRotationHorizontal")->setValue(17);
             properties->findChild<QDoubleSpinBox*>("drawingRotationVertical")->setValue(-23);

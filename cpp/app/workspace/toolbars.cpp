@@ -415,6 +415,7 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
     if (editing_nested_document && active_sketch_id_.empty()) {
         auto* return_action = new QAction(
             resource_icon("assembly"), tr("Zpět do sestavy"), tools_toolbar_);
+        return_action->setObjectName("returnToAssemblyAction");
         return_action->setEnabled(!properties_dialog_&&active_sketch_id_.empty());
         connect(return_action, &QAction::triggered, this, [this] {
             deactivate_active_occurrence_for_test();

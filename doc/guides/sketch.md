@@ -15,8 +15,7 @@ Properties, after choosing its placement and working plane.
    press Enter. Reference and locked dimensions remain read-only.
 4. Select and drag a point to check the remaining freedom. Edit a dimension
    again to confirm that the profile behaves as intended.
-5. Choose **Finish Sketch** to return to the feature Properties, then **OK** to
-   commit the feature. **Cancel edits** discards the current Sketch editing session.
+5. Choose **OK** to return to the feature Properties, then **OK** to commit the feature. **Cancel** discards the current Sketch editing session.
 
 ## What to check
 

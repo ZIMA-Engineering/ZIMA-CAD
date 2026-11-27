@@ -2,21 +2,20 @@
 
 ## Before you start
 
-Prepare native Parts or subassemblies, then create an **Assembly** (`.asmz`).
+Prepare native Parts or subassemblies, then create an Assembly (`.asmz`).
 Each inserted occurrence has its own identity and placement.
 
 ## Steps
 
-1. Use **Insert** to add a Part or nested Assembly. Review its occurrence in
+1. Use **Insert component** to add a Part or nested Assembly. Review its occurrence in
    the Tree.
 2. Open the occurrence's **Properties**. Arm a component reference field,
    select its geometry, then select the corresponding owning-Assembly reference.
 3. Choose the offered mate and value. Add independent references until the
    intended translational and rotational freedoms remain.
-4. Inspect the placement and confirm **OK**. **Cancel** restores the pending
-   changes, including dependent placements.
+4. Inspect the placement and confirm **OK**. **Cancel** discards pending changes and restores the prior placements, including dependent components.
 5. Use **Active** to edit a component's source. A Part exposes Modeling tools;
-   a subassembly exposes its own Assembly tools. Use **Back to Assembly** to return.
+   a subassembly exposes its own Assembly tools. Use **Return to assembly** to return.
 
 ## What to check
 

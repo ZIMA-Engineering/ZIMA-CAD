@@ -169,6 +169,12 @@
   explanatory prose around them must be English.
 - This is a binding user requirement agreed on 2026-09-15. It does not change
   the language of conversations with the user or the application's localization.
+- Exception confirmed on 2026-11-27: shared end-user guides in `doc/guides/`
+  and their generated website/CAD pages must be maintained in all five supported
+  languages (`cs`, `en`, `de`, `fr`, `ru`), including screenshot annotations
+  and actual screenshots of the interface in the corresponding language.
+  Display them in the selected website/application language. Development
+  documentation and verification records remain English.
 
 ## Localization with every change (mandatory)
 

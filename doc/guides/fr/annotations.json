@@ -1,0 +1,273 @@
+{
+  "sketch": {
+    "alt": "Éditeur d’esquisses ZIMA-CAD affichant un cercle avec une cote de rayon de 9 mm, l’arbre de géométrie, les commandes de vue et les actions OK et Annuler.",
+    "markers": [
+      {
+        "title": "Cercle et centre",
+        "body": "Le cercle blanc est la courbe de l’esquisse. Son point central blanc est distinct de l’origine brune de l’esquisse située en bas à gauche."
+      },
+      {
+        "title": "Modifier le rayon",
+        "body": "Double-cliquez sur la cote affichée R9mm pour ouvrir son éditeur de valeur. La même cote de rayon figure sous « Cotes » dans l’arbre."
+      },
+      {
+        "title": "Regarder perpendiculairement à l’esquisse",
+        "body": "« Vue normale » aligne la caméra sur le plan de l’esquisse. Les deux commandes suivantes portent « Inverser » : la première inverse avant/arrière, la seconde tourne la vue par pas de 90°."
+      },
+      {
+        "title": "Terminer la modification",
+        "body": "OK termine l’édition de l’esquisse. Une esquisse intégrée transmet son brouillon aux propriétés de l’opération, à confirmer également. « Annuler » en dessous abandonne les modifications de la session."
+      }
+    ]
+  },
+  "feature": {
+    "alt": "Propriétés de fonction de ZIMA-CAD pour une extrusion, avec références de placement vides, plan XY, Esquisse, Ajouter et Soustraire, puis OK et Annuler.",
+    "markers": [
+      {
+        "title": "Placer la fonction",
+        "body": "Cliquez sur le champ de référence pour activer la sélection de géométrie. L’œil de la même ligne est une commande d’inspection indépendante. Aucune référence de placement n’est saisie dans cette capture.",
+        "x": 32.17,
+        "y": 17.7
+      },
+      {
+        "title": "Définir le profil",
+        "body": "Cliquez sur « Esquisse » pour modifier le profil de la fonction. XY est actuellement sélectionné dans les commandes de plan à gauche ; le décalage du plan indique 0,000 mm.",
+        "x": 90.4,
+        "y": 49.85
+      },
+      {
+        "title": "Choisir l’opération de matière",
+        "body": "« Ajouter » ajoute de la matière ; « Soustraire » en retire. « Ajouter » est sélectionné avec le type de résultat « Corps ».",
+        "x": 39.57,
+        "y": 63.06
+      },
+      {
+        "title": "Confirmer la définition complète",
+        "body": "Après avoir défini le profil et les limites, cliquez sur OK pour valider et calculer la fonction. « Annuler » abandonne les modifications en cours dans la fenêtre. La capture montre la fenêtre initiale, pas un solide terminé.",
+        "x": 81.62,
+        "y": 97.96
+      }
+    ]
+  },
+  "fillet-chamfer": {
+    "alt": "Propriétés de congé solide de ZIMA-CAD avec rayon constant de 1 mm, trois arêtes sélectionnées du corps d’entrée et leur surbrillance filaire cyan.",
+    "markers": [
+      {
+        "title": "Définir le rayon",
+        "body": "Modifiez « Rayon R » pour définir le rayon du congé. La définition affichée utilise le type « Constant » et un rayon de 1,000 mm.",
+        "x": 80,
+        "y": 13.9
+      },
+      {
+        "title": "Ajouter une référence d’arête",
+        "body": "Cliquez sur « Sélectionner une référence », puis sélectionnez une arête d’entrée dans la vue. Trois références figurent déjà dans la liste ; chaque croix rouge retire l’élément correspondant de la liste.",
+        "x": 60.5,
+        "y": 33.1
+      },
+      {
+        "title": "Vérifier les arêtes sélectionnées",
+        "body": "La représentation filaire cyan identifie les arêtes sélectionnées sur la pièce d’entrée réelle. La fenêtre est encore ouverte : cette vue ne doit donc pas être interprétée comme le résultat final validé du congé.",
+        "x": 48,
+        "y": 68
+      },
+      {
+        "title": "Calculer et confirmer",
+        "body": "Cliquez sur OK pour calculer et confirmer le congé en cours. « Annuler » ferme la fenêtre sans valider ses modifications.",
+        "x": 90.5,
+        "y": 44.9
+      }
+    ]
+  },
+  "sheet-metal": {
+    "alt": "Espace de travail Tôlerie de ZIMA-CAD montrant une tôle avec une ouverture de ventilation formée, l’historique de son corps et la barre d’outils de tôlerie.",
+    "markers": [
+      {
+        "title": "Ouvrir les outils de tôlerie",
+        "body": "Cliquez sur « Tôlerie » pour afficher les commandes de tôlerie. Cette option est sélectionnée dans la capture ; la barre d’outils de droite contient « Tôle », « Pli », « Profil » et « Formage ».",
+        "x": 82,
+        "y": 11.7
+      },
+      {
+        "title": "Lire l’historique du corps",
+        "body": "La ligne verte B01 identifie le corps actif. Son historique contient la tôle initiale F01, son esquisse S01 et le formage ultérieur qui crée l’ouverture.",
+        "x": 5.3,
+        "y": 22.1
+      },
+      {
+        "title": "Inspecter la géométrie formée",
+        "body": "L’ouverture étroite en relief est le résultat calculé du formage. Les plans bruns et les axes colorés qui l’entourent appartiennent à l’origine affichée du corps.",
+        "x": 52.5,
+        "y": 57.6
+      },
+      {
+        "title": "Repérer les commandes de dépliage",
+        "body": "« Déplier » est la commande Déplier. « Replier » se trouve juste en dessous, suivi de l’export DXF. Cette capture montre le modèle plié, pas une mise à plat exportée.",
+        "x": 92,
+        "y": 51.1
+      }
+    ]
+  },
+  "fem": {
+    "alt": "FEM de ZIMA-CAD montrant une barre maillée, le corps actif B2, le blocage C1, la force C2 = 100 N et une échelle de contrainte de von Mises en MPa.",
+    "markers": [
+      {
+        "title": "Lire la définition de l’analyse",
+        "body": "B2 est le corps d’analyse actif, avec B1 comme source. L’arbre sous B2 répertorie le blocage C1 et la force C2.",
+        "x": 5.2,
+        "y": 27.5
+      },
+      {
+        "title": "Vérifier les charges et les blocages",
+        "body": "Les repères jaunes indiquent C2 = 100 N et le blocage C1 avec UX=0, UY=0, UZ=0. Ils définissent le chargement et le maintien de cet exemple de statique linéaire.",
+        "x": 53.6,
+        "y": 33.8
+      },
+      {
+        "title": "Lire l’échelle des résultats",
+        "body": "La légende « Contrainte de von Mises [MPa] » affiche la contrainte moyenne des éléments. Le bleu indique le bas et le rouge le haut de l’échelle ; le maximum affiché est d’environ 0,93978 MPa.",
+        "x": 81,
+        "y": 30.5
+      },
+      {
+        "title": "Choisir un affichage des résultats",
+        "body": "Choisissez à droite « Déplacement [mm] » ou « Contrainte de von Mises [MPa] ». « Afficher la déformation » affiche ou masque le résultat. En bas à gauche figurent l’amplification ×1 et le résultat statique.",
+        "x": 94,
+        "y": 50.8
+      }
+    ]
+  },
+  "cam": {
+    "alt": "Inspecteur du programme CN générique de ZIMA-CAD avec un mouvement linéaire sélectionné, des commandes de parcours des mouvements, une option d’affichage du brut restant et la position correspondante de l’outil au-dessus d’une pièce.",
+    "markers": [
+      {
+        "title": "Sélectionner un mouvement",
+        "body": "Cliquez sur une ligne de mouvement pour afficher la position de l’outil. La ligne 8, LINEAR X0 Y-2 Z2, est sélectionnée ici. L’en-tête indique qu’il s’agit d’un programme CN générique nécessitant un post-traitement pour la commande numérique."
+      },
+      {
+        "title": "Parcourir le programme",
+        "body": "« Mouvement suivant » et « Mouvement précédent » changent de mouvement. Le curseur à droite interpole la position de l’outil dans le mouvement sélectionné, pas dans tout le programme."
+      },
+      {
+        "title": "Afficher le brut restant calculé",
+        "body": "Activez ou désactivez « Afficher le brut restant calculé » pour inspecter le brut restant calculé. La case est décochée dans cette capture."
+      },
+      {
+        "title": "Relier le programme à la vue",
+        "body": "La vue du modèle place l’outil affiché au-dessus de la pièce selon le mouvement sélectionné du programme. Examinez ensemble cette vue et la ligne CN sélectionnée lors de la vérification de la trajectoire."
+      }
+    ]
+  },
+  "getting-started": {
+    "alt": "Fenêtre Nouveau document de ZIMA-CAD avec le type Pièce, le nom model, l’environnement Modélisation et les boutons OK et Annuler.",
+    "markers": [
+      {
+        "title": "Nommer le document",
+        "body": "Saisissez le nom du document dans « Nom du fichier ». Cet exemple utilise le nom défini par l’utilisateur model."
+      },
+      {
+        "title": "Choisir une pièce",
+        "body": "Sélectionnez « Pièce » pour un document de type Pièce. « Assemblage » crée un assemblage et « Dessin » crée un dessin ; leurs boutons radio se trouvent en dessous."
+      },
+      {
+        "title": "Sélectionner l’environnement de la pièce",
+        "body": "Choisissez l’environnement de pièce à côté de « Pièce ». « Modélisation » est sélectionné pour la modélisation courante d’une pièce."
+      },
+      {
+        "title": "Créer le document sélectionné",
+        "body": "Cliquez sur OK après avoir vérifié le nom, le type de document et l’environnement. Cette capture montre la fenêtre de création avant qu’un document ait été créé."
+      }
+    ]
+  },
+  "sweep": {
+    "alt": "Fenêtre initiale des propriétés de balayage 2D de ZIMA-CAD avec XY sélectionné, le bouton Esquisse de trajectoire, deux stations de profil et des références de placement vides.",
+    "markers": [
+      {
+        "title": "Choisir le plan de la trajectoire",
+        "body": "Cliquez sur XY, XZ ou YZ pour choisir le plan du conteneur pour l’esquisse de trajectoire. XY est sélectionné dans cette capture.",
+        "x": 3.18,
+        "y": 51.6
+      },
+      {
+        "title": "Définir l’esquisse de trajectoire",
+        "body": "Cliquez sur « Esquisse de trajectoire… » pour modifier la trajectoire du balayage. Le tableau des références de placement au-dessus est vide dans cette définition initiale.",
+        "x": 87.21,
+        "y": 51.66
+      },
+      {
+        "title": "Définir les profils des stations",
+        "body": "Cliquez sur « Esquisse » dans la ligne de la station pour modifier son profil. La première ligne est « 1 — début » et la seconde « 1 — fin ». Toutes deux demandent actuellement le premier profil avec « Renseigner le premier profil ».",
+        "x": 42.56,
+        "y": 65.01
+      },
+      {
+        "title": "Confirmer un balayage complet",
+        "body": "Après avoir défini la trajectoire et les profils nécessaires, cliquez sur OK pour valider et calculer le balayage. « Annuler » abandonne les modifications en cours. Cette capture montre les commandes de configuration, pas un résultat de balayage calculé.",
+        "x": 77.59,
+        "y": 97.79
+      }
+    ]
+  },
+  "assembly": {
+    "alt": "Propriétés d’un composant ZIMA-CAD dans un assemblage, montrant une pièce source, trois paires de plans d’origine avec un décalage nul, des yeux d’inspection indépendants et aucun degré de liberté restant.",
+    "markers": [
+      {
+        "title": "Vérifier la pièce source",
+        "body": "Le champ « Source » identifie component-reference.prtz comme source de cette occurrence. L’arbre de l’assemblage contient deux occurrences de cette pièce."
+      },
+      {
+        "title": "Lire les paires de placement",
+        "body": "Les colonnes « Cette pièce » et « Cible » associent les références du composant et de la cible. XY, YZ et XZ sont appariés ici, chacun avec le type « Face » et un décalage de 0,000 mm."
+      },
+      {
+        "title": "Inspecter chaque référence indépendamment",
+        "body": "Cliquez sur l’œil sous « Afficher la pièce » pour inspecter la référence du composant, ou sur l’œil voisin sous « Afficher la cible » pour inspecter la référence cible."
+      },
+      {
+        "title": "Vérifier la liberté restante",
+        "body": "« Degrés de liberté restants : 0 » indique qu’il ne reste aucun degré de liberté pour ces trois paires de plans. Cliquez sur OK en bas à droite pour confirmer le placement en cours ; « Annuler » abandonne ses modifications."
+      }
+    ]
+  },
+  "drawings": {
+    "alt": "Propriétés d’une vue de dessin ZIMA-CAD montrant le modèle source, les lignes de libellé de la vue, une orientation personnalisée, le mode d’arêtes visibles, l’échelle 0,500 et la position sur la feuille.",
+    "markers": [
+      {
+        "title": "Choisir le modèle source",
+        "body": "Ouvrez « Source » pour sélectionner la source de la vue, ou cliquez sur « Fichier » pour choisir un fichier. La source actuelle est Drawing source — « Modèle de base (natif) »."
+      },
+      {
+        "title": "Définir l’orientation de projection",
+        "body": "Ouvrez « Vue standard : » pour choisir une vue de base. « Orientation personnalisée » est sélectionnée ici, avec des angles horizontal de 17°, vertical de −23° et dans le plan de 31° dans les champs en dessous."
+      },
+      {
+        "title": "Définir l’échelle du dessin",
+        "body": "Le sélecteur « Échelle : » est sur « Personnalisé » et « Valeur » vaut 0,500, ce qui correspond au libellé M1:2 au-dessus. Les champs X et Y en dessous positionnent la vue sur la feuille en millimètres."
+      },
+      {
+        "title": "Confirmer les propriétés de la vue",
+        "body": "Cliquez sur OK pour confirmer les paramètres de la vue ou sur « Annuler » pour abandonner les modifications en cours. Cette capture montre la fenêtre de définition de la vue ; la géométrie projetée sur la feuille est hors de la capture."
+      }
+    ]
+  },
+  "render": {
+    "alt": "Propriétés d’un projecteur ZIMA-CAD dans un corps de rendu, montrant la lumière sélectionnée dans l’arbre, les commandes de placement, la couleur blanche, un flux lumineux de 1000 lm et un cône de 45 degrés avec son symbole dans la scène.",
+    "markers": [
+      {
+        "title": "Identifier la lumière de la scène",
+        "body": "« Projecteur 1 » est sélectionné sous « Corps de rendu 1 », avec « Caméra 1 » et « Soleil 1 ». Les propriétés ouvertes modifient le projecteur."
+      },
+      {
+        "title": "Définir la couleur et le flux lumineux",
+        "body": "Modifiez « Couleur (#RRGGBB) » pour la couleur de la lumière et « Flux lumineux » pour le flux lumineux. Cet exemple utilise #ffffff et 1000 lm, avec « Lumière activée » coché."
+      },
+      {
+        "title": "Définir le cône du projecteur",
+        "body": "Modifiez « Angle du cône » pour changer l’angle du cône ; il indique ici 45°. « Rayon de la lumière » vaut 5 mm et « Douceur du bord » vaut 0,25 dans les champs voisins."
+      },
+      {
+        "title": "Relier la lumière à la scène",
+        "body": "Le cône cyan dans la vue du modèle est le symbole du projecteur. « Afficher le repère dans la vue » est coché dans la fenêtre. Cliquez sur OK en bas à droite pour confirmer les paramètres de lumière en cours."
+      }
+    ]
+  }
+}

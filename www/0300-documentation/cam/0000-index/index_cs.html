@@ -7,33 +7,53 @@
 <header class="site-header"><div class="header-inner"><a class="brand" href="../../../0000-index/index_cs.html" aria-label="ZIMA-CAD"><img class="logo-dark" src="../../../0000-index/assets/zc-dark.svg" alt="" width="82" height="39"><img class="logo-light" src="../../../0000-index/assets/zc-light.svg" alt="" width="82" height="39"><span>ZIMA-CAD</span></a>
 <button class="menu-toggle" aria-expanded="false" aria-controls="main-nav" aria-label="Nabídka">☰</button><nav id="main-nav" aria-label="Nabídka"><a href="../../../0000-index/index_cs.html">Úvod</a><a href="../../../0200-gallery/0000-index/index_cs.html">Galerie</a><a href="../../0000-index/index_cs.html" aria-current="page">Návody</a><a href="../../../0400-download/0000-index/index_cs.html">Stáhnout</a></nav>
 <div class="header-tools"><button class="theme-toggle" aria-label="Přepnout světlý/tmavý vzhled" title="Přepnout světlý/tmavý vzhled">◐</button><details class="languages"><summary aria-label="Jazyk"><span aria-hidden="true">◎</span> CS<span class="chevron"></span></summary><div><a lang="cs" hreflang="cs" href="index_cs.html" aria-current="true">Čeština</a><a lang="de" hreflang="de" href="index_de.html">Deutsch</a><a lang="en" hreflang="en" href="index_en.html">English</a><a lang="fr" hreflang="fr" href="index_fr.html">Français</a><a lang="ru" hreflang="ru" href="index_ru.html">Русский</a></div></details></div></div></header>
-<main id="content" class="guide-page"><div class="guide-heading"><a href="../../0000-index/index_cs.html">Všechny návody</a><h1>CAM</h1><p class="language-note">Text návodu je v angličtině.</p></div><section class="visual-guide" lang="en"><h2>Orientace v aplikaci</h2><div class="annotated-image"><button class="image-open" aria-label="Zvětšit obrázek"><img src="../../images/cam.png" alt="ZIMA-CAD Generic NC program inspector with a selected linear motion, motion stepping controls, stock-result toggle, and the corresponding tool position over a workpiece."></button><button class="hotspot" style="left:75.8%;top:22.3%" data-marker="1" aria-controls="marker-1" aria-label="Select a motion" aria-pressed="false"><span>1</span></button><button class="hotspot" style="left:66.7%;top:41.8%" data-marker="2" aria-controls="marker-2" aria-label="Step through the program" aria-pressed="false"><span>2</span></button><button class="hotspot" style="left:57.7%;top:44.6%" data-marker="3" aria-controls="marker-3" aria-label="Show calculated remaining stock" aria-pressed="false"><span>3</span></button><button class="hotspot" style="left:51.7%;top:45.6%" data-marker="4" aria-controls="marker-4" aria-label="Relate the program to the view" aria-pressed="false"><span>4</span></button></div><ol class="marker-list"><li id="marker-1"><button data-marker="1" aria-pressed="false"><span class="step-number">1</span><span><strong>Select a motion</strong><span>Click a motion row to show its tool position. Row 8, LINEAR X0 Y-2 Z2, is selected here. The header identifies this as generic NC that requires controller postprocessing.</span></span></button></li><li id="marker-2"><button data-marker="2" aria-pressed="false"><span class="step-number">2</span><span><strong>Step through the program</strong><span>Click Další pohyb for the next motion or Předchozí pohyb for the previous one. The slider to their right moves through the same calculated sequence.</span></span></button></li><li id="marker-3"><button data-marker="3" aria-pressed="false"><span class="step-number">3</span><span><strong>Show calculated remaining stock</strong><span>Toggle Zobrazit vypočtený zbytek polotovaru to inspect the calculated remaining stock. The box is unchecked in this screenshot.</span></span></button></li><li id="marker-4"><button data-marker="4" aria-pressed="false"><span class="step-number">4</span><span><strong>Relate the program to the view</strong><span>The model view places the displayed tool over the workpiece at the selected program motion. Keep this view and the selected NC row together when checking the path.</span></span></button></li></ol></section><article class="guide-copy" lang="en"><h1 id="cam">CAM</h1>
-<h2 id="before-you-start">Before you start</h2>
-<p>Prepare calculated stock and target Bodies in a Part, plus fixture Bodies
-where required. Deactivate the current Body to reach <strong>Create CAM</strong>.</p>
-<h2 id="steps">Steps</h2>
+<main id="content" class="guide-page"><div class="guide-heading"><a href="../../0000-index/index_cs.html">Všechny návody</a><h1>CAM</h1><p class="language-note">Vyberte číslo v obrázku a zobrazte jeho vysvětlení.</p></div><section class="visual-guide" lang="cs"><h2>Orientace v aplikaci</h2><div class="annotated-image"><button class="image-open" aria-label="Zvětšit obrázek"><img src="../../images/cs/cam.png" alt="Prohlížeč obecného NC programu ZIMA-CADu s vybraným lineárním pohybem, krokováním pohybů, přepínačem výsledného polotovaru a odpovídající polohou nástroje nad obrobkem."></button><button class="hotspot" style="left:75.8%;top:22.3%" data-marker="1" aria-controls="marker-1" aria-label="Vyberte pohyb" aria-pressed="false"><span>1</span></button><button class="hotspot" style="left:66.7%;top:41.8%" data-marker="2" aria-controls="marker-2" aria-label="Krokujte program" aria-pressed="false"><span>2</span></button><button class="hotspot" style="left:57.7%;top:44.6%" data-marker="3" aria-controls="marker-3" aria-label="Zobrazte vypočtený zbytek polotovaru" aria-pressed="false"><span>3</span></button><button class="hotspot" style="left:51.7%;top:45.6%" data-marker="4" aria-controls="marker-4" aria-label="Propojte program s pohledem" aria-pressed="false"><span>4</span></button></div><ol class="marker-list"><li id="marker-1"><button data-marker="1" aria-pressed="false"><span class="step-number">1</span><span><strong>Vyberte pohyb</strong><span>Kliknutím na řádek pohybu zobrazíte polohu nástroje. Zde je vybrán řádek 8, LINEAR X0 Y-2 Z2. Záhlaví označuje program jako obecný NC, který vyžaduje postprocesor pro řídicí systém.</span></span></button></li><li id="marker-2"><button data-marker="2" aria-pressed="false"><span class="step-number">2</span><span><strong>Krokujte program</strong><span>„Další pohyb“ a „Předchozí pohyb“ přecházejí mezi pohyby. Posuvník vpravo mění polohu nástroje uvnitř právě vybraného pohybu; neprochází celý program.</span></span></button></li><li id="marker-3"><button data-marker="3" aria-pressed="false"><span class="step-number">3</span><span><strong>Zobrazte vypočtený zbytek polotovaru</strong><span>Pro prohlídku vypočteného zbytku přepněte Zobrazit vypočtený zbytek polotovaru. Na snímku není políčko zaškrtnuté.</span></span></button></li><li id="marker-4"><button data-marker="4" aria-pressed="false"><span class="step-number">4</span><span><strong>Propojte program s pohledem</strong><span>Modelový pohled umisťuje nástroj nad obrobek podle vybraného pohybu programu. Při kontrole dráhy sledujte společně pohled i vybraný řádek NC.</span></span></button></li></ol></section><article class="guide-copy" lang="cs"><h1 id="cam">CAM</h1>
+<h2 id="nez-zacnete">Než začnete</h2>
+<p>V dílu připravte vypočtená tělesa polotovaru a cílového tvaru a případně také
+tělesa upínek. Pro přístup k příkazu <strong>Vytvořit CAM</strong> deaktivujte aktuální těleso.
+Pro frézování kapsy nebo kontury připravte předcházející nativní skicu profilu.</p>
+<h2 id="postup">Postup</h2>
 <ol>
-<li>Choose <strong>Create CAM</strong>. Select stock, target and fixtures, then place the
-   setup's work frame.</li>
-<li>Open <strong>Machine</strong> and <strong>CAM tools</strong>. Review travel limits, tool geometry,
-   cutting conditions and the work-origin offset.</li>
-<li>In <strong>Machining operations</strong>, add <strong>Facing</strong> or a supported <strong>Manual operation</strong>.
-   Review the order and confirm the setup.</li>
-<li>Choose <strong>Calculate CAM</strong>. Inspect the <strong>Generic NC program</strong>, associated
-   tool motion and calculated remaining stock.</li>
-<li>Review collision and clamping reports. Export <strong>generic NC text</strong> only with
-   its stated generic-program meaning.</li>
+<li>Zvolte <strong>Vytvořit CAM</strong>. Vyberte polotovar, cíl a upínky a umístěte pracovní
+   souřadný systém upnutí.</li>
+<li>Otevřete <strong>Stroj</strong> a <strong>Nástroje CAM</strong>. Zkontrolujte limity pojezdů, geometrii
+   nástroje, řezné podmínky a posunutí pracovního počátku. Podle potřeby zadejte
+   v okně <strong>Upínací skici</strong> kontaktní skicu, skicu horní roviny čelistí a jejich orientované strany.</li>
+<li>V okně <strong>Obráběcí operace</strong> zvolte <strong>Přidat čelní frézování</strong>, <strong>Přidat kapsu</strong>,
+   <strong>Přidat konturu</strong> nebo <strong>Přidat ruční operaci</strong>. U kapsy nebo kontury klikněte
+   na referenční pole <strong>Profil obrábění</strong> a vyberte předcházející skicu ve Stromu
+   nebo Pohledu. Nastavte nástroj, horní a dolní úroveň, hloubky záběru, přídavky,
+   bezpečnou výšku a směr dráhy nástroje. U kapsy nastavte <strong>Boční krok</strong>;
+   u kontury zvolte <strong>Uvnitř</strong> nebo <strong>Vně</strong>.
+   Zkontrolujte pořadí operací. <strong>OK</strong> v editoru předá změny do návrhu upnutí;
+   potvrzením <strong>OK</strong> v nastavení upnutí je uložíte.</li>
+<li>Zvolte <strong>Vypočítat CAM</strong>. Prohlédněte <strong>Obecný NC program</strong>, související pohyb
+   nástroje a vypočtený zbytek polotovaru.</li>
+<li>Zkontrolujte hlášení kolizí a upnutí. <strong>Exportovat obecný NC text…</strong> použijte
+   pouze s vědomím uvedeného významu obecného programu.</li>
 </ol>
-<h2 id="what-to-check">What to check</h2>
-<p>Yellow paths represent cutting feed; dashed red paths represent rapid motion.
-Clamping Sketches define oriented exclusion/contact regions and jaw-top checks;
-actual fixture Bodies remain additional obstacles. Colliding results cannot
-become stock for a later setup.</p>
-<p>Setup <strong>Cancel</strong> discards pending edits. Reopening a current result does not
-repeat simulation. The initial scope excludes controller postprocessors, pocket
-and contour operations, turning and 4/5-axis motion. Generic NC export is not
-controller-ready machine code.</p>
-<p>See <a href="https://github.com/ZIMA-Engineering/ZIMA-CAD/blob/codex/sketcher-mechanisms/doc/USER_MANUAL.md#first-stage-cam-workflow">CAM workflow</a> and
-<a href="https://github.com/ZIMA-Engineering/ZIMA-CAD/blob/codex/sketcher-mechanisms/doc/CAM_BODY_DESIGN.md">CAM scope</a>.</p></article></main>
+<h2 id="co-zkontrolovat">Co zkontrolovat</h2>
+<p>Žluté dráhy představují pracovní posuv, červené čárkované dráhy rychloposuv.
+Výslovně spuštěný výpočet kontroluje limity stroje a simuluje materiál zasažený
+pohybem nástroje; krokování výsledku materiál nepřepočítává.</p>
+<p>Frézování kapes a kontur je tříosé 2,5D obrábění uzavřených oblastí nativní skici
+rovnoběžných s rovinou XY upnutí, včetně ostrůvků a oddělených smyček. Vyžaduje
+válcovou řeznou část s plochým čelem. Vstup probíhá řezným zanořením a přejezdy
+se zvedají do bezpečné výšky. <strong>Tolerance dráhy</strong> omezuje aproximaci nekruhových
+křivek; přímky a kruhové oblouky si zachovávají analytické dráhy.</p>
+<p>Upínací skici definují orientované zakázané a kontaktní oblasti a kontroly horní
+roviny čelistí. Skutečná tělesa upínek zůstávají dalšími překážkami. Průnik břitu
+nebo stopky s upínkou či zakázaným objemem je kolize. Úběr pod horní rovinou
+čelistí a ztráta kontaktu vytvářejí odlišná upozornění; zbývající geometrický
+kontakt nedokazuje dostatečnou upínací sílu. Kolizní výsledek se nemůže stát
+polotovarem dalšího upnutí.</p>
+<p><strong>Zrušit</strong> v nastavení zahodí nepotvrzené úpravy. Opětovné otevření aktuálního
+výsledku neopakuje simulaci. Ruční operace podporují lineární pohyb a kruhový
+pohyb v XY. Postprocesory řídicích systémů, soustružení, pohyb ve 4/5 osách,
+adaptivní nebo rampový vstup, automatické umístění upínání z knihovny a převod
+libovolného tělesa na nástroj zůstávají nedostupné. Obecný NC export není kód
+připravený pro konkrétní řídicí systém stroje.</p>
+<p>Viz <a href="https://github.com/ZIMA-Engineering/ZIMA-CAD/blob/codex/sketcher-mechanisms/doc/USER_MANUAL.md#first-stage-cam-workflow">práce s CAM</a>
+a <a href="https://github.com/ZIMA-Engineering/ZIMA-CAD/blob/codex/sketcher-mechanisms/doc/CAM_BODY_DESIGN.md#profile-milling-stage-2026-11-26">aktuální rozsah profilového frézování</a>.</p></article></main>
 <footer><div><a class="footer-brand" href="../../../0000-index/index_cs.html">ZIMA-CAD</a><span>Otevřený parametrický CAD.</span></div><div class="socials"><a href="https://www.youtube.com/@zimaengineering" rel="noopener">YouTube</a><a href="https://www.facebook.com/" rel="noopener">Facebook</a><a href="https://github.com/ZIMA-Engineering/ZIMA-CAD" rel="noopener">GitHub</a></div><small>© 2026 ZIMA-Engineering · GPL-3.0-or-later</small></footer>
-<dialog class="lightbox" aria-label="Zvětšit obrázek"><button class="lightbox-close" aria-label="Zavřít">×</button><img alt=""><p></p></dialog></body></html>
+<dialog class="lightbox" aria-label="Zvětšit obrázek" data-actual-size="false"><div class="lightbox-toolbar"><button type="button" class="lightbox-zoom" aria-controls="lightbox-image-viewport" data-actual="Skutečná velikost" data-fit="Přizpůsobit obrázek">Skutečná velikost</button><button type="button" class="lightbox-close" aria-label="Zavřít" autofocus>×</button></div><div class="lightbox-viewport" id="lightbox-image-viewport" role="region" tabindex="0" aria-label="Obrázek"><img alt=""></div><p></p></dialog></body></html>

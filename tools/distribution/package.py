@@ -576,6 +576,10 @@ def package(args):
     assembly = Path(tempfile.mkdtemp(prefix='p-', dir=stage))
     root = assembly / 'ZIMA-CAD'; runtime = root / 'windows' / version
     runtime.mkdir(parents=True)
+    # Native acceptance tests can create browser profiles and other disposable
+    # files below their staging source. Runtime assets must come from Git too.
+    committed_source = root / 'source' / version
+    export_source(ROOT, commit, committed_source)
     for exe in ('zima-cad-cpp.exe', 'zima-cad-cli.exe', 'zima-cad-update.exe'):
         shutil.copy2(build / exe, runtime / exe)
     if args.gmsh_sdk:
@@ -584,9 +588,9 @@ def package(args):
     shutil.copy2(source / 'tools/distribution/launcher-linux.sh', root / 'ZIMA-CAD.sh')
     deploy_dependencies(runtime, args.installed, args.redist, args.dumpbin, args.qt_sdk)
     for name in ('config', 'resources'):
-        shutil.copytree(source / name, runtime / name, dirs_exist_ok=True,
+        shutil.copytree(committed_source / name, runtime / name, dirs_exist_ok=True,
                         ignore=shutil.ignore_patterns('.gitkeep', '*.ini.[0-9]*', '*.frmz.[0-9]*', '*.tblz.[0-9]*'))
-    copy_public_site(source, runtime)
+    copy_public_site(committed_source, runtime)
     prepare_factory_config(runtime)
     shutil.copytree(args.installed / 'share/opencascade/resources', runtime / 'resources/occt')
     licenses = runtime / 'licenses'; licenses.mkdir()
@@ -613,9 +617,6 @@ def package(args):
             'Corresponding source: https://download.qt.io/archive/qt/6.11/6.11.0/submodules/\n', encoding='utf-8')
     if not list(licenses.glob('qt*.txt')) or not (licenses / 'opencascade.txt').exists():
         raise ValueError('Missing Qt/OCCT license notices')
-    # Native acceptance tests may generate disposable fixtures below source.
-    # The distributed source must still come exclusively from Git objects.
-    export_source(ROOT, commit, root / 'source' / version)
     metadata = json.loads(run([runtime / 'zima-cad-cli.exe', '--build-info'], stdout=subprocess.PIPE).stdout)
     if metadata['commit'] != commit or metadata['version'] != version or metadata['source_modified']:
         raise ValueError('Built executable/source identity mismatch')

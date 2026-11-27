@@ -11240,8 +11240,9 @@ int verify_component_references(QApplication& application, const std::filesystem
     workspace::Workspace fixture;fixture.add_part(part,calculated,part_path);
     auto assembly=assembly::AssemblyDocument::create_default();const auto assembly_id=assembly.document_id;
     const auto assembly_path=directory/"component-reference.asmz";fixture.add_assembly(assembly,assembly_path);
-    const auto first=fixture.insert_open_part(assembly_id,part.document_id,"Pevný díl");
-    const auto second=fixture.insert_open_part(assembly_id,part.document_id,"Pohyblivý díl");
+    const bool guide_capture=qEnvironmentVariableIsSet("ZIMA_CAPTURE_GUIDE_DIALOGS");
+    const auto first=fixture.insert_open_part(assembly_id,part.document_id,guide_capture?"A":"Pevný díl");
+    const auto second=fixture.insert_open_part(assembly_id,part.document_id,guide_capture?"B":"Pohyblivý díl");
     assembly=fixture.open_assembly(assembly_id)->session.document();
     assembly.find_occurrence(second)->placement={50,30,20,0,0,0};
     fixture.open_assembly(assembly_id)->session.commit(assembly);assembly.save(assembly_path);
@@ -11730,7 +11731,8 @@ int verify_component_references(QApplication& application, const std::filesystem
         if(!verify(offered_origins()==std::set<std::string>{""},
             "Closing component properties left its origin visible"))return 1;
     }
-    for(const char* action_name:{"extrusionAction","mirrorAction"}) {
+    // Assembly authoring retains reference Features; material Extrude is Part-only.
+    for(const char* action_name:{"featureShortcut0Action","mirrorAction"}) {
         auto* action=window.findChild<QAction*>(action_name);
         if(!verify(action && action->isEnabled(),"Feature origin fixture action is disabled"))return 1;
         action->trigger();flush();
@@ -12154,6 +12156,71 @@ int verify_startup_contract(
     const std::filesystem::path& initial_test_directory,
     const QString& part_capture_path = {}, const QString& drawing_capture_path = {}) {
     auto test_directory = initial_test_directory;
+    if(qEnvironmentVariableIsSet("ZIMA_CAPTURE_GUIDE_OVERVIEWS_ONLY")) {
+        const QDir output(QDir(qEnvironmentVariable("ZIMA_CAPTURE_GUIDE_DIALOGS")).filePath(
+            QApplication::instance()->property("zimaLanguage").toString()));
+        if(!QDir::isAbsolutePath(output.path())||!QDir().mkpath(output.path()))return 1;
+        window.resize(1600,1000);window.show();
+        const auto capture=[&](const QString& name) {
+            QEventLoop settled;QTimer::singleShot(180,&settled,&QEventLoop::quit);settled.exec();
+            return window.grab().save(output.filePath("workspace-"+name+".png"));
+        };
+        if(!window.execute_console_command("new part P01").ok)return 1;
+        if(!zima::test::gui_rectangular_profile(window,40,30,20).ok)return 1;
+        const auto source=window.execute_console_command("context").data.at("active_document").get<std::string>();
+        if(!window.execute_console_command("save").ok)return 1;
+        for(const auto& [mode,name]:std::array{std::pair{0,"modeling"},std::pair{2,"sheet-metal"},
+                std::pair{3,"surface"},std::pair{9,"mech"}}) {
+            auto* action=window.findChild<QAction*>(QString("applicationModeAction%1").arg(mode));
+            if(!action||!action->isEnabled())return 1;
+            action->trigger();if(!capture(name))return 1;
+        }
+        if(!window.execute_console_command("body.activate").ok||!capture("part-root"))return 1;
+        window.findChild<QAction*>("createFemAction")->trigger();application.processEvents();
+        auto* thermal=window.findChild<QDialog*>("femBodyDialog");
+        if(!thermal){std::cerr<<"Guide thermal editor missing\n";return 1;}
+        auto* analysis=thermal->findChild<QComboBox*>("femAnalysisKind");
+        if(!analysis)return 1;
+        analysis->setCurrentIndex(analysis->findData(static_cast<int>(zima::document::FemAnalysisKind::SteadyStateThermal)));
+        thermal->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();
+        if(!capture("thermal"))return 1;
+        if(!window.execute_console_command("new assembly A01").ok||!capture("assembly"))return 1;
+        const auto inserted=window.execute_console_command(QString::fromStdString(zima::commands::Json{
+            {"command","component.insert"},{"arguments",{{"source",source},{"name","C01"}}}}.dump()));
+        if(!inserted.ok)return 1;
+        if(!window.execute_console_command(QString::fromStdString(zima::commands::Json{
+                {"command","component.activate"},{"arguments",{{"instance_path",inserted.data.at("instance_path")}}}}.dump())).ok||
+            !capture("nested-part"))return 1;
+        if(!window.execute_console_command("new drawing D01").ok||!capture("drawing"))return 1;
+        const auto edit_first_sketch=[&](const QString& name) {
+            QTreeWidgetItem* row=nullptr;
+            auto* tree=window.findChild<QTreeWidget*>("documentTree");
+            for(QTreeWidgetItemIterator it(tree);*it;++it)
+                if((*it)->data(0,Qt::UserRole+3)=="part-sketch"){row=*it;break;}
+            if(!row){std::cerr<<"Guide Sketch row missing: "<<name.toStdString()<<'\n';return false;}
+            window.show_tree_item_properties(row);application.processEvents();
+            auto* edit=window.findChild<QPushButton*>("sketchOpenButton");
+            if(!edit)return false;edit->click();
+            const bool saved=capture(name);
+            window.findChild<QAction*>("finishSketchAction")->trigger();application.processEvents();
+            for(auto* dialog:window.findChildren<QDialog*>())if(dialog->isVisible())dialog->reject();
+            application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+            return saved;
+        };
+        window.findChild<QAction*>("newDocumentAction")->trigger();application.processEvents();
+        auto* symbol=window.findChild<QDialog*>("newDocumentDialog");if(!symbol)return 1;
+        for(auto* radio:symbol->findChildren<QRadioButton*>())
+            if(radio->property("documentType")=="symbol")radio->setChecked(true);
+        symbol->findChild<QLineEdit*>("newDocumentFileName")->setText("S01");
+        symbol->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();
+        application.processEvents();
+        if(!edit_first_sketch("symbol"))return 1;
+        const auto title_block=window.execute_console_command(QString::fromStdString(zima::commands::Json{
+            {"command","template.new"},{"arguments",{{"kind","title_block"},{"name","T01"}}}}.dump()));
+        if(!title_block.ok||!edit_first_sketch("title-block"))return 1;
+        std::cout<<"Localized native command overviews captured\n";
+        return 0;
+    }
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_HIDDEN_WINDOWS"))window.setAttribute(Qt::WA_DontShowOnScreen);
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SPLINE_LOOP_SWEEP_ONLY"))
         return verify_spline_loop_sweep_ui(application,test_directory);
@@ -17056,7 +17123,11 @@ int main(int argc, char* argv[]) {
         console_test_settings.emplace();
         const auto inherited=zima::app::ApplicationSettings::load(startup_directory);
         QSettings config(console_test_settings->filePath("config.ini"),QSettings::IniFormat);
-        config.setValue("Application/Language","cs");
+        // Guide captures construct a fresh workspace in the requested locale;
+        // ordinary console contracts retain their established Czech fixture.
+        config.setValue("Application/Language",
+            qEnvironmentVariableIsSet("ZIMA_CAPTURE_GUIDE_DIALOGS")
+                ? inherited.language : QStringLiteral("cs"));
         config.setValue("Application/UseISOFont",inherited.use_iso_application_font);
         config.setValue("Application/Theme",inherited.theme);
         for(const auto* key:{"Uppercase","RemoveDiacritics","ReplaceSpaces"})config.setValue(QString("DocumentNames/")+key,false);

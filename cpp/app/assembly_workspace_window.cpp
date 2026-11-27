@@ -2,6 +2,7 @@
 #include <zima/document/file_path.hpp>
 #include "workspace/workspace_internal.hpp"
 #include "window_title_icon.hpp"
+#include "guide_capture.hpp"
 #include "updateservice.h"
 #include <zima/workspace/document_operations.hpp>
 #include <zima/workspace/family_operations.hpp>
@@ -80,6 +81,7 @@ AssemblyWorkspaceWindow::AssemblyWorkspaceWindow(const QString& working_director
     });
     refresh_tabs();
     refresh_scene();
+    documentation::install_command_capture(*this,application_settings_.language);
     if(application_settings_.browser.open_on_start)QTimer::singleShot(0,this,[this]{open_browser();});
 }
 

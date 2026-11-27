@@ -17,13 +17,15 @@ separate from the private browser profile under `config/www/`.
 | `0400-download/0000-index/` | Release download entry pages |
 | `_source/` | Shared stylesheet, browser behavior, translations and output inventory |
 | `../doc/guides/` | The only authored guide text, images and annotation coordinates |
+| `../doc/guides/commands-*.json` | Localized procedures and source evidence for individual native commands |
 
 The five website languages come from `config/localization/metadata.ini`.
 Navigation, labels and marketing copy are translated in `_source/translations.json`.
-Project guide prose and annotation explanations remain English, following the
-repository documentation language rule. Screenshots preserve the actual UI
-language of their verified capture. Each localized guide clearly labels its
-English content.
+The user guides, screenshot explanations and command procedures are maintained
+in Czech, English, German, French and Russian under the user's explicit guide
+localization requirement. Each page uses native screenshots captured in its own
+language. The build rejects missing translations or screenshots instead of
+substituting another language.
 
 ## Build and preview
 
@@ -56,18 +58,52 @@ percentage coordinates, so the complete image must keep its aspect ratio.
 
 ## Add a guide
 
-1. Write one English source file in `doc/guides/` and add its stable slug and source
-   path to `[Guides]` in the shared documentation metadata.
+1. Write the English overview in `doc/guides/` and its four translations in the
+   corresponding `cs/`, `de/`, `fr/` and `ru/` directories. Add its stable slug
+   and English source path to `[Guides]` in the shared documentation metadata.
 2. Add the displayed title to all five translation catalogs.
-3. Put an authentic screenshot in `doc/guides/images/`. Add its filename, alt text
-   and marker positions to `doc/guides/annotations.json`.
-4. Map relevant `QAction::objectName()` IDs to the guide slug under `[Commands]`.
-   Use stable IDs, never translated command names.
+3. Put authentic screenshots in `doc/guides/images/<language>/`. Add their common
+   filename, English alt text and marker positions to `doc/guides/annotations.json`,
+   and translated alt text and markers to each locale's `annotations.json`.
+   A localized marker may override its coordinates for that capture.
+4. Keep overview guides separate from the action-specific command registry below.
 5. Rebuild, check links and inspect every marker at desktop and mobile widths.
 
 The screenshots explain the state actually captured. A partially filled dialog
 is not evidence of a completed operation. Guide steps and documented limits must
 continue to agree with the current native implementation.
+
+## Command guides
+
+`[CommandCatalogs]` names the three authored catalogs: modeling, sketch/FEM and
+workspaces. Together they currently describe all 145 right-toolbar actions.
+Each exact action ID has a unique `command-*` slug, a workspace `group`, verified
+repository `sources`, and `locales` containing exactly `cs`, `en`, `de`, `fr`,
+and `ru`. Every locale provides nonempty `title`, `intro`, `prerequisites`,
+`result`, `note`, and three to five `steps`. Titles use the current localized
+native action label. Source evidence is validated locally and is not published
+as extra repository files.
+
+Every command requires an actual native button capture at
+`doc/guides/images/commands/<language>/<action>.png`. An optional `dialogCapture`
+names an existing native capture case, requiring
+`doc/guides/images/dialogs/<language>/<case>.png` in all five languages. The build
+copies those PNG bytes unchanged into the public documentation image tree.
+It generates five pages and localized directory metadata per command, alongside
+the existing eleven overview guides. The index groups commands by workspace;
+localized search matches titles, procedures and stable action IDs. Navigation
+and grouped links also work without JavaScript.
+
+`[Commands]` must map every catalog action to its exact slug. The older generic
+`sketchAction`, `extrusionAction` and `revolutionAction` aliases map to the
+corresponding current Feature shortcuts. Unknown actions, duplicate slugs,
+incomplete text and missing images stop generation before output is written.
+The generated public-file manifest automatically includes every command page,
+localized metadata file and required image for both hosting and native packages.
+
+`check.py` verifies localized `.guide-copy` elements, exact command-to-page
+identity, matching-language native image paths and unchanged image bytes, in
+addition to links, alternate-language routes and runtime packaging.
 
 ## Native application
 
@@ -80,8 +116,9 @@ The File Manager's Overview tab displays the localized HTML index. Right-clickin
 a command button offers **Show guide** when its stable ID has an available guide.
 The Help menu opens the guide index. Both use an ordinary new browser tab and
 preserve the existing active-editor guard. Missing mappings are disabled rather
-than opening a misleading guide. This initial set is not exhaustive documentation
-for every CAD command.
+than opening a misleading guide. The command registry covers the current right
+toolbar; menus and context actions outside that inventory may have separate
+documentation or share an existing procedure.
 
 Offline guide tabs can read assets only within the configured website directory.
 External links open an ordinary web tab; ordinary browsing retains its existing

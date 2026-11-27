@@ -2,20 +2,17 @@
 
 ## Before you start
 
-Activate an editable Part Body and select **Sheet Metal** in the application
-dropdown. Use a calculated sheet model with authored Flats and Bends for the
+Activate an editable Part Body and select **Sheet Metal** using the workspace buttons. Use a calculated sheet model with authored Flats and Bends for the
 following development workflow.
 
 ## Steps
 
-1. Open **Sheet Metal Properties**. Check the material thickness and K factor
+1. Open **Sheet Metal Properties…**. Check the material thickness and K factor
    used by the Part; confirm the intended settings.
 2. Inspect the folded model. Confirm bend directions and material sides before
    creating the developed state.
-3. Choose **Unbend**. Keep all eligible regions, or enable **Select individual
-   features** and select the required regions in the Tree or View.
-4. Confirm **OK** and inspect the developed geometry. Use the Sheet Metal
-   toolbar's **DXF** command for its supported flat-pattern export.
+3. Choose **Unbend**. Keep all eligible regions, or enable **Select individual features** and select the required regions in the Tree or View.
+4. Confirm **OK** and inspect the developed geometry. Save the Part, then use the Sheet Metal toolbar’s **DXF** command for its supported flat-pattern export.
 5. Use **Bend Back** when the following history needs the folded state again.
 
 ## What to check

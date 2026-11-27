@@ -7,13 +7,11 @@ sheets, views and annotations.
 
 ## Steps
 
-1. Choose **File > New > Drawing** and select the source model, or use
-   **Drawing** in the open source's Tree header.
+1. Choose **File > New**, select **Drawing** in the dialog and enter a name. Confirm **OK** and select the source model, or use **Drawing** in the open source’s Tree header.
 2. Review the sheet format, frame and title block. **Format** changes the active
    sheet; the bottom **+** adds another sheet.
-3. Choose **Insert View**, place it and review orientation, scale and display
-   settings in **View Properties**. Confirm **OK**.
-4. Add required dimensions and text. **Show/Erase** exposes supported source
+3. Choose **Insert View** and place the view. Review orientation, scale and display settings in the opened dialog, then confirm **OK**.
+4. Add required dimensions and text. **Show / hide dimensions…** exposes supported source
    dimensions, axes and auxiliary geometry in a selected view.
 5. Save the Drawing, then use the appropriate export for PDF, current-sheet DXF
    or a sheet/region image.

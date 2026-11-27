@@ -1,0 +1,273 @@
+{
+  "getting-started": {
+    "alt": "Dialog Nový dokument v ZIMA-CADu s typem Díl, názvem model, prostředím Modelování a tlačítky OK a Zrušit.",
+    "markers": [
+      {
+        "title": "Pojmenujte dokument",
+        "body": "Do pole „Název souboru“ zadejte název dokumentu. V příkladu je model; jde o uživatelský název."
+      },
+      {
+        "title": "Zvolte díl",
+        "body": "Pro dokument dílu vyberte Díl. Sestava vytvoří sestavu a Výkres výkres; jejich přepínače jsou níže."
+      },
+      {
+        "title": "Vyberte prostředí dílu",
+        "body": "Vedle „Díl“ vyberte prostředí dílu. Na snímku je „Modelování“, vhodné pro běžné modelování dílu."
+      },
+      {
+        "title": "Vytvořte vybraný dokument",
+        "body": "Po kontrole názvu, typu dokumentu a prostředí klikněte na OK. Snímek zachycuje dialog před vytvořením dokumentu."
+      }
+    ]
+  },
+  "sketch": {
+    "alt": "Skicář ZIMA-CADu s kružnicí o poloměru 9 mm, stromem geometrie, ovládáním pohledu a akcemi OK a Zrušit.",
+    "markers": [
+      {
+        "title": "Kružnice a střed",
+        "body": "Bílá kružnice je křivka skici. Její bílý středový bod je oddělený od hnědého počátku skici vlevo dole."
+      },
+      {
+        "title": "Upravte poloměr",
+        "body": "Dvojklikem na zobrazenou kótu R9mm otevřete editor hodnoty. Stejná kóta poloměru je ve stromu uvedena pod Kóty."
+      },
+      {
+        "title": "Podívejte se kolmo ke skice",
+        "body": "„Pohled kolmo“ zarovná kameru s rovinou skici. „Převrátit“ přepíná přední a zadní stranu; „Otočit“ otáčí pohled po 90°."
+      },
+      {
+        "title": "Dokončete úpravy",
+        "body": "OK ukončí editaci skici. U vložené skici návrh předá vlastnostem operace, které je také třeba potvrdit. „Zrušit“ pod ním zahodí změny této relace."
+      }
+    ]
+  },
+  "feature": {
+    "alt": "Vlastnosti prvku ZIMA-CADu pro vytažení s prázdným umístěním, rovinou XY, tlačítkem Skica, volbami Přičíst a Odečíst a potvrzením OK nebo Zrušit.",
+    "markers": [
+      {
+        "title": "Umístěte prvek",
+        "body": "Kliknutím do referenčního pole aktivujete výběr geometrie. Oko ve stejném řádku slouží k nezávislé prohlídce. Na tomto snímku není zadána žádná reference umístění.",
+        "x": 27.99,
+        "y": 17.7
+      },
+      {
+        "title": "Definujte profil",
+        "body": "Kliknutím na Skica upravíte profil prvku. V ovládání roviny vlevo je vybráno XY; odsazení roviny je 0,000 mm.",
+        "x": 87.68,
+        "y": 49.85
+      },
+      {
+        "title": "Zvolte materiálovou operaci",
+        "body": "„Přičíst“ přidává materiál, „Odečíst“ jej odebírá. Vybráno je „Přičíst“ s výsledkem „Těleso“.",
+        "x": 37.06,
+        "y": 63.06
+      },
+      {
+        "title": "Potvrďte úplnou definici",
+        "body": "Po zadání profilu a mezí klikněte na OK, aby se prvek ověřil a vypočítal. Zrušit zahodí nepotvrzené změny dialogu. Snímek ukazuje úvodní dialog, nikoli dokončené těleso.",
+        "x": 76.41,
+        "y": 97.96
+      }
+    ]
+  },
+  "fillet-chamfer": {
+    "alt": "Vlastnosti objemového zaoblení ZIMA-CADu s konstantním poloměrem 1 mm, třemi vybranými hranami vstupního tělesa a jejich azurovým drátovým zvýrazněním.",
+    "markers": [
+      {
+        "title": "Nastavte poloměr",
+        "body": "V poli Poloměr R nastavte poloměr zaoblení. Zobrazená definice používá typ Konstantní a poloměr 1,000 mm.",
+        "x": 80,
+        "y": 13.9
+      },
+      {
+        "title": "Přidejte referenci hrany",
+        "body": "Klikněte na Vybrat referenci a poté vyberte vstupní hranu v pohledu. V seznamu jsou již tři reference; každý červený křížek odebere odpovídající položku.",
+        "x": 60.5,
+        "y": 33.1
+      },
+      {
+        "title": "Zkontrolujte vybrané hrany",
+        "body": "Azurové drátové zvýraznění označuje vybrané hrany skutečného vstupního dílu. Dialog je stále otevřený, takže pohled nepředstavuje potvrzený konečný výsledek zaoblení.",
+        "x": 48,
+        "y": 68
+      },
+      {
+        "title": "Vypočítejte a potvrďte",
+        "body": "Kliknutím na OK vypočítáte a potvrdíte připravované zaoblení. „Zrušit“ zavře dialog bez potvrzení jeho změn.",
+        "x": 90.5,
+        "y": 44.9
+      }
+    ]
+  },
+  "sheet-metal": {
+    "alt": "Plechové prostředí ZIMA-CADu s plechem obsahujícím vytvarovaný větrací otvor, historií tělesa a panelem plechových příkazů.",
+    "markers": [
+      {
+        "title": "Otevřete plechové nástroje",
+        "body": "Kliknutím na Plechy zobrazíte sadu plechových příkazů. Na snímku je vybraná; pravý panel obsahuje Tabule, Ohyb, Profil a Tváření.",
+        "x": 82,
+        "y": 11.7
+      },
+      {
+        "title": "Přečtěte historii tělesa",
+        "body": "Zelený řádek B01 označuje aktivní těleso. Historie obsahuje výchozí plech F01, jeho skicu S01 a navazující tváření otvoru.",
+        "x": 5.3,
+        "y": 22.1
+      },
+      {
+        "title": "Prohlédněte vytvarovanou geometrii",
+        "body": "Úzký vyvýšený otvor je vypočtený výsledek tváření. Hnědé roviny a barevné osy kolem něj patří zobrazenému počátku tělesa.",
+        "x": 52.5,
+        "y": 57.6
+      },
+      {
+        "title": "Najděte ovládání rozvinu",
+        "body": "Rozvinout je příkaz pro rozvinutí. Přímo pod ním je Ohnout zpět a dále export DXF. Snímek ukazuje ohnutý model, nikoli exportovaný rozvin.",
+        "x": 92,
+        "y": 51.1
+      }
+    ]
+  },
+  "fem": {
+    "alt": "FEM v ZIMA-CADu se sítí prutu, aktivním tělesem B2, vazbou C1, silou C2 = 100 N a barevnou stupnicí napětí von Mises v MPa.",
+    "markers": [
+      {
+        "title": "Přečtěte definici analýzy",
+        "body": "Aktivní těleso analýzy je B2 a jeho zdrojem je B1. Strom pod B2 uvádí vazbu C1 a sílu C2.",
+        "x": 5.2,
+        "y": 27.5
+      },
+      {
+        "title": "Zkontrolujte zatížení a podepření",
+        "body": "Žluté značky uvádějí C2 = 100 N a omezení C1 s UX=0, UY=0, UZ=0. Jde o zatížení a podepření tohoto příkladu lineární statiky.",
+        "x": 53.6,
+        "y": 33.8
+      },
+      {
+        "title": "Přečtěte stupnici výsledku",
+        "body": "Legenda „Napětí von Mises [MPa]“ zobrazuje objemově průměrované napětí prvků. Modrá označuje dolní konec stupnice, červená horní; zobrazené maximum je přibližně 0,93978 MPa.",
+        "x": 81,
+        "y": 30.5
+      },
+      {
+        "title": "Zvolte zobrazení výsledku",
+        "body": "Vpravo zvolte „Posunutí [mm]“ nebo „Napětí von Mises [MPa]“. „Zobrazit deformaci“ přepíná zobrazení výsledku. Vlevo dole je uvedeno zvětšení ×1 a statický výsledek.",
+        "x": 94,
+        "y": 50.8
+      }
+    ]
+  },
+  "cam": {
+    "alt": "Prohlížeč obecného NC programu ZIMA-CADu s vybraným lineárním pohybem, krokováním pohybů, přepínačem výsledného polotovaru a odpovídající polohou nástroje nad obrobkem.",
+    "markers": [
+      {
+        "title": "Vyberte pohyb",
+        "body": "Kliknutím na řádek pohybu zobrazíte polohu nástroje. Zde je vybrán řádek 8, LINEAR X0 Y-2 Z2. Záhlaví označuje program jako obecný NC, který vyžaduje postprocesor pro řídicí systém."
+      },
+      {
+        "title": "Krokujte program",
+        "body": "„Další pohyb“ a „Předchozí pohyb“ přecházejí mezi pohyby. Posuvník vpravo mění polohu nástroje uvnitř právě vybraného pohybu; neprochází celý program."
+      },
+      {
+        "title": "Zobrazte vypočtený zbytek polotovaru",
+        "body": "Pro prohlídku vypočteného zbytku přepněte Zobrazit vypočtený zbytek polotovaru. Na snímku není políčko zaškrtnuté."
+      },
+      {
+        "title": "Propojte program s pohledem",
+        "body": "Modelový pohled umisťuje nástroj nad obrobek podle vybraného pohybu programu. Při kontrole dráhy sledujte společně pohled i vybraný řádek NC."
+      }
+    ]
+  },
+  "sweep": {
+    "alt": "Úvodní dialog vlastností 2D tažení ZIMA-CADu s vybranou rovinou XY, tlačítkem Skica dráhy, dvěma profilovými stanicemi a prázdnými referencemi umístění.",
+    "markers": [
+      {
+        "title": "Zvolte rovinu dráhy",
+        "body": "Kliknutím na XY, XZ nebo YZ zvolte rovinu kontejneru pro skicu dráhy. Na snímku je vybráno XY.",
+        "x": 3.18,
+        "y": 51.6
+      },
+      {
+        "title": "Definujte skicu dráhy",
+        "body": "Kliknutím na Skica dráhy... upravíte dráhu tažení. Tabulka referencí umístění nad ní je v této počáteční definici prázdná.",
+        "x": 92.06,
+        "y": 51.66
+      },
+      {
+        "title": "Definujte profily stanic",
+        "body": "Kliknutím na Skica v řádku stanice upravíte její profil. První řádek je 1 — začátek a druhý 1 — konec. Oba zatím požadují první profil zprávou Vyplňte první profil.",
+        "x": 42.56,
+        "y": 65.01
+      },
+      {
+        "title": "Potvrďte úplné tažení",
+        "body": "Po definování dráhy a potřebných profilů klikněte na OK pro ověření a výpočet tažení. Zrušit zahodí nepotvrzené změny. Snímek zachycuje nastavení, nikoli vypočtený výsledek tažení.",
+        "x": 77.59,
+        "y": 97.79
+      }
+    ]
+  },
+  "assembly": {
+    "alt": "Vlastnosti komponenty v sestavě ZIMA-CADu se zdrojovým dílem, třemi dvojicemi rovin počátku s nulovým odsazením, nezávislými inspekčními oky a nulovým počtem zbývajících stupňů volnosti.",
+    "markers": [
+      {
+        "title": "Zkontrolujte zdrojový díl",
+        "body": "Pole Zdroj označuje component-reference.prtz jako zdroj tohoto výskytu. Strom sestavy obsahuje dva výskyty tohoto dílu."
+      },
+      {
+        "title": "Přečtěte dvojice umístění",
+        "body": "Sloupce Tento díl a Cíl párují reference komponenty a cíle. Zde jsou spárovány XY, YZ a XZ, všechny s typem Plocha a odsazením 0,000 mm."
+      },
+      {
+        "title": "Prohlédněte každou referenci samostatně",
+        "body": "Kliknutím na oko pod Zobrazit díl prohlédnete referenci komponenty; sousední oko pod Zobrazit cíl prohlédne cílovou referenci."
+      },
+      {
+        "title": "Zkontrolujte zbývající volnost",
+        "body": "Zbývající stupně volnosti: 0 oznamuje, že tyto tři dvojice rovin neponechávají žádný stupeň volnosti. Kliknutím na OK vpravo dole potvrďte připravované umístění; Zrušit jeho změny zahodí."
+      }
+    ]
+  },
+  "drawings": {
+    "alt": "Vlastnosti výkresového pohledu ZIMA-CADu se zdrojovým modelem, řádky popisku, vlastní orientací, režimem viditelných hran, měřítkem 0,500 a polohou na listu.",
+    "markers": [
+      {
+        "title": "Zvolte zdrojový model",
+        "body": "Otevřete Zdroj a vyberte zdroj pohledu, nebo klikněte na Soubor pro výběr souboru. Aktuální zdroj je Drawing source — Výchozí (nativní)."
+      },
+      {
+        "title": "Nastavte orientaci promítání",
+        "body": "Otevřete Základní pohled a vyberte výchozí pohled. Zde je zvolena Vlastní orientace s úhly 17° vodorovně, −23° svisle a 31° v rovině v polích níže."
+      },
+      {
+        "title": "Nastavte měřítko výkresu",
+        "body": "V nabídce Měřítko je Vlastní a Hodnota je 0,500, což odpovídá popisku M1:2 výše. Pole X a Y níže určují polohu pohledu na listu v milimetrech."
+      },
+      {
+        "title": "Potvrďte vlastnosti pohledu",
+        "body": "Kliknutím na OK potvrďte nastavení pohledu, nebo pomocí Zrušit zahoďte nepotvrzené změny. Snímek ukazuje dialog definice pohledu; promítnutá geometrie listu je mimo záběr."
+      }
+    ]
+  },
+  "render": {
+    "alt": "Vlastnosti reflektoru v render tělese ZIMA-CADu s vybraným světlem ve stromu, ovládáním umístění, bílou barvou, světelným tokem 1000 lm a kuželem 45° se značkou ve scéně.",
+    "markers": [
+      {
+        "title": "Najděte světlo ve scéně",
+        "body": "Pod „Render těleso 1“ je vybrán „Reflektor 1“. Stejné těleso obsahuje „Kamera 1“ a „Slunce 1“; otevřené vlastnosti upravují reflektor."
+      },
+      {
+        "title": "Nastavte barvu a světelný tok",
+        "body": "Barvu světla upravte v Barva (#RRGGBB) a světelný tok v poli Světelný tok. Příklad používá #ffffff a 1000 lm a má zaškrtnuté Světlo zapnuto."
+      },
+      {
+        "title": "Nastavte kužel reflektoru",
+        "body": "V poli Úhel kuželu změňte úhel světelného kuželu; zde je 45°. V sousedních polích je Poloměr světla 5 mm a Měkkost okraje 0,25."
+      },
+      {
+        "title": "Propojte světlo se scénou",
+        "body": "Azurový kužel v modelovém pohledu je značka reflektoru. V dialogu je zaškrtnuto Zobrazit značku v pohledu. Kliknutím na OK vpravo dole potvrďte připravované nastavení světla."
+      }
+    ]
+  }
+}

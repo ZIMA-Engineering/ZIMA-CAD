@@ -12,6 +12,9 @@ static int verify_sketch_exit_ui(QApplication& application,AssemblyWorkspaceWind
             auto dimension=diameter?sketch.create_circle_diameter_dimension(circle):sketch.create_circle_radius_dimension(circle);
             sketch.apply_dimension(dimension);sketch.set_point_fixed(center,fixed);
             auto container=document::PartDocument::create_sketch_container();sketch.owner_container_id=container.id;
+            if(qEnvironmentVariableIsSet("ZIMA_CAPTURE_GUIDE_DIALOGS")) {
+                part.name="P01";container.name="S01";sketch.name="S01";
+            }
             workspace::insert_new_sketch(part,sketch,container);
             const auto path=directory/("sketch-exit-"+std::to_string(cases)+".prtz");part.save(path);
             check(window.open_document_path(QString::fromStdString(document::path_to_utf8(path))),"Sketch exit fixture did not open");flush();

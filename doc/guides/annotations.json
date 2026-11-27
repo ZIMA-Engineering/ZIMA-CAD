@@ -13,79 +13,79 @@
         "x": 77.1,
         "y": 48.7,
         "title": "Edit the radius",
-        "body": "Double-click the displayed R9mm dimension to open its value editor. The same radius dimension is listed under Kóty in the tree."
+        "body": "Double-click the displayed R9mm dimension to open its value editor. The same radius dimension is listed under Dimensions in the tree."
       },
       {
         "x": 92.9,
         "y": 40.1,
         "title": "Look normal to the sketch",
-        "body": "Click Pohled kolmo to face the active sketch plane. The adjacent Převrátit and Otočit controls change the viewing orientation."
+        "body": "Normal view aligns the camera with the Sketch plane. The two following controls both read Flip: the first switches front/back, the second rotates the view in 90° steps."
       },
       {
         "x": 91.5,
         "y": 27.8,
         "title": "Finish the edit",
-        "body": "Click OK to keep the sketch edits. Zrušit directly below it closes the editing session without keeping its pending changes."
+        "body": "OK finishes Sketch editing. An embedded Sketch returns its draft to the owning operation's Properties, which also need confirmation. Cancel below discards this session's edits."
       }
     ]
   },
   "feature": {
     "image": "feature.png",
-    "alt": "ZIMA-CAD Feature Properties dialog configured for Extrusion, with placement references, an XY sketch plane, the Sketch button, Add and Cut, and OK and Cancel.",
+    "alt": "ZIMA-CAD Feature Properties for an extrusion with empty placement references, XY plane, Sketch, Add and Subtract, and OK and Cancel.",
     "markers": [
       {
-        "x": 24.7,
-        "y": 23.2,
+        "x": 26.62,
+        "y": 17.7,
         "title": "Place the feature",
         "body": "Click the reference field to arm geometry selection. The eye in the same row is a separate inspection control. This capture has no placement reference entered."
       },
       {
-        "x": 81.6,
-        "y": 65.3,
+        "x": 87.41,
+        "y": 49.85,
         "title": "Define the profile",
-        "body": "Click Skica to edit the feature profile. XY is currently selected in the plane controls to the left; the plane offset reads 0,000 mm."
+        "body": "Click Sketch to edit the feature profile. XY is currently selected in the plane controls to the left; the plane offset reads 0,000 mm."
       },
       {
-        "x": 36.7,
-        "y": 82.6,
+        "x": 41.01,
+        "y": 63.06,
         "title": "Choose the material operation",
-        "body": "Přičíst selects Add and Odečíst selects Cut. Add is selected in this capture, with Těleso chosen as the result type."
+        "body": "Add adds material; Subtract removes it. Add is selected here, with Body as the result type."
       },
       {
-        "x": 74.9,
-        "y": 97.3,
+        "x": 75.9,
+        "y": 97.96,
         "title": "Confirm the complete definition",
-        "body": "After defining the profile and limits, click OK to validate and calculate the feature. Zrušit discards the pending dialog changes. The capture shows the initial dialog, not a completed solid."
+        "body": "After defining the profile and limits, click OK to validate and calculate the feature. Cancel discards the pending dialog changes. The capture shows the initial dialog, not a completed solid."
       }
     ]
   },
   "fillet-chamfer": {
     "image": "fillet-chamfer.png",
-    "alt": "ZIMA-CAD solid Fillet Properties with a 1 mm constant radius, three selected edge references, and their cyan wire feedback on a machined part.",
+    "alt": "ZIMA-CAD solid Fillet Properties with a 1 mm constant radius, three selected input-body edges and their cyan wire feedback.",
     "markers": [
       {
-        "x": 66.1,
+        "x": 80,
         "y": 13.9,
         "title": "Set the radius",
-        "body": "Edit Poloměr R to set the fillet radius. The displayed definition uses the Konstantní type and a radius of 1,000 mm."
+        "body": "Edit Radius R to set the fillet radius. The displayed definition uses the Constant type and a radius of 1,000 mm."
       },
       {
-        "x": 59.6,
+        "x": 60.5,
         "y": 33.1,
         "title": "Add an edge reference",
-        "body": "Click Vybrat referenci, then select an input edge in the view. Three references are already listed; each red cross removes its corresponding list item."
+        "body": "Click Select reference, then select an input edge in the view. Three references are already listed; each red cross removes its corresponding list item."
       },
       {
-        "x": 51.3,
-        "y": 51.4,
+        "x": 48,
+        "y": 68,
         "title": "Check the selected edges",
         "body": "Cyan wire feedback identifies the selected edges on the real input part. The dialog is still open, so this view must not be read as the committed final fillet result."
       },
       {
-        "x": 90.3,
+        "x": 90.5,
         "y": 44.9,
         "title": "Calculate and confirm",
-        "body": "Click OK to calculate and confirm the pending fillet. Zrušit closes the dialog without committing its edits. The neighbouring Sražení command is visible in the modeling toolbar below."
+        "body": "Click OK to calculate and confirm the pending fillet. Cancel closes the dialog without committing its changes."
       }
     ]
   },
@@ -94,58 +94,58 @@
     "alt": "ZIMA-CAD Sheet Metal workspace showing a sheet with a formed ventilation opening, its Body history, and the sheet-metal command toolbar.",
     "markers": [
       {
-        "x": 76.0,
-        "y": 14.6,
+        "x": 82,
+        "y": 11.7,
         "title": "Open Sheet Metal tools",
-        "body": "Click Plechy to show the sheet-metal command set. It is selected in this capture; the right-hand toolbar contains Tabule, Ohyb, Profil and Tváření."
+        "body": "Click Sheet Metal to show the sheet-metal command set. It is selected in this capture; the right-hand toolbar contains Sheet, Bend, Profile and Form."
       },
       {
-        "x": 7.0,
-        "y": 27.6,
+        "x": 5.3,
+        "y": 22.1,
         "title": "Read the Body history",
-        "body": "The green Sheet row identifies the active Body. Its tree contains Skica and Tváření 01, corresponding to the formed opening visible in the sheet."
+        "body": "The green B01 row identifies the active Body. Its history includes initial sheet F01, its Sketch S01 and the later forming operation that creates the opening."
       },
       {
-        "x": 53.4,
-        "y": 58.6,
+        "x": 52.5,
+        "y": 57.6,
         "title": "Inspect the formed geometry",
         "body": "The narrow raised opening is the calculated forming result. The brown planes and coloured axes around it belong to the displayed Body origin."
       },
       {
-        "x": 88.1,
-        "y": 63.9,
+        "x": 92,
+        "y": 51.1,
         "title": "Find the unfolding controls",
-        "body": "Rozvinout is the unfold command. Ohnout zpět is directly below it, followed by DXF export. This capture shows the folded model, not an exported flat pattern."
+        "body": "Unbend is the unfold command. Bend Back is directly below it, followed by DXF export. This capture shows the folded model, not an exported flat pattern."
       }
     ]
   },
   "fem": {
     "image": "fem.png",
-    "alt": "ZIMA-CAD FEM workspace displaying a meshed three-arm bracket, a 1000 N force, two restraints, and a von Mises stress colour scale in MPa.",
+    "alt": "ZIMA-CAD FEM showing a meshed rod, active Body B2, restraint C1, force C2 = 100 N and a von Mises stress scale in MPa.",
     "markers": [
       {
-        "x": 7.6,
-        "y": 45.3,
+        "x": 5.2,
+        "y": 27.5,
         "title": "Read the analysis definition",
-        "body": "FEM těleso 1 is the active analysis Body. Its tree lists the source Body, two restraints named Vazba 1 and Vazba 2, and the force Síla 1."
+        "body": "B2 is the active analysis Body and B1 is its source. The tree under B2 lists restraint C1 and force C2."
       },
       {
-        "x": 37.0,
-        "y": 51.8,
+        "x": 53.6,
+        "y": 33.8,
         "title": "Check loads and restraints",
-        "body": "The yellow annotation on the left arm reads Síla 1 = 1000 N. The other yellow annotations mark the two restrained regions. These symbols describe this example's boundary conditions."
+        "body": "The yellow markers show C2 = 100 N and restraint C1 with UX=0, UY=0, UZ=0. These are the loads and restraints of this linear-statics example."
       },
       {
-        "x": 79.2,
-        "y": 31.3,
+        "x": 81,
+        "y": 30.5,
         "title": "Read the result scale",
-        "body": "The legend is labelled Napětí von Mises [MPa]. Blue represents the lower end and red the upper end of this result scale, whose displayed maximum is 49,54 MPa."
+        "body": "The Von Mises stress [MPa] legend shows element-average stress. Blue marks the lower end and red the upper end; the displayed maximum is approximately 0.93978 MPa."
       },
       {
-        "x": 94.3,
-        "y": 47.4,
+        "x": 94,
+        "y": 50.8,
         "title": "Choose a result display",
-        "body": "Click Výsledky to access result display choices. Zobrazit deformaci immediately above controls the deformation view; the bottom-left annotation shows a scale factor of ×1 in this capture."
+        "body": "Choose Displacement [mm] or Von Mises stress [MPa] on the right. Show deformation toggles result visibility. The lower-left label reports magnification ×1 and a static result."
       }
     ]
   },
@@ -163,13 +163,13 @@
         "x": 66.7,
         "y": 41.8,
         "title": "Step through the program",
-        "body": "Click Další pohyb for the next motion or Předchozí pohyb for the previous one. The slider to their right moves through the same calculated sequence."
+        "body": "Next motion and Previous motion move between motions. The slider on their right interpolates the tool position within the selected motion; it does not scan the whole program."
       },
       {
         "x": 57.7,
         "y": 44.6,
         "title": "Show calculated remaining stock",
-        "body": "Toggle Zobrazit vypočtený zbytek polotovaru to inspect the calculated remaining stock. The box is unchecked in this screenshot."
+        "body": "Toggle Show calculated remaining stock to inspect the calculated remaining stock. The box is unchecked in this screenshot."
       },
       {
         "x": 51.7,
@@ -181,25 +181,25 @@
   },
   "getting-started": {
     "image": "getting-started.png",
-    "alt": "ZIMA-CAD New Document dialog with the Part document type selected, the name reference, the Skeleton environment, and OK and Cancel.",
+    "alt": "ZIMA-CAD New Document dialog with Part selected, the name model, the Modeling environment, and OK and Cancel.",
     "markers": [
       {
         "x": 60.3,
         "y": 17.7,
         "title": "Name the document",
-        "body": "Enter the document name in Název souboru. The example currently reads reference; this is the user-defined name, not a command."
+        "body": "Enter the document name in File name. This example uses model, a user-defined name."
       },
       {
         "x": 15.2,
         "y": 29.7,
         "title": "Choose a Part",
-        "body": "Select Díl for a Part document. Sestava creates an Assembly and Výkres creates a Drawing; their radio buttons are below."
+        "body": "Select Part for a Part document. Assembly creates an Assembly and Drawing creates a Drawing; their radio buttons are below."
       },
       {
         "x": 73.3,
         "y": 30.2,
         "title": "Select the Part environment",
-        "body": "Open the selector beside Díl to choose the required Part environment. Skeleton is selected in this capture, so check this field before confirming an ordinary modeling Part."
+        "body": "Choose the Part environment beside Part. Modeling is selected here for ordinary Part modeling."
       },
       {
         "x": 68.2,
@@ -214,28 +214,28 @@
     "alt": "ZIMA-CAD initial 2D Sweep Properties dialog with XY selected, the Path Sketch button, two profile stations and empty placement references.",
     "markers": [
       {
-        "x": 3.2,
-        "y": 60.9,
+        "x": 3.18,
+        "y": 51.6,
         "title": "Choose the path plane",
         "body": "Click XY, XZ or YZ to choose the container plane for the path sketch. XY is selected in this capture."
       },
       {
-        "x": 89.8,
-        "y": 60.9,
+        "x": 92.06,
+        "y": 51.66,
         "title": "Define the path sketch",
-        "body": "Click Skica dráhy... to edit the sweep path. The placement reference table above is empty in this initial definition."
+        "body": "Click Path sketch… to edit the sweep path. The placement reference table above is empty in this initial definition."
       },
       {
-        "x": 41.7,
-        "y": 72.5,
+        "x": 42.56,
+        "y": 65.01,
         "title": "Define station profiles",
-        "body": "Click Skica in the station row to edit its profile. The first row is 1 — začátek and the second is 1 — konec. Both currently request the first profile with Vyplňte první profil."
+        "body": "Click Sketch in the station row to edit its profile. The first row is 1 — start and the second is 1 — end. Both currently request the first profile with Fill in the first profile."
       },
       {
-        "x": 77.5,
-        "y": 97.4,
+        "x": 77.59,
+        "y": 97.79,
         "title": "Confirm a complete sweep",
-        "body": "After defining the path and required profiles, click OK to validate and calculate the sweep. Zrušit discards pending changes. This capture shows setup controls, not a calculated sweep result."
+        "body": "After defining the path and required profiles, click OK to validate and calculate the sweep. Cancel discards pending changes. This capture shows setup controls, not a calculated sweep result."
       }
     ]
   },
@@ -247,25 +247,25 @@
         "x": 58.5,
         "y": 8.0,
         "title": "Check the source Part",
-        "body": "The Zdroj field identifies component-reference.prtz as this occurrence’s source. The Assembly tree contains two occurrences of that Part."
+        "body": "The Source field identifies component-reference.prtz as this occurrence’s source. The Assembly tree contains two occurrences of that Part."
       },
       {
         "x": 57.7,
         "y": 23.8,
         "title": "Read the placement pairs",
-        "body": "The Tento díl and Cíl columns pair the component and target references. XY, YZ and XZ are paired here, each with the Plocha type and a 0,000 mm offset."
+        "body": "The This part and Target columns pair the component and target references. XY, YZ and XZ are paired here, each with the Face type and a 0,000 mm offset."
       },
       {
         "x": 89.7,
         "y": 23.8,
         "title": "Inspect each reference independently",
-        "body": "Click the eye under Zobrazit díl to inspect the component reference, or the neighbouring eye under Zobrazit cíl to inspect the target reference."
+        "body": "Click the eye under Show part to inspect the component reference, or the neighbouring eye under Show target to inspect the target reference."
       },
       {
         "x": 47.5,
         "y": 47.6,
         "title": "Check the remaining freedom",
-        "body": "Zbývající stupně volnosti: 0 reports no remaining degrees of freedom for these three plane pairs. Click OK at the lower right to confirm the pending placement; Zrušit discards its changes."
+        "body": "Remaining degrees of freedom: 0 reports no remaining degrees of freedom for these three plane pairs. Click OK at the lower right to confirm the pending placement; Cancel discards its changes."
       }
     ]
   },
@@ -277,25 +277,25 @@
         "x": 44.6,
         "y": 12.1,
         "title": "Choose the source model",
-        "body": "Open Zdroj to select the view source, or click Soubor to choose a file. The current source is Drawing source — Výchozí (nativní)."
+        "body": "Open Source to select the view source, or click File to choose a file. The current source is Drawing source — Native (generic)."
       },
       {
         "x": 49.9,
         "y": 44.6,
         "title": "Set the projection orientation",
-        "body": "Open Základní pohled to choose a base view. Vlastní orientace is selected here, with horizontal 17°, vertical −23° and in-plane 31° angles in the fields below."
+        "body": "Open Standard view: to choose a base view. Custom orientation is selected here, with horizontal 17°, vertical −23° and in-plane 31° angles in the fields below."
       },
       {
         "x": 35.8,
         "y": 70.5,
         "title": "Set the drawing scale",
-        "body": "The Měřítko selector is Vlastní and Hodnota is 0,500, corresponding to the M1:2 label above. The X and Y fields below position the view on the sheet in millimetres."
+        "body": "The Scale: selector is Custom and Value is 0,500, corresponding to the M1:2 label above. The X and Y fields below position the view on the sheet in millimetres."
       },
       {
         "x": 83.3,
         "y": 98.0,
         "title": "Confirm the view properties",
-        "body": "Click OK to confirm the view settings or Zrušit to discard pending changes. This capture shows the view definition dialog; the projected sheet geometry is outside the screenshot."
+        "body": "Click OK to confirm the view settings or Cancel to discard pending changes. This capture shows the view definition dialog; the projected sheet geometry is outside the screenshot."
       }
     ]
   },
@@ -307,25 +307,25 @@
         "x": 8.1,
         "y": 29.3,
         "title": "Identify the scene light",
-        "body": "Reflektor 1 is selected under Render těleso 1. The same Render Body also contains Kamera 1 and Slunce 1; the open dialog edits the spotlight."
+        "body": "Spotlight 1 is selected under Render Body 1, alongside Camera 1 and Sun 1. The open Properties edit the spotlight."
       },
       {
         "x": 76.6,
         "y": 48.2,
         "title": "Set colour and luminous flux",
-        "body": "Edit Barva (#RRGGBB) for the light colour and Světelný tok for luminous flux. This example uses #ffffff and 1000 lm, with Světlo zapnuto checked."
+        "body": "Edit Color (#RRGGBB) for the light colour and Luminous power for luminous flux. This example uses #ffffff and 1000 lm, with Light enabled checked."
       },
       {
         "x": 76.0,
         "y": 53.6,
         "title": "Set the spotlight cone",
-        "body": "Edit Úhel kuželu to change the cone angle; it reads 45° here. Poloměr světla is 5 mm and Měkkost okraje is 0,25 in the neighbouring fields."
+        "body": "Edit Cone angle to change the cone angle; it reads 45° here. Light radius is 5 mm and Edge softness is 0,25 in the neighbouring fields."
       },
       {
         "x": 51.6,
         "y": 60.7,
         "title": "Relate the light to the scene",
-        "body": "The cyan cone in the model view is the spotlight glyph. Zobrazit značku v pohledu is checked in the dialog. Click OK at the bottom right to confirm the pending light settings."
+        "body": "The cyan cone in the model view is the spotlight glyph. Show marker in View is checked in the dialog. Click OK at the bottom right to confirm the pending light settings."
       }
     ]
   }

@@ -7,33 +7,58 @@
 <header class="site-header"><div class="header-inner"><a class="brand" href="../../../0000-index/index_ru.html" aria-label="ZIMA-CAD"><img class="logo-dark" src="../../../0000-index/assets/zc-dark.svg" alt="" width="82" height="39"><img class="logo-light" src="../../../0000-index/assets/zc-light.svg" alt="" width="82" height="39"><span>ZIMA-CAD</span></a>
 <button class="menu-toggle" aria-expanded="false" aria-controls="main-nav" aria-label="Меню">☰</button><nav id="main-nav" aria-label="Меню"><a href="../../../0000-index/index_ru.html">Главная</a><a href="../../../0200-gallery/0000-index/index_ru.html">Галерея</a><a href="../../0000-index/index_ru.html" aria-current="page">Руководства</a><a href="../../../0400-download/0000-index/index_ru.html">Скачать</a></nav>
 <div class="header-tools"><button class="theme-toggle" aria-label="Переключить светлую/тёмную тему" title="Переключить светлую/тёмную тему">◐</button><details class="languages"><summary aria-label="Язык"><span aria-hidden="true">◎</span> RU<span class="chevron"></span></summary><div><a lang="cs" hreflang="cs" href="index_cs.html">Čeština</a><a lang="de" hreflang="de" href="index_de.html">Deutsch</a><a lang="en" hreflang="en" href="index_en.html">English</a><a lang="fr" hreflang="fr" href="index_fr.html">Français</a><a lang="ru" hreflang="ru" href="index_ru.html" aria-current="true">Русский</a></div></details></div></div></header>
-<main id="content" class="guide-page"><div class="guide-heading"><a href="../../0000-index/index_ru.html">Все руководства</a><h1>CAM</h1><p class="language-note">Текст руководства на английском языке.</p></div><section class="visual-guide" lang="en"><h2>Ориентиры в приложении</h2><div class="annotated-image"><button class="image-open" aria-label="Увеличить изображение"><img src="../../images/cam.png" alt="ZIMA-CAD Generic NC program inspector with a selected linear motion, motion stepping controls, stock-result toggle, and the corresponding tool position over a workpiece."></button><button class="hotspot" style="left:75.8%;top:22.3%" data-marker="1" aria-controls="marker-1" aria-label="Select a motion" aria-pressed="false"><span>1</span></button><button class="hotspot" style="left:66.7%;top:41.8%" data-marker="2" aria-controls="marker-2" aria-label="Step through the program" aria-pressed="false"><span>2</span></button><button class="hotspot" style="left:57.7%;top:44.6%" data-marker="3" aria-controls="marker-3" aria-label="Show calculated remaining stock" aria-pressed="false"><span>3</span></button><button class="hotspot" style="left:51.7%;top:45.6%" data-marker="4" aria-controls="marker-4" aria-label="Relate the program to the view" aria-pressed="false"><span>4</span></button></div><ol class="marker-list"><li id="marker-1"><button data-marker="1" aria-pressed="false"><span class="step-number">1</span><span><strong>Select a motion</strong><span>Click a motion row to show its tool position. Row 8, LINEAR X0 Y-2 Z2, is selected here. The header identifies this as generic NC that requires controller postprocessing.</span></span></button></li><li id="marker-2"><button data-marker="2" aria-pressed="false"><span class="step-number">2</span><span><strong>Step through the program</strong><span>Click Další pohyb for the next motion or Předchozí pohyb for the previous one. The slider to their right moves through the same calculated sequence.</span></span></button></li><li id="marker-3"><button data-marker="3" aria-pressed="false"><span class="step-number">3</span><span><strong>Show calculated remaining stock</strong><span>Toggle Zobrazit vypočtený zbytek polotovaru to inspect the calculated remaining stock. The box is unchecked in this screenshot.</span></span></button></li><li id="marker-4"><button data-marker="4" aria-pressed="false"><span class="step-number">4</span><span><strong>Relate the program to the view</strong><span>The model view places the displayed tool over the workpiece at the selected program motion. Keep this view and the selected NC row together when checking the path.</span></span></button></li></ol></section><article class="guide-copy" lang="en"><h1 id="cam">CAM</h1>
-<h2 id="before-you-start">Before you start</h2>
-<p>Prepare calculated stock and target Bodies in a Part, plus fixture Bodies
-where required. Deactivate the current Body to reach <strong>Create CAM</strong>.</p>
-<h2 id="steps">Steps</h2>
+<main id="content" class="guide-page"><div class="guide-heading"><a href="../../0000-index/index_ru.html">Все руководства</a><h1>CAM</h1><p class="language-note">Выберите номер на изображении, чтобы выделить соответствующее пояснение.</p></div><section class="visual-guide" lang="ru"><h2>Ориентиры в приложении</h2><div class="annotated-image"><button class="image-open" aria-label="Увеличить изображение"><img src="../../images/ru/cam.png" alt="Инспектор обобщённой программы ЧПУ ZIMA-CAD с выбранным линейным перемещением, кнопками пошагового просмотра, переключателем результата заготовки и соответствующим положением инструмента над заготовкой."></button><button class="hotspot" style="left:75.8%;top:22.3%" data-marker="1" aria-controls="marker-1" aria-label="Выберите перемещение" aria-pressed="false"><span>1</span></button><button class="hotspot" style="left:66.7%;top:41.8%" data-marker="2" aria-controls="marker-2" aria-label="Просмотрите программу по шагам" aria-pressed="false"><span>2</span></button><button class="hotspot" style="left:57.7%;top:44.6%" data-marker="3" aria-controls="marker-3" aria-label="Покажите рассчитанный остаток заготовки" aria-pressed="false"><span>3</span></button><button class="hotspot" style="left:51.7%;top:45.6%" data-marker="4" aria-controls="marker-4" aria-label="Сопоставьте программу с видом" aria-pressed="false"><span>4</span></button></div><ol class="marker-list"><li id="marker-1"><button data-marker="1" aria-pressed="false"><span class="step-number">1</span><span><strong>Выберите перемещение</strong><span>Щёлкните строку перемещения, чтобы показать положение инструмента. Здесь выбрана строка 8, LINEAR X0 Y-2 Z2. В заголовке указано, что это обобщённая программа ЧПУ, требующая обработки постпроцессором для конкретной системы ЧПУ.</span></span></button></li><li id="marker-2"><button data-marker="2" aria-pressed="false"><span class="step-number">2</span><span><strong>Просмотрите программу по шагам</strong><span>«Следующее перемещение» и «Предыдущее перемещение» переключают перемещения. Ползунок справа интерполирует положение инструмента внутри выбранного перемещения, а не по всей программе.</span></span></button></li><li id="marker-3"><button data-marker="3" aria-pressed="false"><span class="step-number">3</span><span><strong>Покажите рассчитанный остаток заготовки</strong><span>Переключите «Показать рассчитанный остаток заготовки», чтобы осмотреть рассчитанный остаток. На этом снимке флажок снят.</span></span></button></li><li id="marker-4"><button data-marker="4" aria-pressed="false"><span class="step-number">4</span><span><strong>Сопоставьте программу с видом</strong><span>В окне модели инструмент показан над заготовкой в положении выбранного перемещения программы. При проверке траектории сопоставляйте этот вид с выбранной строкой ЧПУ.</span></span></button></li></ol></section><article class="guide-copy" lang="ru"><h1 id="cam">CAM</h1>
+<h2 id="_1">Перед началом</h2>
+<p>Подготовьте рассчитанные тела заготовки и конечной детали, а при необходимости
+также тела оснастки в детали. Деактивируйте текущее тело, чтобы получить доступ
+к команде <strong>Создать CAM</strong>.
+Для фрезерования кармана или контура подготовьте предшествующий нативный эскиз профиля.</p>
+<h2 id="_2">Порядок действий</h2>
 <ol>
-<li>Choose <strong>Create CAM</strong>. Select stock, target and fixtures, then place the
-   setup's work frame.</li>
-<li>Open <strong>Machine</strong> and <strong>CAM tools</strong>. Review travel limits, tool geometry,
-   cutting conditions and the work-origin offset.</li>
-<li>In <strong>Machining operations</strong>, add <strong>Facing</strong> or a supported <strong>Manual operation</strong>.
-   Review the order and confirm the setup.</li>
-<li>Choose <strong>Calculate CAM</strong>. Inspect the <strong>Generic NC program</strong>, associated
-   tool motion and calculated remaining stock.</li>
-<li>Review collision and clamping reports. Export <strong>generic NC text</strong> only with
-   its stated generic-program meaning.</li>
+<li>Выберите <strong>Создать CAM</strong>. Выберите заготовку, конечную деталь и оснастку,
+   затем разместите рабочую систему координат установа.</li>
+<li>Откройте <strong>Станок</strong> и <strong>Инструменты CAM</strong>. Проверьте пределы перемещений,
+   геометрию инструмента, режимы резания и смещение рабочего начала координат.
+   При необходимости задайте в окне <strong>Эскизы закрепления</strong> эскизы контакта и верха
+   губок, а также их ориентированные стороны.</li>
+<li>В разделе <strong>Операции обработки</strong> выберите <strong>Добавить торцевое фрезерование</strong>,
+   <strong>Добавить карман</strong>, <strong>Добавить контур</strong> или <strong>Добавить ручную операцию</strong>.
+   Для кармана или контура нажмите поле ссылки <strong>Профиль обработки</strong> и выберите
+   предшествующий эскиз в дереве или виде. Задайте инструмент, верхний и нижний
+   уровни, глубины прохода, припуски, безопасную высоту и направление траектории
+   инструмента. Для кармана задайте <strong>Поперечный шаг</strong>; для контура выберите
+   <strong>Внутри</strong> или <strong>Снаружи</strong>. Проверьте порядок операций.
+   <strong>OK</strong> в редакторе передаёт изменения в черновик установа; подтвердите <strong>OK</strong>
+   в свойствах установа, чтобы зафиксировать их.</li>
+<li>Выберите <strong>Рассчитать CAM</strong>. В окне <strong>Общая управляющая программа</strong> проверьте
+   программу, соответствующие перемещения инструмента и рассчитанный остаток заготовки.</li>
+<li>Просмотрите отчёты о столкновениях и закреплении. Используйте <strong>Экспортировать общий текст УП…</strong> только с учётом заявленного общего назначения программы.</li>
 </ol>
-<h2 id="what-to-check">What to check</h2>
-<p>Yellow paths represent cutting feed; dashed red paths represent rapid motion.
-Clamping Sketches define oriented exclusion/contact regions and jaw-top checks;
-actual fixture Bodies remain additional obstacles. Colliding results cannot
-become stock for a later setup.</p>
-<p>Setup <strong>Cancel</strong> discards pending edits. Reopening a current result does not
-repeat simulation. The initial scope excludes controller postprocessors, pocket
-and contour operations, turning and 4/5-axis motion. Generic NC export is not
-controller-ready machine code.</p>
-<p>See <a href="https://github.com/ZIMA-Engineering/ZIMA-CAD/blob/codex/sketcher-mechanisms/doc/USER_MANUAL.md#first-stage-cam-workflow">CAM workflow</a> and
-<a href="https://github.com/ZIMA-Engineering/ZIMA-CAD/blob/codex/sketcher-mechanisms/doc/CAM_BODY_DESIGN.md">CAM scope</a>.</p></article></main>
+<h2 id="_3">Что проверить</h2>
+<p>Жёлтые траектории обозначают рабочую подачу; красные штриховые — быстрые перемещения.
+Явно запущенный расчёт проверяет ограничения станка и моделирует материал,
+охваченный движением инструмента; пошаговый просмотр результата не пересчитывает материал.</p>
+<p>Фрезерование карманов и контуров — это трёхосевая обработка 2,5D замкнутых областей
+нативного эскиза, параллельных плоскости XY установа, включая островки и отдельные
+петли. Требуется цилиндрическая режущая часть с плоским торцом. Вход выполняется
+режущим врезанием, а переходы отводят инструмент на безопасную высоту.
+<strong>Допуск траектории</strong> ограничивает аппроксимацию некруговых кривых; прямые и
+дуги окружностей сохраняют аналитические траектории.</p>
+<p>Эскизы закрепления задают ориентированные области исключения/контакта и проверки
+по верху губок. Фактические тела оснастки остаются дополнительными препятствиями.
+Пересечение режущей части или хвостовика с оснасткой либо запрещённым объёмом —
+столкновение. Съём материала ниже верха губок и потеря контакта вызывают отдельные
+предупреждения; оставшийся геометрический контакт не доказывает достаточную силу
+закрепления. Результаты со столкновениями нельзя использовать как заготовку
+следующего установа.</p>
+<p>Кнопка <strong>Отмена</strong> в установе отбрасывает неподтверждённые изменения. Повторное
+открытие актуального результата не повторяет симуляцию. Ручные операции поддерживают
+линейные и круговые перемещения в XY. Постпроцессоры для систем ЧПУ, точение,
+движения по 4/5 осям, адаптивный или наклонный вход, автоматическое размещение
+оснастки из библиотеки и преобразование произвольного твёрдого тела в инструмент
+пока недоступны. Экспорт общей УП не является машинным кодом, готовым для
+конкретной системы ЧПУ.</p>
+<p>См. <a href="https://github.com/ZIMA-Engineering/ZIMA-CAD/blob/codex/sketcher-mechanisms/doc/USER_MANUAL.md#first-stage-cam-workflow">работа с CAM</a> и
+<a href="https://github.com/ZIMA-Engineering/ZIMA-CAD/blob/codex/sketcher-mechanisms/doc/CAM_BODY_DESIGN.md#profile-milling-stage-2026-11-26">текущие возможности профильного фрезерования</a>.</p></article></main>
 <footer><div><a class="footer-brand" href="../../../0000-index/index_ru.html">ZIMA-CAD</a><span>Открытая параметрическая САПР.</span></div><div class="socials"><a href="https://www.youtube.com/@zimaengineering" rel="noopener">YouTube</a><a href="https://www.facebook.com/" rel="noopener">Facebook</a><a href="https://github.com/ZIMA-Engineering/ZIMA-CAD" rel="noopener">GitHub</a></div><small>© 2026 ZIMA-Engineering · GPL-3.0-or-later</small></footer>
-<dialog class="lightbox" aria-label="Увеличить изображение"><button class="lightbox-close" aria-label="Закрыть">×</button><img alt=""><p></p></dialog></body></html>
+<dialog class="lightbox" aria-label="Увеличить изображение" data-actual-size="false"><div class="lightbox-toolbar"><button type="button" class="lightbox-zoom" aria-controls="lightbox-image-viewport" data-actual="Фактический размер" data-fit="Вписать изображение">Фактический размер</button><button type="button" class="lightbox-close" aria-label="Закрыть" autofocus>×</button></div><div class="lightbox-viewport" id="lightbox-image-viewport" role="region" tabindex="0" aria-label="Изображение"><img alt=""></div><p></p></dialog></body></html>
