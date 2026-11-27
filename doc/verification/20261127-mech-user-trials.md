@@ -46,6 +46,14 @@ All twenty pages in the four key/keyway chapters pass the light/dark layout
 checks. Figure sizes retain their native aspect ratios and quarter-window
 height limit, including the wrapping Woodruff illustration row.
 
+Packaged File Manager acceptance caught a stale Part-format check in the
+parameter-only reader: full native loading accepted format 57 while metadata
+inspection still required 56. The reader now requires the same current format;
+this does not change the document format or add a legacy fallback. The existing
+metadata matrix compares exact values against full loading and includes a large
+cache line, Unicode values and an unterminated final line. Publication acceptance
+records its result together with the packaged File Manager regression.
+
 ## Remaining limits
 
 - A rounded shaft slot with the first end exactly at the shaft end and a bottom

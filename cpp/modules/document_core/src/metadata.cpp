@@ -65,7 +65,7 @@ UserParameterData read_native_user_parameters(const std::filesystem::path& path)
     const auto type=header.find("type"),version=header.find("format_version");
     if(version==header.end()||type==header.end()||
         (type->second=="assembly"?version->second!="38":type->second!="part"||
-            version->second!="56"))
+            version->second!="57"))
         throw std::runtime_error(type!=header.end()&&type->second=="assembly"?"Unsupported ZIMA-CAD Assembly document format":"Unsupported ZIMA-CAD Part document format");
     UserParameterData result;
     std::stringstream order(sections["UserParameters"]["Order"]);std::string name;
