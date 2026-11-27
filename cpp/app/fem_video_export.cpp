@@ -20,7 +20,15 @@ void write_fem_video(const QString& path,double seconds,const std::function<QIma
         throw std::runtime_error("Choose an MP4 file for the video export.");
     if(!std::isfinite(seconds)||seconds<.3||seconds>30)
         throw std::runtime_error("Animation duration must be between 0.3 and 30 seconds.");
+#ifdef Q_OS_LINUX
+    // NVIDIA drivers can advertise an H.264 encoder that rejects the frames
+    // supplied by Qt. Default to software and preserve explicit Qt overrides.
+    if(!qEnvironmentVariableIsSet("QT_FFMPEG_ENCODING_HW_DEVICE_TYPES"))
+        qputenv("QT_FFMPEG_ENCODING_HW_DEVICE_TYPES",",");
+#endif
     QMediaFormat format(QMediaFormat::MPEG4);format.setVideoCodec(QMediaFormat::VideoCodec::H264);
+    if(!format.isSupported(QMediaFormat::Encode))
+        format.setVideoCodec(QMediaFormat::VideoCodec::MPEG4);
     if(!format.isSupported(QMediaFormat::Encode))throw std::runtime_error("MP4 video encoding is unavailable.");
     QTemporaryFile temporary(QFileInfo(path).absolutePath()+"/.zima-video-XXXXXX.mp4");
     if(!temporary.open())throw std::runtime_error("Cannot create the video file.");
@@ -46,7 +54,7 @@ void write_fem_video(const QString& path,double seconds,const std::function<QIma
                 if(image.isNull())throw std::runtime_error("Cannot capture the video frame.");
                 if(size.isEmpty()) {
                     size=image.size().scaled(QSize(1920,1080),Qt::KeepAspectRatio);
-                    // H.264 encoders require even frame dimensions.
+                    // The supported MP4 encoders require even frame dimensions.
                     size.setWidth(std::max(2,size.width()/2*2));size.setHeight(std::max(2,size.height()/2*2));
                 }
                 pending=QVideoFrame(image.scaled(size,Qt::IgnoreAspectRatio,Qt::SmoothTransformation).convertToFormat(QImage::Format_RGBA8888));
