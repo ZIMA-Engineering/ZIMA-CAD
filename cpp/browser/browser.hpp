@@ -50,7 +50,7 @@ private:
 class Tab final : public QWidget {
     Q_OBJECT
 public:
-    Tab(Runtime& runtime, QWidget* parent = nullptr);
+    Tab(Runtime& runtime, QWidget* parent = nullptr, const QString& local_root = {});
     QWebEnginePage* page() const;
     QString title() const;
     QUrl url() const;

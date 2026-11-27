@@ -1,5 +1,6 @@
 #include "workspace_internal.hpp"
 #include "../../browser/browser.hpp"
+#include "../documentation.hpp"
 #include <QWebEnginePage>
 
 namespace zima::app {
@@ -26,7 +27,12 @@ browser::Tab* AssemblyWorkspaceWindow::open_browser(const QUrl& requested) {
     }
     ensure_browser_runtime();
     const auto id=QStringLiteral("web:%1").arg(++browser_tab_sequence_,8,10,QLatin1Char('0'));
-    auto* page=new browser::Tab(*browser_runtime_,browser_stack_);
+    const auto guide_root=documentation::root(application_settings_);
+    const auto site_root=QFileInfo(guide_root).dir().canonicalPath();
+    const auto relative=QDir(guide_root).relativeFilePath(requested.toLocalFile());
+    const bool local_guide=requested.isLocalFile()&&!guide_root.isEmpty()&&
+        !QDir::isAbsolutePath(relative)&&relative!=".."&&!relative.startsWith("../");
+    auto* page=new browser::Tab(*browser_runtime_,browser_stack_,local_guide?site_root:QString{});
     active_preview_=nullptr;active_render_page_=nullptr;
     active_file_manager_=nullptr;if(file_manager_stack_)file_manager_stack_->hide();
     browser_tabs_[id]=page;browser_stack_->addWidget(page);active_browser_=page;

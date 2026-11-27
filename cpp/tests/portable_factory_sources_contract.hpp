@@ -59,7 +59,8 @@ inline void verify_portable_factory_sources() {
     const auto upgraded=zima::app::ApplicationSettings::load(root+"/Projects",newer+executable);
     const auto tables=source(upgraded,"engineering_tables");
     require(tables.resolved_path==newer+"/config/lib/03-ENGINEERING-TABLES"&&QFileInfo::exists(tables.resolved_path),"New factory library missing after older configuration upgrade");
-    require(upgraded.file_manager.sources.size()==9,"New defaults duplicate or omit custom sources");
+    require(upgraded.file_manager.sources.size()==10,"New defaults duplicate or omit custom sources");
+    require(source(upgraded,"documentation").resolved_path==newer+"/www/0300-documentation","Guides did not resolve into the current runtime");
     const auto formats=source(upgraded,"formats");require(!formats.enabled&&!formats.read_only,"Upgrade reset factory source preferences");
     require(source(upgraded,"custom-relative").resolved_path==root+"/config/workshop","Upgrade moved a relative custom source");
     require(source(upgraded,"custom-absolute").resolved_path==root+"/supplier"&&!source(upgraded,"custom-absolute").enabled,"Upgrade moved or enabled an absolute custom source");
@@ -72,6 +73,7 @@ inline void verify_portable_factory_sources() {
     write(next+"/config/lib/03-ENGINEERING-TABLES/factory-marker.txt","next factory");
     const auto switched=zima::app::ApplicationSettings::load(root+"/Projects",next+executable);
     require(source(switched,"engineering_tables").resolved_path==next+"/config/lib/03-ENGINEERING-TABLES","Saved settings pinned an old version library");
+    require(source(switched,"documentation").resolved_path==next+"/www/0300-documentation","Saved guides pinned an old runtime");
     require(!source(switched,"formats").enabled,"Version switch reset a disabled factory source");
     require(QSettings(root+"/config/config.ini",QSettings::IniFormat).value("UserData/Keep")=="unchanged","Settings save lost custom data");
     std::cout<<"Portable factory sources: missing old directories, defaults, saved preferences, custom libraries and version switching passed\n";

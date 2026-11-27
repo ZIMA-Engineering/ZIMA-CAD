@@ -21,6 +21,7 @@
 #include <QMouseEvent>
 #include <QSplitter>
 #include <QToolBar>
+#include <QTimer>
 #include <QTreeWidget>
 #include <QVBoxLayout>
 #include <QWebEngineCookieStore>
@@ -30,25 +31,59 @@
 #include <QWebEngineProfile>
 #include <QWebEngineSettings>
 #include <QWebEngineView>
+#include <QWebEngineUrlRequestInterceptor>
+#include <QWebEngineUrlRequestInfo>
 
 namespace zima::browser {
 namespace {
+bool inside_local_root(const QUrl& url, const QString& root) {
+    if(root.isEmpty() || !url.isLocalFile() || (!url.host().isEmpty() && url.host()!="localhost"))return false;
+    const auto path=QFileInfo(url.toLocalFile()).canonicalFilePath();
+    const auto relative=QDir(root).relativeFilePath(path);
+    return !path.isEmpty() && !QDir::isAbsolutePath(relative) && relative!=".." && !relative.startsWith("../");
+}
+class LocalGuideRequests final : public QWebEngineUrlRequestInterceptor {
+public:
+    LocalGuideRequests(QString root,QObject* parent):QWebEngineUrlRequestInterceptor(parent),root_(std::move(root)){}
+    void interceptRequest(QWebEngineUrlRequestInfo& request) override {
+        const auto url=request.requestUrl();
+        request.block(!inside_local_root(url,root_) && url.scheme()!="data" && url!=QUrl("about:blank"));
+    }
+private:
+    QString root_;
+};
 class Page final : public QWebEnginePage {
 public:
-    Page(Runtime& runtime, QObject* parent) : QWebEnginePage(runtime.profile(), parent), runtime_(runtime) {
-        runtime.credentials()->attach(this);
+    Page(Runtime& runtime, QObject* parent, const QString& local_root) : QWebEnginePage(runtime.profile(), parent), runtime_(runtime),local_root_(QFileInfo(local_root).canonicalFilePath()) {
+        if(local_root.isEmpty())local_root_.clear();
+        if(local_root_.isEmpty())runtime.credentials()->attach(this);
+        else {
+            settings()->setAttribute(QWebEngineSettings::LocalContentCanAccessFileUrls,true);
+            setUrlRequestInterceptor(new LocalGuideRequests(local_root_,this));
+        }
+    }
+    bool allows_local(const QUrl& url) const {return inside_local_root(url,local_root_);}
+    bool open_external(const QUrl& url) {
+        if(local_root_.isEmpty()||!Bookmarks::allowed_url(url))return false;
+        QTimer::singleShot(0,this,[this,url]{if(runtime_.new_page)if(auto* page=runtime_.new_page())page->setUrl(url);});
+        return true;
     }
 protected:
     QWebEnginePage* createWindow(WebWindowType) override {
         return runtime_.new_page ? runtime_.new_page() : nullptr;
     }
     bool acceptNavigationRequest(const QUrl& url, NavigationType type, bool main) override {
+        if(!local_root_.isEmpty()) {
+            if(main && open_external(url))return false;
+            if(!allows_local(url) && url!=QUrl("about:blank"))return false;
+        }
         // Web content cannot navigate to local files or CAD command schemes.
-        if (main && !Bookmarks::allowed_url(url) && url != QUrl("about:blank")) return false;
+        else if (main && !Bookmarks::allowed_url(url) && url != QUrl("about:blank")) return false;
         return QWebEnginePage::acceptNavigationRequest(url,type,main);
     }
 private:
     Runtime& runtime_;
+    QString local_root_;
 };
 class BookmarkDialog final : public ui::PropertiesSubWindow {
 public:
@@ -152,7 +187,7 @@ void Runtime::clear_cookies(){if(profile_)profile_->cookieStore()->deleteAllCook
 void Runtime::clear_cache(){if(profile_)profile_->clearHttpCache();}
 void Runtime::show_passwords(){credentials()->show_manager();}
 
-Tab::Tab(Runtime& runtime,QWidget* parent):QWidget(parent),runtime_(runtime) {
+Tab::Tab(Runtime& runtime,QWidget* parent,const QString& local_root):QWidget(parent),runtime_(runtime) {
     setObjectName("browserTab");
     auto* layout=new QHBoxLayout(this);layout->setContentsMargins(0,0,0,0);
     auto* splitter=new QSplitter(Qt::Horizontal,this);layout->addWidget(splitter);
@@ -177,7 +212,7 @@ Tab::Tab(Runtime& runtime,QWidget* parent):QWidget(parent),runtime_(runtime) {
     toolbar->addWidget(address_);
     pin_=toolbar->addAction(app::resource_icon("web-pin"),tr("Save bookmark"));pin_->setObjectName("browserPin");pin_->setCheckable(true);
     rightLayout->addWidget(toolbar);
-    view_=new QWebEngineView(right);view_->setObjectName("browserView");view_->setPage(new Page(runtime_,view_));rightLayout->addWidget(view_,1);
+    view_=new QWebEngineView(right);view_->setObjectName("browserView");view_->setPage(new Page(runtime_,view_,local_root));rightLayout->addWidget(view_,1);
     splitter->setStretchFactor(0,0);splitter->setStretchFactor(1,1);splitter->setSizes({280,920});
     connect(home,&QAction::triggered,this,[this]{navigate(QUrl(runtime_.preferences.home.isEmpty()?"about:blank":runtime_.preferences.home));});
     connect(back,&QAction::triggered,view_,&QWebEngineView::back);
@@ -238,7 +273,9 @@ QWebEnginePage* Tab::page()const{return view_->page();}
 QString Tab::title()const{return view_->title().isEmpty()?tr("Web browser"):view_->title();}
 QUrl Tab::url()const{return view_->url();}
 void Tab::navigate(const QUrl& value){
-    if(value==QUrl("about:blank")||Bookmarks::allowed_url(value))view_->setUrl(value);
+    auto* page=static_cast<Page*>(view_->page());
+    if(page->open_external(value))return;
+    if(value==QUrl("about:blank")||Bookmarks::allowed_url(value)||page->allows_local(value))view_->setUrl(value);
     else report(tr("Enter a valid HTTP or HTTPS address."));
 }
 void Tab::report(const QString& error){QMessageBox::warning(this,tr("Web browser"),error);}

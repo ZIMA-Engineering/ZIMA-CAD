@@ -266,6 +266,9 @@ ApplicationSettings ApplicationSettings::load(const QString& working_directory, 
         QStringLiteral("lib/02-NATIVE"), QDir(factory_directory).absoluteFilePath("lib/02-NATIVE"));
     add_factory_source("engineering_tables", QStringLiteral("Strojírenské tabulky"),
         QStringLiteral("lib/03-ENGINEERING-TABLES"), QDir(factory_directory).absoluteFilePath("lib/03-ENGINEERING-TABLES"));
+    add_factory_source("documentation", QStringLiteral("Guides"),
+        QStringLiteral("../www/0300-documentation"),
+        QDir::cleanPath(QDir(factory_directory).absoluteFilePath("../www/0300-documentation")));
     const QString encoded_sources = value("FileManager/Sources", QString{});
     if (!encoded_sources.isEmpty()) {
         const auto array = QJsonDocument::fromJson(encoded_sources.toUtf8()).array();

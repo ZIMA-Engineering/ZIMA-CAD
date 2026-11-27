@@ -1,4 +1,6 @@
-﻿#include "sketch_tangent_test_equations.hpp"
+#include "documentation.hpp"
+#include <QContextMenuEvent>
+#include "sketch_tangent_test_equations.hpp"
 #include "../tests/double_circle_tangent_study.hpp"
 #include "../tests/sketch_copied_circle_contact_study.hpp"
 #include "../tests/preview_refresh_probe.hpp"
@@ -147,6 +149,7 @@
 #include <QQuickWindow>
 #include <QScreen>
 #include <QWebEngineView>
+#include <QWebEnginePage>
 #include <QThread>
 #include <QTcpServer>
 #include <QTcpSocket>
@@ -12126,6 +12129,7 @@ int verify_selection_filter(QApplication& application,
 #include "application_lifecycle_ui_verification.inc"
 #include "new_document_ui_verification.inc"
 #include "browser_workspace_ui_verification.inc"
+#include "documentation_ui_verification.inc"
 #include "file_manager_workspace_ui_verification.inc"
 #include "step_tabs_ui_verification.inc"
 #include "sheet_exchange_ui_verification.inc"
@@ -12336,6 +12340,8 @@ int verify_startup_contract(
         return verify_new_document_options(application);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_BROWSER_WORKSPACE_ONLY"))
         return verify_browser_workspace(application);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_DOCUMENTATION_ONLY"))
+        return verify_documentation_workspace(application);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_FILE_MANAGER_ONLY"))
         return verify_file_manager_workspace(application);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_STEP_TABS_ONLY"))

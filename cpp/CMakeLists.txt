@@ -2457,6 +2457,10 @@ if(ZIMA_BUILD_TESTS)
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 90)
     add_test(NAME zima_cpp_axis_up_to_ui_contract COMMAND zima-cad-cpp --verify-startup)
     add_test(NAME zima_cpp_browser_workspace_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    add_test(NAME zima_cpp_documentation_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_documentation_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_DOCUMENTATION_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/.." TIMEOUT 120)
     add_test(NAME zima_cpp_file_manager_workspace_ui_contract COMMAND zima-cad-cpp --verify-startup)
     add_test(NAME zima_cpp_step_tabs_ui_contract COMMAND zima-cad-cpp --verify-startup)
     set_tests_properties(zima_cpp_step_tabs_ui_contract PROPERTIES

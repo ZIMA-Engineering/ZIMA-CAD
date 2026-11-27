@@ -6,6 +6,7 @@
 #include "tool_button_style.hpp"
 #include "toolbar_style.hpp"
 #include "../command_button_paint.hpp"
+#include "../documentation.hpp"
 
 namespace zima::app {
 using namespace workspace_detail;
@@ -510,6 +511,16 @@ void AssemblyWorkspaceWindow::create_actions() {
         }
     });
     auto* help = menuBar()->addMenu(t("menu.help", "Nápověda"));
+    auto* guides_action = help->addAction(t("menu.help.guides", "Guides"));
+    guides_action->setObjectName("documentationAction");
+    connect(guides_action, &QAction::triggered, this, [this] {
+        const auto url = documentation::guide_url(application_settings_);
+        if (url.isEmpty()) {
+            state_->setText(application_settings_.text("help.unavailable", "Documentation is not available at the configured location."));
+            return;
+        }
+        open_browser(url);
+    });
     auto* about_action = help->addAction(
         t("menu.help.about", "O aplikaci ZIMA-CAD"));
     about_action->setObjectName("aboutAction");

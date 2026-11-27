@@ -24,6 +24,22 @@ MAX_FILES = 50000
 MAX_BYTES = 8 * 1024**3
 
 
+def copy_public_site(source, runtime):
+    """Ship the exact generated public site, never the private browser profile."""
+    web = source / 'www'
+    manifest = json.loads((web / '_source/outputs.json').read_text(encoding='utf-8'))
+    for relative, expected in manifest.items():
+        path = Path(relative)
+        if path.is_absolute() or '..' in path.parts or path.parts[0] in ('config', '_source'):
+            raise ValueError('Invalid public website manifest path')
+        original = web / path
+        if hashlib.sha256(original.read_bytes()).hexdigest() != expected:
+            raise ValueError('Stale generated website output: ' + relative)
+        target = runtime / 'www' / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(original, target)
+
+
 def run(args, **kwargs):
     try:
         return subprocess.run([str(a) for a in args], check=True, **kwargs)
@@ -570,6 +586,7 @@ def package(args):
     for name in ('config', 'resources'):
         shutil.copytree(source / name, runtime / name, dirs_exist_ok=True,
                         ignore=shutil.ignore_patterns('.gitkeep', '*.ini.[0-9]*', '*.frmz.[0-9]*', '*.tblz.[0-9]*'))
+    copy_public_site(source, runtime)
     prepare_factory_config(runtime)
     shutil.copytree(args.installed / 'share/opencascade/resources', runtime / 'resources/occt')
     licenses = runtime / 'licenses'; licenses.mkdir()

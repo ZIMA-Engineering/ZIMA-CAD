@@ -31,6 +31,7 @@
 #include <QUuid>
 #include <QWebEnginePage>
 #include <QWebEngineView>
+#include <QWebEngineSettings>
 #include <QOpenGLWidget>
 #include <QQuickWindow>
 #include <QSurfaceFormat>
@@ -162,6 +163,35 @@ int main(int argc,char** argv) {
         wait([&]{return additional_tab&&additional_tab->title()=="Second fixture";},"Website popup did not create another web tab");
         check(additional_tab->page()->profile()==tab->page()->profile(),"Web tabs do not share the browser profile");
         additional_tab.reset();runtime.new_page={};
+        // Local guides are an explicitly scoped tab; ordinary web tabs retain
+        // their file-access restrictions, including for local linked assets.
+        const auto guide_root=directory.filePath("guides");QDir().mkpath(guide_root);
+        const auto write_fixture=[](const QString& path,const QByteArray& data){QFile file(path);check(file.open(QIODevice::WriteOnly),"Cannot write local guide fixture");file.write(data);};
+        write_fixture(guide_root+"/index.html","<title>Local guide</title><link rel='stylesheet' href='style.css'><body>Guide</body>");
+        write_fixture(guide_root+"/style.css","body{color:rgb(12,34,56)}");
+        write_fixture(directory.filePath("outside.html"),"<title>Outside</title>private");
+        {
+            zima::browser::Tab local(runtime,nullptr,guide_root);
+            local.navigate(QUrl::fromLocalFile(guide_root+"/index.html"));
+            wait([&]{return local.title()=="Local guide";},"Offline guide did not load");
+            bool querying=false;QString color;
+            wait([&]{
+                if(!querying){querying=true;local.page()->runJavaScript("document.body ? getComputedStyle(document.body).color : ''",[&](const QVariant& value){color=value.toString();querying=false;});}
+                return color=="rgb(12, 34, 56)";
+            },"Offline guide stylesheet did not load");
+            check(!tab->page()->settings()->testAttribute(QWebEngineSettings::LocalContentCanAccessFileUrls),"Guide weakened ordinary web tab restrictions");
+            bool blocked=false;
+            const auto rejected=QObject::connect(local.page(),&QWebEnginePage::loadFinished,&application,[&](bool ok){blocked=!ok;});
+            local.page()->setUrl(QUrl::fromLocalFile(directory.filePath("outside.html")));
+            wait([&]{return blocked;},"Guide could navigate outside its root");
+            QObject::disconnect(rejected);
+            check(local.title()!="Outside","Outside file was displayed by guide");
+            runtime.new_page=[&]() -> QWebEnginePage* {additional_tab=std::make_unique<zima::browser::Tab>(runtime);return additional_tab->page();};
+            local.navigate(QUrl(base+"/second"));
+            wait([&]{return additional_tab&&additional_tab->title()=="Second fixture";},"Guide external link did not open an ordinary web tab");
+            check(!additional_tab->page()->settings()->testAttribute(QWebEngineSettings::LocalContentCanAccessFileUrls),"External link inherited local guide access");
+            additional_tab.reset();runtime.new_page={};
+        }
         auto light=application.palette();light.setColor(QPalette::WindowText,Qt::black);light.setColor(QPalette::Window,Qt::white);
         application.setPalette(light);application.processEvents();
         const auto icon=zima::app::resource_icon("web-home");const auto light_pixels=pixels(icon);

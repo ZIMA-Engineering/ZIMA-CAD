@@ -11,3 +11,12 @@ config/lib/03-ENGINEERING-TABLES/0000-index/import.json text eol=lf
 config/lib/03-ENGINEERING-TABLES/README.md text eol=lf
 # Keep the regenerated FORM identical to its native verification receipt.
 config/lib/01-SHEETMETAL/01-FORM/VentilationWindow.prtz -text
+
+# Public output hashes must match Windows, Linux and committed-source packages.
+www/** text=auto eol=lf
+www/**/*.png -text
+www/**/*.jpg -text
+www/**/*.jpeg -text
+www/**/*.webp -text
+www/**/*.mp4 -text
+www/**/*.webm -text

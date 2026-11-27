@@ -5,6 +5,7 @@
 #include <zima/workspace/solid_state_operations.hpp>
 #include <zima/workspace/operation_input.hpp>
 #include "../command_button_paint.hpp"
+#include "../documentation.hpp"
 
 namespace zima::app {
 using namespace workspace_detail;
@@ -274,6 +275,22 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
         if (auto* button=qobject_cast<QToolButton*>(tools_toolbar_->widgetForAction(action))) {
             new LeftAlignedCommandLabel(button);
             button->setObjectName("applicationCommandButton");
+            button->setContextMenuPolicy(Qt::CustomContextMenu);
+            connect(button, &QToolButton::customContextMenuRequested, this,
+                [this, button, action](const QPoint& position) {
+                    QMenu menu(this);
+                    menu.setObjectName("commandGuideMenu");
+                    const auto url = documentation::guide_url(application_settings_, action->objectName());
+                    auto* guide = menu.addAction(application_settings_.text("menu.help.guide", "Show guide"));
+                    guide->setObjectName("showCommandGuideAction");
+                    guide->setEnabled(!url.isEmpty());
+                    bool selected=false;
+                    connect(guide, &QAction::triggered, &menu, [&selected] { selected=true; });
+                    menu.exec(button->mapToGlobal(position));
+                    // Opening a utility tab rebuilds this toolbar. Retire the
+                    // context menu before its originating button is destroyed.
+                    if(selected)QTimer::singleShot(0,this,[this,url]{open_browser(url);});
+                });
             button->setProperty("zimaCommandAccent", action == sketch_action_);
             button->setProperty("zimaCommandActive",action->property("zimaCommandActive"));
             if(!action->property("zimaActiveFeedbackInstalled").toBool()) {
