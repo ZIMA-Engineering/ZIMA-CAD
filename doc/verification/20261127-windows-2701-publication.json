@@ -1,0 +1,261 @@
+{
+  "version": "2026112701",
+  "commit": "8fc5e35bd673da0ddf6be4cbdcf3f51899ebf295",
+  "tag": "ZIMA-CAD-2026112701",
+  "release_url": "https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026112701",
+  "published_at": "2026-11-27T18:40:47Z",
+  "assets": [
+    {
+      "name": "ZIMA-CAD-2026112701.zip",
+      "size": 1016961124,
+      "sha256": "1623d86382423e4d8b56769111fcbec26fc567f26b7968afe78939a6aad459f3",
+      "github_digest_matches": true,
+      "anonymous_download_matches": true
+    },
+    {
+      "name": "update-manifest.json",
+      "size": 704,
+      "sha256": "8e6759fae11e1aa34f6004f0dae37d6337d8ad13428e2ef5a70710ea60a50ff8",
+      "github_digest_matches": true,
+      "anonymous_download_matches": true
+    },
+    {
+      "name": "update-manifest.sig",
+      "size": 176,
+      "sha256": "697bc0fcf38571f135510e6a707000576414f0688cd47175a4dc0479fa3afbac",
+      "github_digest_matches": true,
+      "anonymous_download_matches": true
+    }
+  ],
+  "publisher_signature": {
+    "key_id": "zcp-8fa1f825cbde5d81",
+    "verification": "passed"
+  },
+  "safe_extraction": "passed",
+  "public_extraction_verification": "Reused the fresh signed-smoke extraction after verifying every immutable file against the identical anonymously downloaded archive.",
+  "candidate_smoke": "passed",
+  "signed_smoke": "passed",
+  "sheet_branch_tests": {
+    "log_sha256": "a306be9f1d9a6f3435a667aeb3641270e959917f17610cd6f356cc50fdc8de36",
+    "result": "passed",
+    "tests": [
+      "zima_cpp_bend_end_constraints_contract",
+      "zima_cpp_sheet_branch_common-parent",
+      "zima_cpp_sheet_branch_contained",
+      "zima_cpp_sheet_branch_edge-contact",
+      "zima_cpp_sheet_branch_face-contact",
+      "zima_cpp_sheet_branch_gui",
+      "zima_cpp_sheet_branch_line-bend",
+      "zima_cpp_sheet_branch_overlap",
+      "zima_cpp_sheet_branch_point-contact",
+      "zima_cpp_sheet_branch_separated",
+      "zima_cpp_sheet_exchange_tests",
+      "zima_cpp_sheet_transition_command_tests"
+    ]
+  },
+  "factory": {
+    "version": "2026112701",
+    "commit": "8fc5e35bd673da0ddf6be4cbdcf3f51899ebf295",
+    "affected_factory_assets": 75,
+    "exact_verified_hashes": true,
+    "packaged_native_assets": 1250,
+    "packaged_native_loads_passed": true
+  },
+  "packaged_application": {
+    "version": "2026112701",
+    "commit": "8fc5e35bd673da0ddf6be4cbdcf3f51899ebf295",
+    "identities": {
+      "zima-cad-cpp.exe": {
+        "product": "ZIMA-CAD",
+        "version": "2026112701",
+        "commit": "8fc5e35bd673da0ddf6be4cbdcf3f51899ebf295",
+        "source_modified": false,
+        "platform": "windows-x64",
+        "qt": "6.11.0",
+        "occt": "8.0.1",
+        "compiler": "MSVC 19.51.36248.0",
+        "configuration": "Release"
+      },
+      "zima-cad-cli.exe": {
+        "product": "ZIMA-CAD",
+        "version": "2026112701",
+        "commit": "8fc5e35bd673da0ddf6be4cbdcf3f51899ebf295",
+        "source_modified": false,
+        "platform": "windows-x64",
+        "qt": "6.11.0",
+        "occt": "8.0.1",
+        "compiler": "MSVC 19.51.36248.0",
+        "configuration": "Release"
+      }
+    },
+    "cases": [
+      {
+        "name": "templates-mm",
+        "exit_code": 0,
+        "seconds": 40.91,
+        "log_sha256": "69ebd01be3949866b32a6ef80cbc62a92b9c28038751ae319b7db30bc814e8df"
+      },
+      {
+        "name": "templates-in",
+        "exit_code": 0,
+        "seconds": 39.979,
+        "log_sha256": "69ebd01be3949866b32a6ef80cbc62a92b9c28038751ae319b7db30bc814e8df"
+      },
+      {
+        "name": "mech-keyway",
+        "exit_code": 0,
+        "seconds": 9.957,
+        "log_sha256": "eca754544cdf5c960824ea6b0aac5345f008243c6bbab74b31b1d077a02d0c14"
+      },
+      {
+        "name": "flat-corrections",
+        "exit_code": 0,
+        "seconds": 20.846,
+        "log_sha256": "2f60c1c68ffa587c290273b50b17e9c5147412b4b9869f1b434b65363c41e217"
+      },
+      {
+        "name": "sheet-exchange",
+        "exit_code": 0,
+        "seconds": 15.559,
+        "log_sha256": "89083619512f080b591942217f66023d8ac6c2689f924d6e0a0b562f82b28ab5"
+      },
+      {
+        "name": "sheet-profile",
+        "exit_code": 0,
+        "seconds": 11.214,
+        "log_sha256": "9466257e7b70dc630b24f70145f342077fadd023dbaa38012b0031f76a65366b"
+      },
+      {
+        "name": "sweep2d",
+        "exit_code": 0,
+        "seconds": 21.018,
+        "log_sha256": "3961e8ef15c2f679a2c75dc21c7947faf6367d1185094fd75b0805b23fec71f5"
+      },
+      {
+        "name": "file-manager",
+        "exit_code": 0,
+        "seconds": 11.472,
+        "log_sha256": "eea8c2603146e91cfd23be5ecf9dcd88d1bba75256b5857b92580d081a844472"
+      },
+      {
+        "name": "curved-point",
+        "exit_code": 0,
+        "seconds": 26.127,
+        "log_sha256": "4438e9e0bd21ba9ebd362dbca082727814a5cea8f7db56615b72fc8f5789ac36"
+      },
+      {
+        "name": "wrap",
+        "exit_code": 0,
+        "seconds": 21.349,
+        "log_sha256": "6ad1f0c4f13c7b04bea9e0d562a1e268a2eac08fae406863ff664eb3319a87da"
+      },
+      {
+        "name": "edge-treatment",
+        "exit_code": 0,
+        "seconds": 41.132,
+        "log_sha256": "04cf538139ae9c89a9ec8215119941238114a6e7dca0e24460db0bc7179141ce"
+      },
+      {
+        "name": "helical",
+        "exit_code": 0,
+        "seconds": 30.724,
+        "log_sha256": "39b9abfc7370973e811e4d2b8eb76428c5ce9ae038787f591c6249f61f73ad03"
+      },
+      {
+        "name": "loft",
+        "exit_code": 0,
+        "seconds": 28.236,
+        "log_sha256": "d55ef64f38ec96aebe978526891167b31d373d3880966a8280790f572ce01352"
+      }
+    ],
+    "binary_sha256": {
+      "zima-cad-cpp.exe": "aece3d4f924f59926652ad28535f6fcd4d09538481b4096955d5543b15943e8c",
+      "zima-cad-cli.exe": "3d5396e828163609377e921865e03ba14298335aa844a4f858f43a4df26d6fb5",
+      "zima-cad-update.exe": "07ca68e7029f3da4d3efb3c600ec17e2cf15f2cb32ec16136a0256739a44fd92"
+    }
+  },
+  "public_updater": {
+    "status": {
+      "event": "result",
+      "installedVersion": "2026112701",
+      "schemaVersion": 1,
+      "status": "idle",
+      "trusted": true
+    },
+    "check": {
+      "event": "result",
+      "installedVersion": "2026112701",
+      "schemaVersion": 1,
+      "status": "current"
+    }
+  },
+  "local_deployment": [
+    {
+      "binary": "zima-cad-cpp.exe",
+      "sha256": "aece3d4f924f59926652ad28535f6fcd4d09538481b4096955d5543b15943e8c"
+    },
+    {
+      "binary": "zima-cad-cli.exe",
+      "sha256": "3d5396e828163609377e921865e03ba14298335aa844a4f858f43a4df26d6fb5"
+    },
+    {
+      "binary": "zima-cad-update.exe",
+      "sha256": "07ca68e7029f3da4d3efb3c600ec17e2cf15f2cb32ec16136a0256739a44fd92"
+    }
+  ],
+  "native_contracts": {
+    "source_commit": "8fc5e35bd673da0ddf6be4cbdcf3f51899ebf295",
+    "cases": [
+      {
+        "log": "native-keyway.log",
+        "exit_code": 0,
+        "seconds": 32.748
+      },
+      {
+        "log": "native-confirmation.log",
+        "exit_code": 0,
+        "seconds": 1.798
+      },
+      {
+        "log": "dialog-contract.log",
+        "exit_code": 0,
+        "seconds": 2.545
+      },
+      {
+        "log": "translation-contract.log",
+        "exit_code": 0,
+        "seconds": 17.216
+      }
+    ]
+  },
+  "limitations": [
+    "Native Linux execution is not verified.",
+    "The historical CSN rows are not certified numerical agreement with the 2003 editions.",
+    "A zero-offset rounded shaft slot with a bottom fillet remains an OCCT edge case.",
+    "Complex Sheet-from-Body conversion performance remains an optimization opportunity; no speedup is claimed.",
+    "The broad metadata suite stops at a pre-existing fixture that authors a new Assembly material feature; the independent native parameter-inspection contract and packaged File Manager checks pass.",
+    "The documented native and GUI matrices provide finite coverage, not every modeling combination."
+  ],
+  "local_log_sha256": {
+    "native-keyway.log": "749244214670467433de051308ade4e124bf804f7c187187014c5b5c94d8ef32",
+    "native-confirmation.log": "9e0e8f9c17db5ade8bbcded3f39f1abaeacaa535b14257b2e4e7b1254db0f66d",
+    "dialog-contract.log": "a8635c5afa5d07fc6b4c99b0795c451f4b784eff065b7ad7438f83848f831f22",
+    "translation-contract.log": "c6f66f64f7f2b95b8e34292f5f8f63d4c1e99acbe676f86af5b719cc4a5dace2",
+    "native-metadata-focused.log": "98074a79972322ffbd8a33a8470cbd4abad0cc72e90756c69a4bdbb6f747b9f4",
+    "native-metadata-full-obsolete-fixture.log": "c4e79bf904b20c73f427e51926b44a42325f97aa89b416f94d039f473965c03b",
+    "package-accepted.log": "97a3a9703759829eaedffca726d93eae5f5c00eb54db36f343f53882ed39998c",
+    "package-completion.log": "9cc4d7ed96c3bc95fc0afc1d2fe3a1bbe4129561c3d13e14d63c1750e68d7a87",
+    "stage-audit-browser.log": "0ff1074a874a28f474c6be0ee23b5866b58e4b72256aa09a5f3248d51351817a",
+    "packaged-ui.log": "0021e03e66f122350b03744fc6dd5ae7043e4cb1d9b49c75cdc2eb1337d33ac5",
+    "sign-initial-disk-limit.log": "7d070c264c2fed472cebfa86b15d05059379ee3cf6cbe2d1702649cca272ea4a",
+    "sign.log": "1c8af049d1e0d41d2fba91aece80b65310adf1219f7c6d969ac777ad876b0bb6",
+    "publish.log": "c96a34da302bfe6544cee4456e6d8e331dcbe84298fd9d6d4f86d694f31ed977",
+    "public-verification.log": "f115db69b95922273a7eee3fb2ac0e213ac95dff0131d02df24b27a904be8507",
+    "public-updater.log": "9cf16396248995249a07e65483e72a43da339dcd914ee8e9221299dabe8ced44"
+  },
+  "prepublication_findings": [
+    "Initial disk exhaustion was resolved without deleting user data. After the final committed build and gates, an isolated preflight browser profile was excluded from the assembly. Exact runtime resources were compared with committed source and the standard inventory, archive validation, fresh extraction and complete smoke stages resumed successfully.",
+    "Packaged File Manager acceptance exposed stale Part/Assembly versions in the lightweight metadata reader. The final source fixes both and registers independent parameter-inspection coverage.",
+    "Signing completed but its temporary second extraction exhausted disk space. The unchanged signed archive and attestations were verified, freshly extracted and passed the complete official runtime smoke in a separate directory. Public verification reused that fresh extraction after matching every immutable file to the identical anonymously downloaded archive."
+  ]
+}

@@ -1,5 +1,17 @@
 # Application updates
 
+Signed Windows [2026112701](releases/2026112701.md#distribution-verification) was
+published at `2026-11-27T18:40:47Z` from immutable source
+`8fc5e35bd673da0ddf6be4cbdcf3f51899ebf295`. It repairs saved angular hub keyways, second-OK
+unresolved confirmation and auxiliary-axis presentation, adds the named historical
+CSN table and sheet Flat corrections, and includes the verified modeling updates.
+Candidate/signed smoke, 1,250 factory native loads, twelve sheet gates and
+thirteen packaged GUI scenarios pass. The 75 affected factory definitions match
+verified bytes. Public downloads, publisher signature, safe extraction and updater
+trusted/current status pass. [Publication evidence](verification/20261127-windows-2701-publication.json)
+records the finite coverage, known shaft-fillet edge case, remaining conversion
+performance work and native Linux verification gap.
+
 Signed Windows [2026112602](releases/2026112602.md#distribution-verification) was
 published at `2026-11-26T19:57:58Z` from immutable source
 `75dfd269a573cb104dbe109805ecfe5cfde38395`. It adds retained DXF/SVG/font profiles, constrained origin dragging,
