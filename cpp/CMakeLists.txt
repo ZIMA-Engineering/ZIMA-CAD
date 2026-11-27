@@ -1918,6 +1918,8 @@ if(ZIMA_BUILD_TESTS)
         zima_command_host zima_kernel_occt TKBO TKBool TKTopAlgo TKShHealing TKBRep)
     add_test(NAME zima_cpp_metadata_command_tests COMMAND zima_cpp_metadata_command_tests)
     set_tests_properties(zima_cpp_metadata_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
+    add_test(NAME zima_cpp_native_parameter_inspection_contract COMMAND zima_cpp_metadata_command_tests --parameter-inspection)
+    set_tests_properties(zima_cpp_native_parameter_inspection_contract PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
 
     add_executable(zima_cpp_view_export_command_tests tests/view_export_command_tests.cpp)
     target_link_libraries(zima_cpp_view_export_command_tests PRIVATE zima_command_host)

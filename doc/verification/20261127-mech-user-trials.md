@@ -47,12 +47,17 @@ checks. Figure sizes retain their native aspect ratios and quarter-window
 height limit, including the wrapping Woodruff illustration row.
 
 Packaged File Manager acceptance caught a stale Part-format check in the
-parameter-only reader: full native loading accepted format 57 while metadata
-inspection still required 56. The reader now requires the same current format;
+parameter-only reader: full native loading accepted Part 57 and Assembly 39 while
+metadata inspection still required Part 56 and Assembly 38. The reader now
+requires the same current formats;
 this does not change the document format or add a legacy fallback. The existing
 metadata matrix compares exact values against full loading and includes a large
 cache line, Unicode values and an unterminated final line. Publication acceptance
-records its result together with the packaged File Manager regression.
+records its result together with the packaged File Manager regression. A dedicated
+parameter-inspection contract runs that matrix independently: the broader metadata
+suite stops earlier at an obsolete fixture that tries to author a new material
+feature in an Assembly. The product's Part-only material-authoring rule remains
+unchanged; a passing broad metadata suite is not claimed.
 
 ## Remaining limits
 
