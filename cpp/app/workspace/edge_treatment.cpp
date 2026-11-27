@@ -1,4 +1,5 @@
 #include "workspace_internal.hpp"
+#include <zima/document/edge_treatment_defaults.hpp>
 #include <zima/workspace/profile_operations.hpp>
 #include <zima/workspace/shell_operations.hpp>
 #include <zima/workspace/edge_treatment_operations.hpp>
@@ -110,6 +111,9 @@ void AssemblyWorkspaceWindow::start_edge_treatment(
         (kind == zima::document::FeatureKind::Fillet
             ? tr("Zaoblení") : tr("Sražení")).toStdString(), initial.id);
     initial.edge_treatment.routes.clear();
+    initial.edge_treatment.primary_size = initial.edge_treatment.secondary_size =
+        zima::document::default_edge_treatment_size_mm(
+            part->session.document().document_units.at("Length"));
     edge_treatment_preview_parameters_ = initial.edge_treatment;
     edge_treatment_preview_owner_id_ = initial.id;
     const std::string part_id = part->session.document().document_id;

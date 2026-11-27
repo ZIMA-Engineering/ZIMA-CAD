@@ -336,22 +336,42 @@ sketcher::Sketch experiment_contact_profile(const sketcher::Sketch& original,boo
 document::PartDocument experiment_corner_stock(kernel::OcctKernel& engine,double t,double ri) {
     auto part=document::PartDocument::create_default();
     static_cast<void>(document::create_origin_bound_body(part.body_history,part.document_id,"Corner sheet"));
+    // A connected corner is one Flat -> Bend -> Flat chain. Two Flats
+    // attached independently to a root Bend are separate sheet branches.
+    auto base=document::PartDocument::create_sketch_container();base.feature_kind=document::FeatureKind::Flat;
+    base.flat.thickness_override=true;base.flat.thickness=t;base.flat.direction=document::ExtrusionDirection::Reverse;
+    auto base_sketch=sketcher::Sketch::create_default();base_sketch.owner_container_id=base.id;
+    static_cast<void>(base_sketch.add_rectangle(-30,-30,30,0));base.flat.sketch_id=base_sketch.id;
+    part.insert_history_entry(document::PartHistoryKind::Feature,base.id);
+    part.history.push_back(base);part.sketches.push_back(base_sketch);
+    const auto base_result=workspace::calculate_part_with_resolved_references(engine,part);valid(base_result.back());
+    const auto attachment=document::sheet_attachment_reference_geometry(base_result.back().mesh);
+    const auto edge=std::ranges::find_if(attachment.edges,[](const auto& e) {
+        return kernel::sheet_edge_role(e)==kernel::SheetEdgeRole::Boundary&&e.points.size()==2&&
+            std::ranges::all_of(e.points,[](const auto& p){return std::abs(p.y)<1e-7&&std::abs(p.z)<1e-7;});
+    });check(edge!=attachment.edges.end(),"Corner base attachment missing");
     auto bend=document::PartDocument::create_sketch_container();bend.feature_kind=document::FeatureKind::Bend;
     auto line=sketcher::Sketch::create_default();line.owner_container_id=bend.id;
-    static_cast<void>(line.add_segment(-30,0,30,0));
+    document::initialize_bend_start_profile(line,60.);
+    check(line.set_dimension_value(line.id+":position:first",-30.)&&
+        line.set_dimension_value(line.id+":position:last",30.),"Centered corner profile failed");
     bend.bend.sketch_id=line.id;bend.bend.angle_degrees=90.;
     bend.bend.radius_follows_thickness=false;bend.bend.radius=ri;
     bend.bend.thickness_override=true;bend.bend.thickness=t;
+    bend.bend.sheet_attachment=true;
+    bend.placement.references=document::bend_sheet_references(*edge,kernel::sheet_edge_midpoint_reference(edge->reference));
+    document::prepare_bend_sketches(bend,line,document::sheet_metal_defaults(part));
     part.insert_history_entry(document::PartHistoryKind::Feature,bend.id);
     part.history.push_back(bend);part.sketches.push_back(line);
+    part.resolve_constructions(attachment);
     const auto initial=workspace::calculate_part_with_resolved_references(engine,part);valid(initial.back());
-    for(bool second:{false,true}) {
+    {
         auto plate=document::PartDocument::create_sketch_container();plate.feature_kind=document::FeatureKind::Flat;
         plate.flat.thickness_override=true;plate.flat.thickness=t;
         plate.flat.sheet_attachment=true;plate.flat.direction=document::ExtrusionDirection::Reverse;
         for(const auto& edge:initial.back().mesh.original_references.edges)try {
             auto references=document::flat_sheet_references(edge);
-            if(references[1].semantic_key.starts_with(second?"sweep:cap:end:from:":"sweep:cap:start:from:")) {
+            if(references[1].owner_id==bend.id&&references[1].semantic_key.starts_with("sweep:cap:end:from:")) {
                 plate.placement.references=std::move(references);break;
             }
         }catch(const std::exception&){}
@@ -367,6 +387,13 @@ document::PartDocument experiment_corner_stock(kernel::OcctKernel& engine,double
         static_cast<void>(part.sketches.back().add_rectangle(std::min(a[0],b[0]),0,std::max(a[0],b[0]),30));
     }
     return part;
+}
+kernel::SheetMaterialDefinition experiment_corner_bend(const document::PartDocument& part) {
+    const auto bend=std::ranges::find(part.history,document::FeatureKind::Bend,&document::HistoryContainer::feature_kind);
+    check(bend!=part.history.end(),"Corner Bend missing");
+    const auto sketch=std::ranges::find(part.sketches,bend->bend.sketch_id,&sketcher::Sketch::id);
+    check(sketch!=part.sketches.end(),"Corner Bend profile missing");
+    return document::bend_material_definition(*bend,*sketch,document::sheet_metal_defaults(part));
 }
 }
 
@@ -434,7 +461,7 @@ int corner_outward_form_experiment(const std::filesystem::path& path) {
         const auto baseline=workspace::calculate_part_with_resolved_references(stock_engine,part);valid(baseline.back());
         std::cout<<"Stock t="<<t<<" Ri="<<ri<<" valid"<<std::endl;
         const auto stock=experiment_shape(baseline.back());
-        const auto frame=document::bend_material_definition(part.history.front(),part.sketches.front(),document::sheet_metal_defaults(part));
+        const auto frame=experiment_corner_bend(part);
         const auto position=add(frame.origin,mul(frame.tangent,frame.radius));
         const auto support=std::ranges::find_if(baseline.back().mesh.triangle_references,[&](const auto& ref) {
             return ref.surface&&ref.surface->kind==kernel::SurfaceGeometry::Kind::Plane&&
@@ -606,7 +633,7 @@ int native_outward_form_probe(const std::filesystem::path& path,double thickness
     kernel::Vec3 position,normal,along;
     if(source.corner()) {
         stock=experiment_corner_stock(engine,thickness,inner_radius);
-        const auto frame=document::bend_material_definition(stock.history.front(),stock.sketches.front(),document::sheet_metal_defaults(stock));
+        const auto frame=experiment_corner_bend(stock);
         position=kernel::sheet_material::add(frame.origin,kernel::sheet_material::mul(frame.tangent,frame.radius));
         normal=frame.radial;along=kernel::sheet_material::unit(kernel::sheet_material::cross(frame.tangent,frame.radial));
     }else {
@@ -620,7 +647,9 @@ int native_outward_form_probe(const std::filesystem::path& path,double thickness
         normal={0,0,1};along={1,0,0};
         if(std::getenv("ZIMA_CPP_FORM_OPPOSITE_SUPPORT")){normal={0,0,-1};position={0,0,-thickness};}
     }
-    auto baseline=workspace::calculate_part_with_resolved_references(engine,stock);valid(baseline.back());
+    auto baseline=workspace::calculate_part_with_resolved_references(engine,stock);
+    std::cout<<"Outward FORM input solids="<<experiment_solids(experiment_shape(baseline.back()))<<std::endl;
+    valid(baseline.back());
     const auto support=std::ranges::find_if(baseline.back().mesh.triangle_references,[&](const auto& face) {
         if(!face.surface||face.surface->kind!=kernel::SurfaceGeometry::Kind::Plane)return false;
         const auto n=kernel::sheet_material::mul(face.surface->axis,face.surface->reversed?-1.:1.);
@@ -684,7 +713,7 @@ int native_outward_form_probe(const std::filesystem::path& path,double thickness
         auto formed=BRepBuilderAPI_Transform(experiment_shape(ordinary.back().body_outputs.at(request.shape_body).get()),placement,false).Shape();
         TopoDS_Compound walls;BRep_Builder builder;builder.MakeCompound(walls);
         for(TopExp_Explorer solid(formed,TopAbs_SOLID);solid.More();solid.Next())builder.Add(walls,solid.Current());
-        const auto bend=document::bend_material_definition(stock.history.front(),stock.sketches.front(),document::sheet_metal_defaults(stock));
+        const auto bend=experiment_corner_bend(stock);
         using namespace kernel::sheet_material;
         const auto center=sub(bend.origin,mul(bend.radial,bend.radius));
         double low=std::numeric_limits<double>::infinity(),high=-low;

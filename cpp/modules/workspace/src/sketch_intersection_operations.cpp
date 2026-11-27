@@ -49,7 +49,8 @@ bool contains_face(const kernel::BodyResult& source,const kernel::FaceReference&
 std::size_t body_operation_count(const document::PartDocument& document,const document::BodyHistory& body) {
     std::size_t count{};
     for(std::size_t i=0;i<body.cursor;++i)if(body.entries[i].kind==document::PartHistoryKind::Feature)
-        if(const auto* feature=document.find_container(body.entries[i].id);feature&&feature->feature_kind!=document::FeatureKind::Sketch)++count;
+        if(const auto* feature=document.find_container(body.entries[i].id);feature&&feature->feature_kind!=document::FeatureKind::Sketch&&
+            feature->feature_kind!=document::FeatureKind::SheetProfile&&feature->feature_kind!=document::FeatureKind::MechKeyway)++count;
     return count;
 }
 kernel::ViewerReferenceGeometry intersection_geometry_for_sketch(const document::PartDocument& document,

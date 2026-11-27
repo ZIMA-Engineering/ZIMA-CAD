@@ -528,6 +528,34 @@ unsigned assembly_limit_sources(const std::filesystem::path& source_file,const s
 }
 }
 int main(int argc,char** argv){QCoreApplication app(argc,argv);try {
+    if(const auto* file=std::getenv("ZIMA_VERIFY_REVOLVED_TARGET_SOURCE")) {
+        kernel::OcctKernel engine;std::vector<kernel::BodyResult> saved;
+        auto doc=document::PartDocument::load(file,&saved);
+        workspace::Workspace live;live.add_part(doc,saved,file);live.activate(doc.document_id);
+        const auto feature=std::ranges::find_if(doc.history,[](const auto& item){return
+            item.feature_kind==document::FeatureKind::Feature&&item.feature.type==document::FeatureType::Modeling&&
+            !item.feature.sides[0].targets.empty();});
+        check(feature!=doc.history.end(),"Source fixture has no Up-to Feature");
+        auto* state=live.open_part(doc.document_id);
+        for(int pass=0;pass<2;++pass) {
+            if(pass)static_cast<void>(workspace::materialize_part_history_input_boundary(live,engine,doc.document_id,feature->id));
+            const auto wire=exact_draft(*state,*feature);std::cout<<"Draft pass "<<pass<<" edges="<<wire.size()<<'\n';
+        }
+        for(double correction:{.25,-.2,0.}) {
+            auto pending=*state->session.document().find_container(feature->id);
+            pending.feature.sides[0].up_to.length_correction=correction;
+            workspace::commit_profile(live,engine,doc.document_id,pending,workspace::ProfileEditMode::Replace);
+            check(!state->session.calculated_boundaries().back().calculation_errors.contains(feature->id),"Up-to edit failed");
+            check(state->session.undo()&&state->session.redo(),"Revolved source edit Undo/Redo failed");
+            check(state->session.document().find_container(feature->id)->feature.sides[0].targets.front().reference==
+                feature->feature.sides[0].targets.front().reference,"Up-to edit changed selected source identity");
+        }
+        const auto output=std::filesystem::temp_directory_path()/"zima-revolved-up-to-edited.prtz";
+        state->session.document().save(output,state->session.calculated_boundaries());
+        std::vector<kernel::BodyResult> reopened_cache;const auto reopened=document::PartDocument::load(output,&reopened_cache);
+        check(!reopened_cache.back().calculation_errors.contains(feature->id)&&reopened.find_container(feature->id),"Up-to reopen failed");
+        std::cout<<"Revolved source preview, repeated edits, Undo/Redo and native reopen passed\n";return 0;
+    }
     if(const auto* file=std::getenv("ZIMA_VERIFY_TANGENT_SOURCE")){kernel::OcctKernel engine;verify_saved_tangent_case(engine,file);return 0;}
     document::ExtrusionParameters::EndTarget half_space_target;
     half_space_target.kind=document::EndTargetKind::Plane;
@@ -679,7 +707,7 @@ int main(int argc,char** argv){QCoreApplication app(argc,argv);try {
         if(!concave&&!symmetric) {
             std::vector<kernel::FaceReference> parents;
             for(const auto& target:feature.feature.sides[0].targets)parents.push_back(target.reference);
-            cases+=assembly_limit_sources(file,feature.id,parents);
+            if(!std::getenv("ZIMA_VERIFY_PART_LIMITS_ONLY"))cases+=assembly_limit_sources(file,feature.id,parents);
         }
     }
     std::cout<<"PASS "<<cases<<" native ordered Feature checks: original finite faces, automatic choice persistence, symmetry, repeated corrections, unchanged OK, row identity/rejection, Undo/Redo, native save/reopen and explicit cold regeneration. Evidence: "<<output.generic_string()<<'\n';

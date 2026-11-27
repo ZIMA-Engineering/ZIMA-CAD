@@ -9,6 +9,7 @@
 #include <zima/kernel/occt_kernel.hpp>
 #include <zima/kernel/calculated_body_shape.hpp>
 #include <zima/kernel/sheet_material.hpp>
+#include <zima/kernel/sheet_attachment_reference.hpp>
 #include <zima/kernel/stable_id.hpp>
 #include <zima/workspace/model_calculation.hpp>
 #include <zima/workspace/sheet_form_operations.hpp>

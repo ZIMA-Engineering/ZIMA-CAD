@@ -1,0 +1,306 @@
+{
+  "scope": "Changed native factory assets selected for Windows 2026112701",
+  "count": 75,
+  "files": [
+    {
+      "path": "config/lib/01-SHEETMETAL/01-FORM/VentilationWindow.prtz",
+      "sha256": "2b0f8230437b257f6a4bb0fb6346ffd6768097d5e923248f853c6e783ee3cbac"
+    },
+    {
+      "path": "config/lib/03-ENGINEERING-TABLES/05-FASTENERS/06-WASHERS/05-LOCK/02-FORMED-NOSE/0000-index/NTW-M08-REFERENCE.prtz",
+      "sha256": "a0a4e6a0daf78ce44c932239e4f3bcf34eae4546c12df601751fb9c068d03e0d"
+    },
+    {
+      "path": "config/lib/03-ENGINEERING-TABLES/05-FASTENERS/06-WASHERS/05-LOCK/02-FORMED-NOSE/NTW-CSN021753-M04.0.prtz",
+      "sha256": "210b1c45b6ed35c6202c75613828f2d96b3b33358d4329fe5b4348cd0b528a46"
+    },
+    {
+      "path": "config/lib/03-ENGINEERING-TABLES/05-FASTENERS/06-WASHERS/05-LOCK/02-FORMED-NOSE/NTW-CSN021753-M05.0.prtz",
+      "sha256": "895067f83b7c22e5fdde2425e0ec65e58b905575759082d144e4c104985516e6"
+    },
+    {
+      "path": "config/lib/03-ENGINEERING-TABLES/05-FASTENERS/06-WASHERS/05-LOCK/02-FORMED-NOSE/NTW-CSN021753-M06.0.prtz",
+      "sha256": "cf446ab3a703b51b2b2eda47962141cab652093dd1b10933f3ddd3ce0ca0a42e"
+    },
+    {
+      "path": "config/lib/03-ENGINEERING-TABLES/05-FASTENERS/06-WASHERS/05-LOCK/02-FORMED-NOSE/NTW-CSN021753-M08.0.prtz",
+      "sha256": "7b2dba601fc0e7398a336136440de6e4958ec17b5f99c6e0cd659e78a8ca9e9f"
+    },
+    {
+      "path": "config/lib/03-ENGINEERING-TABLES/05-FASTENERS/06-WASHERS/05-LOCK/02-FORMED-NOSE/NTW-CSN021753-M10.0.prtz",
+      "sha256": "890960cee2ec7ee3e6e439efd366ff2b5e8a1b4c86086e55b384eec00e91a0a8"
+    },
+    {
+      "path": "config/lib/03-ENGINEERING-TABLES/05-FASTENERS/06-WASHERS/05-LOCK/02-FORMED-NOSE/NTW-CSN021753-M12.0.prtz",
+      "sha256": "77e21c2cd60d4c1865c4cda056bfa716ad11e4d8c07fc11119488fe39c207083"
+    },
+    {
+      "path": "config/lib/03-ENGINEERING-TABLES/05-FASTENERS/06-WASHERS/05-LOCK/02-FORMED-NOSE/NTW-CSN021753-M14.0.prtz",
+      "sha256": "3cb7c9a868450414a2cc1dbb4ae9b41c810e4c9ef8be69e703404b306e7f8934"
+    },
+    {
+      "path": "config/lib/03-ENGINEERING-TABLES/05-FASTENERS/06-WASHERS/05-LOCK/02-FORMED-NOSE/NTW-CSN021753-M16.0.prtz",
+      "sha256": "d127ef4df571751a4eef810f8600ef7dc1b06e87798419bb10c7e2c8b7321497"
+    },
+    {
+      "path": "config/lib/03-ENGINEERING-TABLES/05-FASTENERS/06-WASHERS/05-LOCK/02-FORMED-NOSE/NTW-CSN021753-M18.0.prtz",
+      "sha256": "6bfd16913e9048a0a9574a727a08d51c5394529f71a9489cc157104744a1ce90"
+    },
+    {
+      "path": "config/lib/03-ENGINEERING-TABLES/05-FASTENERS/06-WASHERS/05-LOCK/02-FORMED-NOSE/NTW-CSN021753-M20.0.prtz",
+      "sha256": "22098f2b671d65e5d32f3d88a41646adb5439b28efa6f6c5e95a882ffcd894c1"
+    },
+    {
+      "path": "config/lib/03-ENGINEERING-TABLES/05-FASTENERS/06-WASHERS/05-LOCK/02-FORMED-NOSE/NTW-CSN021753-M22.0.prtz",
+      "sha256": "227e8dca1176c9db879ed70ffacb46b73c1c87356e9f0c0dcf06d45ee6e9be0f"
+    },
+    {
+      "path": "config/lib/03-ENGINEERING-TABLES/05-FASTENERS/06-WASHERS/05-LOCK/02-FORMED-NOSE/NTW-CSN021753-M24.0.prtz",
+      "sha256": "62a8549da8c8f649bad42881fa652dceed11e272c7e443d34fc7462ab5d1eb57"
+    },
+    {
+      "path": "config/lib/03-ENGINEERING-TABLES/05-FASTENERS/06-WASHERS/05-LOCK/02-FORMED-NOSE/NTW-CSN021753-M27.0.prtz",
+      "sha256": "8d737339e57585e7ac6c8d23ff10a70ebc83eff4d015e246ab412a32b61ed9ff"
+    },
+    {
+      "path": "config/lib/03-ENGINEERING-TABLES/08-KEYS-KEYWAYS/02-PARALLEL/PK-CSN022570-10x8x50.prtz",
+      "sha256": "0cab484ce9a67544685825c0aa7360034fe0115582693710352a50b4bbfd3175"
+    },
+    {
+      "path": "config/lib/03-ENGINEERING-TABLES/08-KEYS-KEYWAYS/02-PARALLEL/PK-CSN022570-12x8x63.prtz",
+      "sha256": "db4b86bfa5264146ec814968de103d80b840b78156ede722aec396b56b6a40a1"
+    },
+    {
+      "path": "config/lib/03-ENGINEERING-TABLES/08-KEYS-KEYWAYS/02-PARALLEL/PK-CSN022570-14x9x70.prtz",
+      "sha256": "8be26a8a6f8bb5eec6d0a6b34c173e2ede48d37db9ff2e90ceccb4eb45f05ba3"
+    },
+    {
+      "path": "config/lib/03-ENGINEERING-TABLES/08-KEYS-KEYWAYS/02-PARALLEL/PK-CSN022570-16x10x80.prtz",
+      "sha256": "808a8e6ac4849fd7aba470440ef9a93f5613b4a2b54abb8a9913a8d98a12aea9"
+    },
+    {
+      "path": "config/lib/03-ENGINEERING-TABLES/08-KEYS-KEYWAYS/02-PARALLEL/PK-CSN022570-18x11x90.prtz",
+      "sha256": "939e57e40da92bd2959a5401829636555b5e6bcd290736c621fa6721fac19d50"
+    },
+    {
+      "path": "config/lib/03-ENGINEERING-TABLES/08-KEYS-KEYWAYS/02-PARALLEL/PK-CSN022570-20x12x100.prtz",
+      "sha256": "bb431a4c8d1b517b4d87745132e1c354e38d59d94effe6af91474ce398530394"
+    },
+    {
+      "path": "config/lib/03-ENGINEERING-TABLES/08-KEYS-KEYWAYS/02-PARALLEL/PK-CSN022570-22x14x125.prtz",
+      "sha256": "69ecb62852d0eb6e37c9141adf9dd7da56f86b9751f7ffe273cf54fd893a0525"
+    },
+    {
+      "path": "config/lib/03-ENGINEERING-TABLES/08-KEYS-KEYWAYS/02-PARALLEL/PK-CSN022570-25x14x140.prtz",
+      "sha256": "26d740006fbd870372adb08105933c63a0bb95f8d188f9e497a928c0085e90a2"
+    },
+    {
+      "path": "config/lib/03-ENGINEERING-TABLES/08-KEYS-KEYWAYS/02-PARALLEL/PK-CSN022570-28x16x160.prtz",
+      "sha256": "877e3bc5e4201529812c5fab00f5a13a90a66bc0b567c606add3efc83aa16633"
+    },
+    {
+      "path": "config/lib/03-ENGINEERING-TABLES/08-KEYS-KEYWAYS/02-PARALLEL/PK-CSN022570-32x18x180.prtz",
+      "sha256": "5c541ed56aa5ee3e33b0859fde555ca56ae1e3fd33810a530a84563fd167e706"
+    },
+    {
+      "path": "config/lib/03-ENGINEERING-TABLES/08-KEYS-KEYWAYS/02-PARALLEL/PK-CSN022570-36x20x200.prtz",
+      "sha256": "b501d516ab04fd93a28eccc0355cae68918214756e585114c68f744834a5bc5d"
+    },
+    {
+      "path": "config/lib/03-ENGINEERING-TABLES/08-KEYS-KEYWAYS/02-PARALLEL/PK-CSN022570-40x22x250.prtz",
+      "sha256": "27cd5652c377573e886fb078a5305425f46104061d9e7acf773ae4b8f32e6f0a"
+    },
+    {
+      "path": "config/lib/03-ENGINEERING-TABLES/08-KEYS-KEYWAYS/02-PARALLEL/PK-CSN022570-45x25x280.prtz",
+      "sha256": "e91aa0fed09236dee0bca4f77562056ba0d69f668a87c744a3698a1fca97f20a"
+    },
+    {
+      "path": "config/lib/03-ENGINEERING-TABLES/08-KEYS-KEYWAYS/02-PARALLEL/PK-CSN022570-50x28x315.prtz",
+      "sha256": "e3b79aead327ffb1a73e45f3ef510b9a91e1cef3dcde5997fe3fe503ad737b97"
+    },
+    {
+      "path": "config/lib/03-ENGINEERING-TABLES/08-KEYS-KEYWAYS/02-PARALLEL/PK-CSN022575-10x8x25.prtz",
+      "sha256": "047440414d3468a5b4d85817e0caba52d2dd96ebcd84f093d788e2b833582285"
+    },
+    {
+      "path": "config/lib/03-ENGINEERING-TABLES/08-KEYS-KEYWAYS/02-PARALLEL/PK-CSN022575-12x8x32.prtz",
+      "sha256": "6ac8586c85bd6065543d6b4af54174b02c19c88af85915723d4eecd53d024529"
+    },
+    {
+      "path": "config/lib/03-ENGINEERING-TABLES/08-KEYS-KEYWAYS/02-PARALLEL/PK-CSN022575-14x9x40.prtz",
+      "sha256": "fa1f721d49c38487d955dd3630473c5fdd6cabd1514f1ebb57e76ce400913bfc"
+    },
+    {
+      "path": "config/lib/03-ENGINEERING-TABLES/08-KEYS-KEYWAYS/02-PARALLEL/PK-CSN022575-16x10x44.prtz",
+      "sha256": "2796f31a3b225814ec1b3c0802aebdf4a13c7159582ea32e110f9689afae662a"
+    },
+    {
+      "path": "config/lib/03-ENGINEERING-TABLES/08-KEYS-KEYWAYS/02-PARALLEL/PK-CSN022575-18x11x50.prtz",
+      "sha256": "eb03b4fc510c530605a1fe8ee66366650bf6c94a80fb89afa89c05d656ce3d77"
+    },
+    {
+      "path": "config/lib/03-ENGINEERING-TABLES/08-KEYS-KEYWAYS/02-PARALLEL/PK-CSN022575-20x12x56.prtz",
+      "sha256": "3ac9a4bcfd389f32d7b5fcc34812e583dad870e258f575ae716c4f850db89a23"
+    },
+    {
+      "path": "config/lib/03-ENGINEERING-TABLES/08-KEYS-KEYWAYS/02-PARALLEL/PK-CSN022575-22x14x63.prtz",
+      "sha256": "15b6bf1b34824b73a44679ce85e0b3310964723eda7c44316c140aaaa6581e6c"
+    },
+    {
+      "path": "config/lib/03-ENGINEERING-TABLES/08-KEYS-KEYWAYS/02-PARALLEL/PK-CSN022575-25x14x70.prtz",
+      "sha256": "43fe72fc0fd6e52c4681a60bae1764182e5992ea70dff6a7a9f04f7fc23fce00"
+    },
+    {
+      "path": "config/lib/03-ENGINEERING-TABLES/08-KEYS-KEYWAYS/02-PARALLEL/PK-CSN022575-28x16x80.prtz",
+      "sha256": "845e872a7a0d40e60650c57ea2ec82b72096b717a493109eee425d4d298ea69d"
+    },
+    {
+      "path": "config/lib/03-ENGINEERING-TABLES/08-KEYS-KEYWAYS/02-PARALLEL/PK-CSN022575-32x18x90.prtz",
+      "sha256": "e4b2cfc35e37d71ce2bb73d115199bf4f426b6f59cc8e8b0f1ce9fefb0c0594b"
+    },
+    {
+      "path": "config/lib/03-ENGINEERING-TABLES/08-KEYS-KEYWAYS/02-PARALLEL/PK-CSN022575-36x20x100.prtz",
+      "sha256": "7b54a1ca22d2c755ba6d5158cf9ec6c1eeca1dc42525eb863d78b72cae381efa"
+    },
+    {
+      "path": "config/lib/03-ENGINEERING-TABLES/08-KEYS-KEYWAYS/02-PARALLEL/PK-CSN022575-8x7x20.prtz",
+      "sha256": "e79cd829b79caf3bdddd9688924c11947b96ff5ee08143bcbc7f23a54a2a5cbf"
+    },
+    {
+      "path": "config/lib/03-ENGINEERING-TABLES/08-KEYS-KEYWAYS/02-PARALLEL/PK-DIN6885-1-A-10x8x45.prtz",
+      "sha256": "d80289b859d1d9b8082317a54912f8c6d169a43acee32fa4c9acf1c0add99d5a"
+    },
+    {
+      "path": "config/lib/03-ENGINEERING-TABLES/08-KEYS-KEYWAYS/02-PARALLEL/PK-DIN6885-1-A-12x8x36.prtz",
+      "sha256": "4e11d898e3402171a1159ba65a26390d36913f1642f4c9517ce0b5bb785ef408"
+    },
+    {
+      "path": "config/lib/03-ENGINEERING-TABLES/08-KEYS-KEYWAYS/02-PARALLEL/PK-DIN6885-1-A-14x9x40.prtz",
+      "sha256": "b1929ccbe64a8b863cb3656ed24f291ff2c47ece7f85411f34f24a12d18a970f"
+    },
+    {
+      "path": "config/lib/03-ENGINEERING-TABLES/08-KEYS-KEYWAYS/02-PARALLEL/PK-DIN6885-1-A-16x10x50.prtz",
+      "sha256": "463b86dd687fb80e775fb21d3e6ec32bc77ede4e206068b45b0d0a8185f1bb10"
+    },
+    {
+      "path": "config/lib/03-ENGINEERING-TABLES/08-KEYS-KEYWAYS/02-PARALLEL/PK-DIN6885-1-A-18x11x56.prtz",
+      "sha256": "85e9ecb6a8bdc656d152a0a747032f5110f1197e133f6a8c955f2e226711101b"
+    },
+    {
+      "path": "config/lib/03-ENGINEERING-TABLES/08-KEYS-KEYWAYS/02-PARALLEL/PK-DIN6885-1-A-2x2x10.prtz",
+      "sha256": "59dda27d5ce827b5883b80549131471c7f9499142bad53a878ba9adf6fb508e5"
+    },
+    {
+      "path": "config/lib/03-ENGINEERING-TABLES/08-KEYS-KEYWAYS/02-PARALLEL/PK-DIN6885-1-A-3x3x10.prtz",
+      "sha256": "b304ff2864dfe1a3e62cc7f3d5bb0736d86f6e96cc4e8212c91e90d175408bc6"
+    },
+    {
+      "path": "config/lib/03-ENGINEERING-TABLES/08-KEYS-KEYWAYS/02-PARALLEL/PK-DIN6885-1-A-4x4x12.prtz",
+      "sha256": "8eaaadb4064e7df4e2b435d0c2779ba00b1d0acdd666fce1ecdcad3344ef432f"
+    },
+    {
+      "path": "config/lib/03-ENGINEERING-TABLES/08-KEYS-KEYWAYS/02-PARALLEL/PK-DIN6885-1-A-5x5x14.prtz",
+      "sha256": "3dc9f4fbdc8909f86ffafbd7262e73288c1daba695eb60f0bf878e7560fb85d8"
+    },
+    {
+      "path": "config/lib/03-ENGINEERING-TABLES/08-KEYS-KEYWAYS/02-PARALLEL/PK-DIN6885-1-A-6x6x18.prtz",
+      "sha256": "823f342add60d6b08d20837372bdf9b4c9a2d4ce333db6641ed42c41d3110587"
+    },
+    {
+      "path": "config/lib/03-ENGINEERING-TABLES/08-KEYS-KEYWAYS/02-PARALLEL/PK-DIN6885-1-A-8x7x25.prtz",
+      "sha256": "7a202cacf9ffb391154480ce80267777241e1483a80512a276d6ae8e3c085d0a"
+    },
+    {
+      "path": "config/lib/03-ENGINEERING-TABLES/08-KEYS-KEYWAYS/04-WOODRUFF/WK-DIN6888-A-1.5x2.6x7.prtz",
+      "sha256": "0dcce116b54b53c64b6135fd2a6b9d976c91f08f6b4d6f6a67878aec2f73bfa3"
+    },
+    {
+      "path": "config/lib/03-ENGINEERING-TABLES/08-KEYS-KEYWAYS/04-WOODRUFF/WK-DIN6888-A-10x11x28.prtz",
+      "sha256": "8dfa9f4679b9beacd4fb2f5d9d34424f6ec86e1b1636e1c8b7e2fdd9f38131a4"
+    },
+    {
+      "path": "config/lib/03-ENGINEERING-TABLES/08-KEYS-KEYWAYS/04-WOODRUFF/WK-DIN6888-A-10x13x32.prtz",
+      "sha256": "4c1d3ee6f886733f07a6f50ad716a6895bc0003209e3551ca52034df3aa4a4bb"
+    },
+    {
+      "path": "config/lib/03-ENGINEERING-TABLES/08-KEYS-KEYWAYS/04-WOODRUFF/WK-DIN6888-A-10x16x45.prtz",
+      "sha256": "d45e541df9b505ce146d991f2e95a4f63e2529e3f78b6548d98c24a13cec23d5"
+    },
+    {
+      "path": "config/lib/03-ENGINEERING-TABLES/08-KEYS-KEYWAYS/04-WOODRUFF/WK-DIN6888-A-1x1.4x4.prtz",
+      "sha256": "52b2c636182ae1541402db4f919708781482d0cfcb656ebcfedc0218b9b01f40"
+    },
+    {
+      "path": "config/lib/03-ENGINEERING-TABLES/08-KEYS-KEYWAYS/04-WOODRUFF/WK-DIN6888-A-2x2.6x7.prtz",
+      "sha256": "a7ccdbc5ef6f9bbd897c5452b1e087618046af8bcb8246ae698eece94752fb85"
+    },
+    {
+      "path": "config/lib/03-ENGINEERING-TABLES/08-KEYS-KEYWAYS/04-WOODRUFF/WK-DIN6888-A-2x3.7x10.prtz",
+      "sha256": "99ea1207e89b98456cd5f6183a955c183a60a3ccde9531423a9cace2fcf4e14e"
+    },
+    {
+      "path": "config/lib/03-ENGINEERING-TABLES/08-KEYS-KEYWAYS/04-WOODRUFF/WK-DIN6888-A-3x3.7x10.prtz",
+      "sha256": "a4182d1a57ed8c9df3631512f44f1483e64347dc9b4539bc18ef34d5057e79b8"
+    },
+    {
+      "path": "config/lib/03-ENGINEERING-TABLES/08-KEYS-KEYWAYS/04-WOODRUFF/WK-DIN6888-A-3x5x13.prtz",
+      "sha256": "9ee32afb3a26e328695af4c65d1c40a8716d02813c8fe8a14cb924963861944f"
+    },
+    {
+      "path": "config/lib/03-ENGINEERING-TABLES/08-KEYS-KEYWAYS/04-WOODRUFF/WK-DIN6888-A-3x6.5x16.prtz",
+      "sha256": "3cb49799831d373b170553ff75c8ef115c09e69a7ac7bd4d64a1ee8d667e94fc"
+    },
+    {
+      "path": "config/lib/03-ENGINEERING-TABLES/08-KEYS-KEYWAYS/04-WOODRUFF/WK-DIN6888-A-4x5x13.prtz",
+      "sha256": "4126adbe71e918ee6a6eb67c3ac3cc6925968cdac09517424d3ab472d7c92bd0"
+    },
+    {
+      "path": "config/lib/03-ENGINEERING-TABLES/08-KEYS-KEYWAYS/04-WOODRUFF/WK-DIN6888-A-4x6.5x16.prtz",
+      "sha256": "7a0c1d21d27b373d3d0cf84dd01081b23f4ad8d3ca67e0026c0e5a583f903e4d"
+    },
+    {
+      "path": "config/lib/03-ENGINEERING-TABLES/08-KEYS-KEYWAYS/04-WOODRUFF/WK-DIN6888-A-4x7.5x19.prtz",
+      "sha256": "92bab14cd52c229903b81acf6fc10618c2ca99f42e3f23484037294489d5718e"
+    },
+    {
+      "path": "config/lib/03-ENGINEERING-TABLES/08-KEYS-KEYWAYS/04-WOODRUFF/WK-DIN6888-A-5x6.5x16.prtz",
+      "sha256": "fcfc3c246b4d6f8baf853b393e458a37b65a058b8637f4674e18e45e0fde13c4"
+    },
+    {
+      "path": "config/lib/03-ENGINEERING-TABLES/08-KEYS-KEYWAYS/04-WOODRUFF/WK-DIN6888-A-5x7.5x19.prtz",
+      "sha256": "f29046aa6652e42a46850c3c155f045beac581cf5f92feaf27782e56ce119214"
+    },
+    {
+      "path": "config/lib/03-ENGINEERING-TABLES/08-KEYS-KEYWAYS/04-WOODRUFF/WK-DIN6888-A-5x9x22.prtz",
+      "sha256": "6b00f9b304fba5eafd2d1d038b4c80705994f39c9ed1a4dca72c7404273f7e56"
+    },
+    {
+      "path": "config/lib/03-ENGINEERING-TABLES/08-KEYS-KEYWAYS/04-WOODRUFF/WK-DIN6888-A-6x10x25.prtz",
+      "sha256": "2caeca4e0fc29fd0f355a1eb9488260fce5174d15b85b8f90772362d5ea14e7e"
+    },
+    {
+      "path": "config/lib/03-ENGINEERING-TABLES/08-KEYS-KEYWAYS/04-WOODRUFF/WK-DIN6888-A-6x11x28.prtz",
+      "sha256": "fa6ce778cd2e26ed74392dd456f586582510bd8a9bd807b8c5d75b1a3799732f"
+    },
+    {
+      "path": "config/lib/03-ENGINEERING-TABLES/08-KEYS-KEYWAYS/04-WOODRUFF/WK-DIN6888-A-6x7.5x19.prtz",
+      "sha256": "d7f0c26e5d4f96e1496b56c4408c01be8e2ab698316edb48d6c2af5ff161e3c8"
+    },
+    {
+      "path": "config/lib/03-ENGINEERING-TABLES/08-KEYS-KEYWAYS/04-WOODRUFF/WK-DIN6888-A-6x9x22.prtz",
+      "sha256": "f44b9fb2c7fb9e7a57a907b50ba6d719d584e285db464e4a2e2d80999a34caf1"
+    },
+    {
+      "path": "config/lib/03-ENGINEERING-TABLES/08-KEYS-KEYWAYS/04-WOODRUFF/WK-DIN6888-A-8x11x28.prtz",
+      "sha256": "6b862f4eb5a433032ae841d16361892fc08546d8b1c6d4b9de23bcfed8061a1e"
+    },
+    {
+      "path": "config/lib/03-ENGINEERING-TABLES/08-KEYS-KEYWAYS/04-WOODRUFF/WK-DIN6888-A-8x13x32.prtz",
+      "sha256": "a10d10ca22be530fed75b99b671bfbf35d87273e734ac83eb8c95c2fc119632a"
+    },
+    {
+      "path": "config/lib/03-ENGINEERING-TABLES/08-KEYS-KEYWAYS/04-WOODRUFF/WK-DIN6888-A-8x9x22.prtz",
+      "sha256": "da413e39c57e65901ec5a8de4c3414df9b03a3e8f1ad2b6c0fdca837350b6a88"
+    }
+  ]
+}

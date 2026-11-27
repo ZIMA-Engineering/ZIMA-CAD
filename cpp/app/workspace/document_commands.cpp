@@ -301,10 +301,9 @@ void AssemblyWorkspaceWindow::show_sheet_from_body(const std::string& container_
                 feature.name=tr("RIP Sketch %1").arg(drafts.size()+1).toStdString();
                 auto sketch=sketcher::Sketch::from_serialized(draft.sketch_serialized);
                 sketch.name=feature.name;sketch.plane_auto=true;
-                const auto& face=*dialog->selected();
-                document::ConstructionReference reference{{},face.owner_id,face.semantic_key,0.,true};
-                document::prepare_profile_plane_reference(0,reference,{});
-                feature.placement.references={reference};
+                // A RIP has its own authored support. The conversion source
+                // face does not select the new Sketch's plane for the user.
+                feature.placement.references.clear();
                 draft.sketch_serialized=sketch.serialized();
                 const auto* part=workspace_.open_part(document_id);if(!part)return;
                 auto local=sketcher::Sketch::create_default();local.owner_container_id=part->session.document().body_history.active_body_id();
@@ -335,10 +334,15 @@ void AssemblyWorkspaceWindow::show_sheet_from_body(const std::string& container_
                     }
                     feature_reference_pick_=pick;feature_reference_end_=end;guard->changed();
                 }});
+            if(created)start_primitive_reference_selection(0,true);
             }catch(const std::exception& error){dialog->show_submission_error(tr(error.what()));}
         };
         connect(dialog,&QDialog::finished,this,[this,dialog] {
             dialog->changed={};feature_reference_pick_={};feature_reference_end_={};properties_dialog_=nullptr;properties_dialog_instance_path_.clear();
+            // An owned RIP editor can leave its plane in the shared preview
+            // carrier. Its lifetime ends with the conversion command.
+            primitive_origin_preview_mesh_.reset();parameter_dimension_preview_.reset();
+            primitive_parameter_owner_id_.clear();
             part_rollback_.reset();
             viewer_->set_candidate_filter({});viewer_->set_selection_contract({});viewer_->set_original_face_selection(false);
             viewer_->set_constraint_reference_highlights({},{});viewer_->clear_selection();tree_->setProperty("commandSelectionActive",false);

@@ -22,6 +22,7 @@
 #include <zima/workspace/history_deletion.hpp>
 #include <zima/workspace/history_policy.hpp>
 #include <zima/workspace/part_transactions.hpp>
+#include <zima/workspace/flat_operations.hpp>
 #include <zima/workspace/sheet_state_operations.hpp>
 #include <zima/workspace/line_bend_operations.hpp>
 #include <zima/kernel/sheet_material.hpp>
@@ -875,9 +876,12 @@ void empty_conversion_contract(kernel::OcctKernel& kernel) {
 void contract(bool include_oblique_corners = true) {
     kernel::OcctKernel kernel;
     empty_conversion_contract(kernel);
+    std::cout<<"Empty conversion passed\n"<<std::flush;
     curved_partition_contract(kernel);
     rip_contract(kernel);
+    std::cout<<"Curved partitions and native RIP passed\n"<<std::flush;
     rip_conversion_contract(kernel);
+    std::cout<<"RIP conversion passed\n"<<std::flush;
     owned_rip_contract(kernel);
     line_bend_contract(kernel);
     {
@@ -1695,14 +1699,10 @@ void contract(bool include_oblique_corners = true) {
         const auto& following_sketch=*std::ranges::find(
             converted.document.sketches,following_sketch_id,&sketcher::Sketch::id);
         std::map<std::string,std::string> endpoint_points;
-        for(const auto& constraint:following_sketch.constraints)
-            if(constraint.kind==sketcher::ConstraintKind::PointReference&&
-                    (constraint.second_point_id==following_sketch.id+
-                        ":flat-attachment:first"||
-                     constraint.second_point_id==following_sketch.id+
-                        ":flat-attachment:last"))
-                endpoint_points.emplace(constraint.second_point_id,
-                    constraint.first_point_id);
+        for(const auto& dimension:following_sketch.dimensions)
+            if(dimension.id==following_sketch.id+":flat-correction:first"||
+               dimension.id==following_sketch.id+":flat-correction:last")
+                endpoint_points.emplace(dimension.first_point_id,dimension.second_point_id);
         check(endpoint_points.size()==2,
             "Converted Flat outline is not bound to both Bend End vertices");
         const auto joining_segment=std::ranges::find_if(
@@ -1746,13 +1746,62 @@ void contract(bool include_oblique_corners = true) {
                 std::abs(initial_last->x-initial_first->x)>1e-6,
             "Converted Flat joining edge does not follow both Bend End vertices");
         const double initial_endpoint_direction=initial_last->x-initial_first->x;
+        {
+            workspace::Workspace live;
+            auto initial=converted.document;initial.body_history.activate(body);
+            const auto document_id=initial.document_id;
+            live.add_part(initial,converted.calculated);
+            auto& session=live.open_part(document_id)->session;
+            for(double correction:{1.25,-.5,0.}) {
+                const auto before=session.document().serialized();
+                const auto feature=*session.document().find_container(*following_flat);
+                auto profile=*std::ranges::find(session.document().sketches,
+                    following_sketch_id,&sketcher::Sketch::id);
+                const auto references=profile.external_references;
+                for(const auto suffix:{":first",":last"}) {
+                    auto d=*std::ranges::find(profile.dimensions,profile.id+":flat-correction"+suffix,
+                        &sketcher::SketchDimension::id);
+                    d.value=correction*(std::string_view(suffix)==":first"?1.:-1.);
+                    profile.apply_dimension(d);
+                }
+                check(profile.external_references==references,"Flat correction edited the Bend source");
+                check(workspace::commit_flat(live,kernel,document_id,feature,profile),
+                    "Converted Flat correction did not commit");
+                const auto after=session.document().serialized();
+                check(after!=before&&session.calculated_boundaries().back().calculation_errors.empty(),
+                    "Converted Flat correction failed material calculation");
+                const auto volume=measured_volume(kernel,session.calculated_boundaries().back().body_outputs.at(body));
+                auto reopened=document::PartDocument::from_serialized(after);
+                const auto cold=workspace::calculate_part_with_resolved_references(kernel,reopened);
+                check(cold.back().calculation_errors.empty(),"Corrected Flat failed cold regeneration");
+                near(measured_volume(kernel,cold.back().body_outputs.at(body)),volume,.001);
+                auto flat_state=reopened;
+                auto unbend=document::PartDocument::create_sketch_container();
+                unbend.feature_kind=document::FeatureKind::Unbend;unbend.sheet_state.all=true;
+                flat_state.insert_history_entry(document::PartHistoryKind::Feature,unbend.id);
+                flat_state.history.push_back(unbend);
+                const auto flattened=workspace::calculate_part_with_resolved_references(kernel,flat_state,&cold,policy);
+                check(flattened.back().calculation_errors.empty(),"Corrected Flat failed Unbend");
+                near(measured_volume(kernel,flattened.back().body_outputs.at(body)),volume,.001);
+                for(const auto suffix:{":first",":last"}) {
+                    const auto& settled=*std::ranges::find(reopened.sketches,profile.id,&sketcher::Sketch::id);
+                    const auto d=std::ranges::find(settled.dimensions,profile.id+":flat-correction"+suffix,
+                        &sketcher::SketchDimension::id);
+                    near(d->value,correction*(std::string_view(suffix)==":first"?1.:-1.));
+                }
+                check(workspace::step_part_document_history(live,document_id,false)&&session.document().serialized()==before,
+                    "Flat correction Undo failed");
+                check(workspace::step_part_document_history(live,document_id,true)&&session.document().serialized()==after,
+                    "Flat correction Redo failed");
+            }
+        }
         near(converted.document.find_container(*bend)->bend.radius,
             cylinder->surface->radius-(cylinder->surface->reversed?0:1),.001);
         check(converted.calculated.back().calculation_errors.empty()&&
                 converted.calculated.back().body_outputs.at(body)->has_solid(),
             "Thick solid skin conversion produced no solid sheet");
-        for(const auto corners:{std::array{true,false},std::array{true,true},
-                std::array{false,true},std::array{false,false}}) {
+        for(const auto corners:{std::array{1.,0.},std::array{1.,1.},
+                std::array{0.,1.},std::array{0.,0.}}) {
             auto cornered=converted.document;
             auto* corner_bend=cornered.find_container(*bend);
             corner_bend->bend.corner=corners;corner_bend->bend.corner_gap=.05;
@@ -1951,7 +2000,7 @@ void contract(bool include_oblique_corners = true) {
             const auto* feature=converted.document.find_container(id);
             if(feature->feature_kind!=document::FeatureKind::Bend)continue;
             ++bends;
-            check(feature->bend.corner==std::array{true,true}&&
+            check(feature->bend.corner==std::array{1.,1.}&&
                     feature->bend.corner_gap==0,
                 "Converted oblique Bend did not retain zero-gap corner closure");
             const auto sketch=std::ranges::find(
@@ -2017,13 +2066,14 @@ void contract(bool include_oblique_corners = true) {
                 feature->flat.sketch_id,&sketcher::Sketch::id);
             check(sketch!=converted.document.sketches.end(),
                 "Converted oblique Flat lost its profile Sketch");
-            check(std::ranges::none_of(sketch->segments,
-                    &sketcher::SketchSegment::construction),
+            check(std::ranges::none_of(sketch->segments,[](const auto& line){
+                    return line.construction&&line.visible_in_3d;}),
                 "Converted Flat retained a visible construction guide");
-            endpoint_bindings+=std::ranges::count_if(sketch->constraints,
-                [](const auto& constraint) {
-                    return !constraint.suppressed&&constraint.kind==
-                        sketcher::ConstraintKind::PointReference;
+            endpoint_bindings+=std::ranges::count_if(sketch->dimensions,
+                [&](const auto& dimension) {
+                    return dimension.driving&&!dimension.suppressed&&
+                        (dimension.id==sketch->id+":flat-correction:first"||
+                         dimension.id==sketch->id+":flat-correction:last");
                 });
         }
         check(attached_flats==6&&endpoint_bindings==12,
@@ -2196,8 +2246,8 @@ void contract(bool include_oblique_corners = true) {
     }
     {
         // A rounded rectangular tube is a closed alternating plane/cylinder
-        // skin. Conversion must terminate by leaving one Bend out as a seam;
-        // a native sheet history may neither cycle nor end with a Bend.
+        // skin. An arbitrary missing Bend is not a manufacturing seam: require
+        // an explicit RIP instead of silently dropping a returning branch.
         auto part=document::PartDocument::create_default();const auto body=part.body_history.create_body("Closed skin");
         auto profile=sketcher::Sketch::create_default();
         const auto rounded_loop=[&](double x,double y,double radius) {
@@ -2224,22 +2274,14 @@ void contract(bool include_oblique_corners = true) {
         });
         check(seed!=faces.end(),"Closed sheet fixture has no outer planar seed");
         const auto started=std::chrono::steady_clock::now();
-        auto converted=workspace::prepare_sheet_from_body(part,cache,*seed,2,kernel);
+        const auto before=part.serialized();bool rejected=false;
+        try { static_cast<void>(workspace::prepare_sheet_from_body(part,cache,*seed,2,kernel)); }
+        catch(const std::invalid_argument& error) {
+            rejected=std::string_view(error.what())=="Closed sheet branches require an explicit RIP Sketch.";
+        }
         check(std::chrono::steady_clock::now()-started<std::chrono::seconds(10),
             "Closed sheet traversal did not terminate promptly");
-        int flats=0,bends=0;
-        for(const auto& owner:converted.created) {
-            const auto* item=converted.document.find_container(owner);
-            flats+=item->feature_kind==document::FeatureKind::Flat;
-            bends+=item->feature_kind==document::FeatureKind::Bend;
-        }
-        check(converted.skipped==0&&flats==bends+1&&flats>=2,
-            "Closed sheet did not retain exactly one finite seam");
-        check(converted.document.find_container(converted.created.back())->feature_kind==document::FeatureKind::Flat,
-            "Closed sheet conversion ended with a Bend");
-        auto reopened=document::PartDocument::from_serialized(converted.document.serialized());
-        const auto cold=workspace::calculate_part_with_resolved_references(kernel,reopened);
-        check(cold.back().calculation_errors.empty(),"Closed sheet seam failed cold regeneration");
+        check(rejected&&part.serialized()==before,"Closed sheet silently discarded a Bend or modified its source");
         static_cast<void>(body);
     }
     for(const auto direction:{document::ExtrusionDirection::Forward,
@@ -3387,6 +3429,111 @@ int main(int argc,char** argv) {
         }
         const std::string_view diagnostic=argc==3?std::string_view(argv[2]):
             std::string_view{};
+        if(diagnostic=="rebuild-conversion") {
+            const auto parent=std::ranges::find_if(part.history,[](const auto& f){
+                return f.feature_kind==document::FeatureKind::SheetFromBody;});
+            check(parent!=part.history.end(),"Diagnostic has no Sheet from Body");
+            const auto definition=parent->sheet_from_body;
+            const auto id=parent->id;
+            std::vector<kernel::FaceReference> included;
+            for(const auto& binding:definition.included_faces)included.push_back(binding.reference);
+            kernel::OcctKernel engine;
+            cache=workspace::calculate_part_with_resolved_references(engine,part);
+            auto selected=definition.source_face.reference;
+            for(const auto& boundary:cache) {
+                const auto resolve=[&](const auto& faces) {
+                    for(const auto& face:faces)if(face.owner_id==selected.owner_id&&
+                        face.semantic_key==selected.semantic_key&&face.surface)selected=face;
+                };
+                resolve(boundary.mesh.triangle_references);
+                resolve(boundary.mesh.original_references.triangle_references);
+            }
+            const auto rebuilt=workspace::prepare_edited_sheet_from_body(part,cache,id,
+                selected,definition.thickness,engine,
+                definition.thickness_override,included,definition.rip_sketches);
+            const auto output=std::filesystem::path(argv[1]).parent_path()/"conversion-rebuilt.prtz";
+            rebuilt.document.save(output,rebuilt.calculated);
+            for(const auto& f:rebuilt.document.history)if(f.feature_kind==document::FeatureKind::Bend) {
+                const auto extensions=document::bend_profile_extensions(f);
+                std::cout<<f.name<<" extensions="<<extensions[0]<<','<<extensions[1]<<'\n';
+            }
+            std::cout<<"rebuilt_conversion="<<output<<'\n';return 0;
+        }
+        if(diagnostic=="bend-corners") {
+            const auto defaults=document::sheet_metal_defaults(part);
+            for(const auto& feature:part.history) {
+                if(feature.feature_kind!=document::FeatureKind::Bend)continue;
+                const auto sketch=std::ranges::find(part.sketches,feature.bend.sketch_id,&sketcher::Sketch::id);
+                check(sketch!=part.sketches.end(),"Bend diagnostic lost its authored Sketch");
+                const auto preview=document::bend_preview(feature,*sketch,defaults);
+                const auto material=document::bend_material_definition(feature,*sketch,defaults);
+                const auto point=[](auto p){std::cout<<' '<<p.x<<' '<<p.y<<' '<<p.z;};
+                std::cout<<"bend "<<feature.name<<" origin";point(material.origin);
+                std::cout<<" along";point(material.along);std::cout<<" radial";point(material.radial);
+                std::cout<<" tangent";point(material.tangent);std::cout<<'\n';
+                for(const auto& edge:preview.edges) {
+                    if(edge.reference.semantic_key.find("inner-first")==std::string::npos&&
+                       edge.reference.semantic_key.find("inner-last")==std::string::npos)continue;
+                    std::cout<<edge.reference.semantic_key;
+                    for(const auto index:{std::size_t{0},edge.points.size()/2,edge.points.size()-1})point(edge.points[index]);
+                    std::cout<<'\n';
+                }
+            }
+            return 0;
+        }
+        if(diagnostic=="verify-bend-corners") {
+            kernel::OcctKernel engine;
+            workspace::PartCalculationPolicy policy;policy.reject_errors=true;
+            auto calculated=workspace::calculate_part_with_resolved_references(engine,part,nullptr,policy);
+            const auto original=part.serialized();
+            struct End {kernel::SheetMaterialDefinition material;std::vector<kernel::Vec3> points;std::string owner;bool outer;};
+            const auto distance=[](auto a,auto b){return std::hypot(a.x-b.x,a.y-b.y,a.z-b.z);};
+            const auto verify=[&](const auto& model) {
+                std::vector<End> ends;
+                for(const auto& f:model.history) {
+                    if(f.feature_kind!=document::FeatureKind::Bend)continue;
+                    const auto& s=*std::ranges::find(model.sketches,f.bend.sketch_id,&sketcher::Sketch::id);
+                    const auto m=document::bend_material_definition(f,s,document::sheet_metal_defaults(model));
+                    const auto preview=document::bend_preview(f,s,document::sheet_metal_defaults(model));
+                    for(std::size_t end=0;end<2;++end)if(f.bend.corner[end])for(bool outer:{false,true}) {
+                        const auto edge=std::ranges::find_if(preview.edges,[&](const auto& e){
+                            return e.reference.semantic_key.find(outer?(end?"outer-last":"outer-first"):
+                                (end?"inner-last":"inner-first"))!=std::string::npos;});
+                        check(edge!=preview.edges.end(),"Closing Bend has no authored corner wire");
+                        ends.push_back({m,edge->points,f.id,outer});
+                    }
+                }
+                unsigned pairs{};double residual{};
+                for(std::size_t i=0;i<ends.size();++i)for(std::size_t j=i+1;j<ends.size();++j) {
+                    const auto& a=ends[i];const auto& b=ends[j];
+                    if(a.owner==b.owner||a.outer!=b.outer||distance(a.points.front(),b.points.front())>1e-5||
+                        distance(a.points.back(),b.points.back())>1e-5)continue;
+                    for(const auto* e:{&a,&b})for(const auto point:e->points) {
+                        const auto& other=e==&a?b:a;
+                        const auto coordinates=kernel::sheet_material::coordinates(other.material,point);
+                        residual=std::max(residual,std::abs(coordinates.depth+(other.outer?0.:other.material.thickness)));
+                    }
+                    ++pairs;
+                }
+                check(pairs>0&&residual<1e-6,"Bend corner misses the adjacent analytical cylinder");
+                if(const auto* expected=std::getenv("ZIMA_EXPECT_BEND_PAIRS"))
+                    check(pairs==std::stoul(expected),"Bend corner verification omitted an expected meeting pair");
+                std::cout<<"meeting_pairs="<<pairs<<" cylinder_residual="<<residual<<'\n';
+            };
+            verify(part);
+            // Complete the disabled corner choices only in this isolated test
+            // variant; the saved user's definition remains untouched.
+            for(auto& f:part.history)if(f.feature_kind==document::FeatureKind::Bend)f.bend.corner={true,true};
+            calculated=workspace::calculate_part_with_resolved_references(engine,part,&calculated,policy);
+            verify(part);
+            const auto path=std::filesystem::path(argv[1]).parent_path()/"POKUS4-corners-verified.prtz";
+            part.save(path,calculated);auto reopened=document::PartDocument::load(path);
+            check(reopened.serialized()==part.serialized(),"Closing corners changed on native reopen");
+            const auto cold=workspace::calculate_part_with_resolved_references(engine,reopened,nullptr,policy);
+            verify(reopened);
+            check(cold.back().calculation_errors.empty()&&cold.back().has_solid(),"Closing corners lost their cold solid");
+            std::cout<<"cold_regeneration=passed output="<<path<<'\n';return 0;
+        }
         if(diagnostic=="cache-boundaries") {
             for(std::size_t index=0;index<cache.size();++index) {
                 std::cout<<"boundary["<<index<<"] outputs=";
@@ -3396,6 +3543,34 @@ int main(int argc,char** argv) {
                 std::cout<<'\n';
             }
             return 0;
+        }
+        if(diagnostic=="flat-overlaps") {
+            kernel::OcctKernel engine;
+            std::vector<std::pair<std::string,kernel::BodyResult>> flats;
+            const auto defaults=document::sheet_metal_defaults(part);
+            for(const auto& feature:part.history) {
+                if(feature.feature_kind!=document::FeatureKind::Flat)continue;
+                const auto sketch=std::ranges::find(part.sketches,
+                    feature.flat.sketch_id,&sketcher::Sketch::id);
+                check(sketch!=part.sketches.end(),"Flat overlap diagnostic lost its Sketch");
+                auto body=engine.evaluate_history({{feature.id,
+                    document::flat_request(feature,*sketch,defaults)}}).back();
+                engine.ensure_body_properties(body);
+                flats.emplace_back(feature.name,std::move(body));
+            }
+            std::size_t overlaps{};
+            for(std::size_t i=0;i<flats.size();++i)for(std::size_t j=i+1;j<flats.size();++j) {
+                auto difference=engine.subtract_bodies(flats[i].second,flats[j].second,{},{},1e-7);
+                engine.ensure_body_properties(difference);
+                const auto overlap=flats[i].second.volume-difference.volume;
+                if(overlap>1e-6) {
+                    ++overlaps;
+                    std::cout<<flats[i].first<<" / "<<flats[j].first<<" overlap_mm3="
+                        <<std::setprecision(15)<<overlap<<'\n';
+                }
+            }
+            std::cout<<"flat_overlap_pairs="<<overlaps<<'\n';
+            return overlaps?1:0;
         }
         if(diagnostic=="flat-profiles") {
             for(const auto& feature:part.history) {

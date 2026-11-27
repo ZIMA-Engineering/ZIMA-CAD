@@ -25,6 +25,24 @@
         };
         add_profile(0,2);add_profile(1,3);add_profile(3,4);
         const auto definition=dialog->pending;
+        auto* reverse_path=dialog->findChild<QPushButton*>("sweep2dReversePath");
+        if(!verify(reverse_path&&reverse_path->isEnabled(),"2D Sweep direction button missing"))return 1;
+        const auto forward_route=zima::document::PartDocument::sweep2d_route(definition);
+        const auto direction_calls=zima::kernel::body_calculation_count.load();
+        const auto direction_document=window.execute_console_command("documents").data;
+        for(unsigned flip=0;flip<4;++flip) {
+            QMouseEvent press(QEvent::MouseButtonPress,reverse_path->rect().center(),reverse_path->mapToGlobal(reverse_path->rect().center()),
+                Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);QApplication::sendEvent(reverse_path,&press);
+            QMouseEvent release(QEvent::MouseButtonRelease,reverse_path->rect().center(),reverse_path->mapToGlobal(reverse_path->rect().center()),
+                Qt::LeftButton,Qt::NoButton,Qt::NoModifier);QApplication::sendEvent(reverse_path,&release);flush_station_ui();
+            const auto route=zima::document::PartDocument::sweep2d_route(dialog->pending);
+            if(!verify(route.stations.front().point_id==(flip%2?forward_route.stations.front().point_id:forward_route.stations.back().point_id)&&
+                dialog->pending.sweep2d.profiles.size()==definition.sweep2d.profiles.size(),"Direction click lost station/profile identities"))return 1;
+        }
+        if(!verify(dialog->pending==definition,"Repeated direction clicks changed the authored draft"))return 1;
+        if(!verify(zima::kernel::body_calculation_count.load()==direction_calls&&
+            window.execute_console_command("documents").data==direction_document,
+            "Direction preview calculated or committed the document"))return 1;
         const auto mapping=zima::document::sweep3d_profile_correspondence(zima::sketcher::Sketch::from_serialized(definition.sweep2d.profiles.front().sketch_serialized));
         for(bool reverse:{false,true}) {
             dialog->findChild<QPushButton*>("sweep2dPointOrder0")->click();flush_station_ui();
@@ -65,6 +83,8 @@
             const auto expected=settings.qt_translations.value("Vlastní");
             if(!verify(rows&&rows->rowCount()==4&&!expected.isEmpty()&&rows->item(1,3)->text()==expected,
                 "Endpoint station presentation is not localized"))return 1;
+            if(!verify(translated.findChild<QPushButton*>("sweep2dReversePath")->toolTip()==settings.qt_translations.value(
+                "Přepnout počátek na opačný konec dráhy. U uzavřené dráhy obrátit směr."),"Path direction tooltip is not localized"))return 1;
             window.grab().save(QString::fromStdString((directory/(std::string("sweep-stations-")+language+".png")).string()));
         }
         zima::app::apply_application_translations(application,original_language);dialog->show();

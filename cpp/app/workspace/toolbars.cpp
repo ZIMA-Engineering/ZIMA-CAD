@@ -96,6 +96,8 @@ void AssemblyWorkspaceWindow::update_application_actions() {
         else if(render)active_application_=ApplicationMode::Render;
         else if(fem)active_application_=ApplicationMode::Fem;
         else if (active_body) {
+            const auto* body=part->session.document().body_history.find(part->session.document().body_history.active_body_id());
+            application_actions_[static_cast<std::size_t>(ApplicationMode::Mech)]->setEnabled(body&&!body->derived_copy&&!body->suppressed);
             application_actions_[static_cast<std::size_t>(ApplicationMode::SheetMetal)]
                 ->setEnabled(true);
             application_actions_[static_cast<std::size_t>(ApplicationMode::Surface)]
@@ -128,6 +130,7 @@ void AssemblyWorkspaceWindow::update_application_actions() {
             sheet_metal_mode_button_->setVisible(part_context&&!fem&&!render&&!cam);
         if(surface_mode_button_)
             surface_mode_button_->setVisible(part_context&&!fem&&!render&&!cam);
+        if(mech_mode_button_)mech_mode_button_->setVisible(part_context&&!fem&&!render&&!cam);
         application_mode_selector_->setVisible(
             part_context&&
             !workspace_.open_drawing(workspace_.displayed_document_id()));
@@ -245,6 +248,7 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
         : active_application_ == ApplicationMode::Assembly ? tr("Sestava")
         : active_application_ == ApplicationMode::SheetMetal ? application_actions_[static_cast<std::size_t>(ApplicationMode::SheetMetal)]->text()
         : active_application_ == ApplicationMode::Surface ? tr("Plochy")
+        : active_application_ == ApplicationMode::Mech ? tr("MECH")
         : active_application_ == ApplicationMode::Piping ? tr("Potrubí")
         : tr("Výkres");
     const auto* toolbar_part = workspace_.open_part(workspace_.active_document_id());
@@ -632,6 +636,16 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
         }
         add_symbol_group();
         return;
+    }
+    if (active_application_ == ApplicationMode::Mech) {
+        const auto* part=workspace_.open_part(workspace_.active_document_id());
+        const auto* body=part?part->session.document().body_history.find(part->session.document().body_history.active_body_id()):nullptr;
+        add_command(selection_action_);add_group_separator();
+        auto* keyway=findChild<QAction*>("mechKeywayAction");
+        if(!keyway){keyway=new QAction(resource_icon("keyway"),tr("Drážka pro pero"),this);
+            keyway->setObjectName("mechKeywayAction");connect(keyway,&QAction::triggered,this,[this]{show_primitive_properties(document::FeatureKind::MechKeyway);});}
+        keyway->setEnabled(body&&!body->derived_copy&&!body->suppressed&&!properties_dialog_);add_command(keyway);
+        add_group_separator();add_command(mirror_action_);add_command(pattern_action_);add_symbol_group();return;
     }
     if (active_application_ == ApplicationMode::Surface) {
         const auto* modeling_part=workspace_.open_part(

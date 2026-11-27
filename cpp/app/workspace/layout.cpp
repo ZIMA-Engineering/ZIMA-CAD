@@ -13,6 +13,7 @@
 #include "../work_plane_selection.hpp"
 #include <zima/workspace/sheet_exchange_operations.hpp>
 #include <zima/workspace/sheet_profile_operations.hpp>
+#include <zima/workspace/mech_keyway_operations.hpp>
 #include "../sketch_external_reference_selection.hpp"
 #include "tool_button_style.hpp"
 #include <zima/workspace/body_operations.hpp>
@@ -103,6 +104,7 @@ std::string sheet_profile_interaction_owner(
             resolved_owner=sketch->owner_container_id;
     }
     const auto* child=document.find_container(resolved_owner);
+    if(child&&!child->mech_keyway_binding.parent_id.empty())return child->mech_keyway_binding.parent_id;
     if(!child||child->sheet_profile_binding.parent_id.empty())
         return resolved_owner;
     const auto* parent=document.find_container(
@@ -221,7 +223,12 @@ void AssemblyWorkspaceWindow::create_layout() {
         try {
             if(const auto* object=active_render_object(owner))wire=render_object_wire(*object).edges;
             else if(const auto* condition=active_fem_condition(owner))wire=document::fem_condition_presentation(*condition,part->session.body_context_mesh()).edges;
-            else if(part)wire=authored_feature_wire(part->session,owner);
+            else if(part) {
+                const auto* feature=part->session.document().find_container(owner);
+                const auto& selection_owner=feature&&!feature->mech_keyway_binding.parent_id.empty()
+                    ?feature->mech_keyway_binding.parent_id:owner;
+                wire=authored_feature_wire(part->session,selection_owner);
+            }
             else if(const auto* assembly=workspace_.open_assembly(workspace_.active_document_id()))
                 if(const auto* cut=assembly->session.document().find_cut(owner);cut&&!cut->definition.suppressed) {
                     wire=cut->preview_wire;
@@ -252,6 +259,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                     feature->feature_kind==document::FeatureKind::DerivedCopy||feature->feature_kind==document::FeatureKind::Loft||
                     feature->feature_kind==document::FeatureKind::Flat||feature->feature_kind==document::FeatureKind::Bend||
                     feature->feature_kind==document::FeatureKind::LineBend||
+                    feature->feature_kind==document::FeatureKind::MechKeyway||
                     feature->feature_kind==document::FeatureKind::SheetTransition||
                     feature->feature_kind==document::FeatureKind::Fillet||
                     feature->feature_kind==document::FeatureKind::Chamfer)return true;
@@ -975,6 +983,8 @@ void AssemblyWorkspaceWindow::create_layout() {
             if(candidate.kind==zima::viewer::CandidateKind::Symbol && !properties_dialog_) {
                 const auto id=candidate.semantic_key.substr(7);QMenu menu(this);
                 auto* properties=menu.addAction(resource_icon("properties"),tr("Vlastnosti…"));auto* remove=menu.addAction(resource_icon("delete"),tr("Odstranit"));
+                if(active_sketch_id_.empty())if(const auto* part=workspace_.open_part(workspace_.active_document_id()))
+                    remove->setEnabled(!workspace::mech_keyway_symbol_owner(part->session.document(),id));
                 if(candidate.owner_id==active_sketch_id_)if(auto* explode=findChild<QAction*>("explodeSketchSymbolAction")) {
                     explode->setText(tr("Rozložit symbol"));explode->setData(QString::fromStdString(id));menu.insertAction(remove,explode);
                 }
@@ -1893,6 +1903,7 @@ void AssemblyWorkspaceWindow::create_layout() {
         ApplicationMode::SheetMetal,"sheetMetalModeButton");
     surface_mode_button_=mode_button(
         ApplicationMode::Surface,"surfaceModeButton");
+    mech_mode_button_=mode_button(ApplicationMode::Mech,"mechModeButton");
     fem_mode_button_=mode_button(ApplicationMode::Fem,"femModeButton");
     render_mode_button_=mode_button(ApplicationMode::Render,"renderModeButton");
     cam_mode_button_=mode_button(ApplicationMode::Cam,"camModeButton");
@@ -2717,6 +2728,8 @@ void AssemblyWorkspaceWindow::create_layout() {
             if((step_kind=="sketch-symbol"||step_kind=="model-symbol")&&!properties_dialog_) {
                 const auto id=item->data(0,Qt::UserRole).toString().toStdString();QMenu menu(this);
                 auto* properties=menu.addAction(resource_icon("properties"),tr("Vlastnosti…"));auto* remove=menu.addAction(resource_icon("delete"),tr("Odstranit"));
+                if(step_kind=="model-symbol")if(const auto* part=workspace_.open_part(workspace_.active_document_id()))
+                    remove->setEnabled(!workspace::mech_keyway_symbol_owner(part->session.document(),id));
                 if(step_kind=="sketch-symbol")if(auto* explode=findChild<QAction*>("explodeSketchSymbolAction")) {
                     explode->setText(tr("Rozložit symbol"));explode->setData(QString::fromStdString(id));menu.insertAction(remove,explode);
                 }
@@ -3132,6 +3145,11 @@ void AssemblyWorkspaceWindow::create_layout() {
                     menu.addSeparator();
                 }
                 QAction* explode_profile{};
+                QAction* explode_mech{};
+                if(container->feature_kind==document::FeatureKind::MechKeyway){
+                    explode_mech=menu.addAction(resource_icon("keyway"),tr("Rozložit vše"));
+                    explode_mech->setObjectName("explodeMechKeywayAction");
+                }
                 QAction* explode_sheet_from_body_all{};
                 QAction* explode_sheet_from_body_part{};
                 std::string sheet_from_body_parent;
@@ -3173,14 +3191,16 @@ void AssemblyWorkspaceWindow::create_layout() {
                 auto* remove = menu.addAction(resource_icon("delete"),tr("Odstranit"));
                 remove->setObjectName("deleteHistoryObject");
                 suppress->setEnabled(!sheet_from_body_binding&&
-                    !command_boundary&&!rip_owner);
-                remove->setEnabled(!sheet_from_body_binding&&!rip_owner);
+                    !command_boundary&&!rip_owner&&container->mech_keyway_binding.parent_id.empty());
+                remove->setEnabled(!sheet_from_body_binding&&!rip_owner&&container->mech_keyway_binding.parent_id.empty());
                 const auto* selected = exec_tree_menu(menu,item,position);
                 if (selected == edit) {
                     if(command_boundary||rip_owner)show_tree_item_properties(item);
                     else show_parameter_dimensions(id);
                 } else if (selected == properties) {
-                    if(command_boundary||rip_owner)show_tree_item_properties(item);
+                    if(!container->mech_keyway_binding.parent_id.empty())
+                        show_primitive_properties(document::FeatureKind::MechKeyway,container->mech_keyway_binding.parent_id);
+                    else if(command_boundary||rip_owner)show_tree_item_properties(item);
                     else if (container->feature_kind ==
                             zima::document::FeatureKind::Sketch) {
                         const auto sketch = std::find_if(
@@ -3211,6 +3231,11 @@ void AssemblyWorkspaceWindow::create_layout() {
                 } else if (transform_twist && selected == transform_twist) {
                     transform_sketch_container(
                         id, zima::document::FeatureKind::Feature);
+                } else if(explode_mech&&selected==explode_mech) {
+                    try {
+                        static_cast<void>(workspace::explode_mech_keyway(workspace_,workspace_.active_document_id(),id));
+                        preserve_view_on_refresh_=true;refresh_tabs();refresh_scene();
+                    }catch(const std::exception& error){state_->setText(tr(error.what()));}
                 } else if(selected==explode_profile) {
                     try {
                         static_cast<void>(workspace::explode_sheet_profile(

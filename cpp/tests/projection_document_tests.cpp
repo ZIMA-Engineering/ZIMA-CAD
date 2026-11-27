@@ -32,11 +32,41 @@ void require(bool condition,const char* message){if(!condition)throw std::runtim
 #include "projection_relief_contract.inc"
 #include "projection_user_model_contract.inc"
 #include "relief_cylinder_junction_contract.inc"
+void verify_analytic_projection_preview() {
+    using Kind=kernel::SurfaceGeometry::Kind;
+    for(const auto kind:{Kind::Plane,Kind::Cylinder,Kind::Cone,Kind::Sphere}) {
+        auto part=document::PartDocument::create_default();
+        auto sketch=sketcher::Sketch::create_default();sketch.plane_auto=false;
+        sketch.resolved_origin={100,0,0};sketch.resolved_x_axis={0,0,1};sketch.resolved_y_axis={0,1,0};sketch.resolved_normal={-1,0,0};
+        static_cast<void>(sketch.add_segment(2,1,3,2));part.sketches.push_back(sketch);
+        auto feature=document::PartDocument::create_feature_container(sketch.id);
+        part.sketches.back().owner_container_id=feature.id;
+        feature.feature.type=document::FeatureType::Projection;feature.feature.projection.output=document::ProjectionOutput::Curves;
+        kernel::SurfaceGeometry surface;surface.kind=kind;surface.axis=kind==Kind::Plane?kernel::Vec3{1,0,0}:kernel::Vec3{0,0,1};
+        surface.origin=kind==Kind::Plane?kernel::Vec3{7,0,0}:kernel::Vec3{};surface.radius=10;surface.semi_angle=std::atan(.1);
+        kernel::FaceReference face{"target","partial-support",{}};face.surface=std::make_shared<const kernel::SurfaceGeometry>(surface);
+        document::ExtrusionParameters::EndTarget target;target.reference=face;feature.feature.projection.targets={target};
+        kernel::ViewerMesh input;input.vertices={{10,0,0},{10,.1,0},{10,0,.1}};input.triangles={0,1,2};input.triangle_references={face};
+        const auto before=part.serialized();const auto calculations=kernel::body_calculation_count.load();bool incomplete=false;
+        const auto preview=part.projection_preview_mesh(feature,input,nullptr,&incomplete);unsigned points{};
+        require(!incomplete,"Analytic projection preview was clipped to the partial face");
+        for(const auto& edge:preview.edges)if(edge.reference.semantic_key=="projection:preview:result")for(const auto point:edge.points) {
+            const double radius=kind==Kind::Cone?10+.1*point.z:10;
+            const double expected=kind==Kind::Plane?7:std::sqrt(radius*radius-point.y*point.y-(kind==Kind::Sphere?point.z*point.z:0));
+            require(std::abs(point.x-expected)<1e-8&&point.z>=2-1e-8&&point.z<=3+1e-8,
+                "Analytic projection preview changed the ray branch or surface equation");++points;
+        }
+        require(points>0&&part.serialized()==before&&kernel::body_calculation_count.load()==calculations,
+            "Analytic projection preview is empty or calculated/modified the model");
+    }
+    std::cout<<"PASS partial plane/cylinder/cone/sphere preview equations and nearest branch\n";
+}
 int main(){try {
     if(std::getenv("ZIMA_VERIFY_RELIEF_JUNCTION")) {verify_relief_cylinder_junction();return 0;}
     if(const auto* path=std::getenv("ZIMA_VERIFY_PROJECTION_MODEL")) {
         verify_projection_user_model(std::filesystem::u8path(path));return 0;
     }
+    verify_analytic_projection_preview();
     verify_projection_relief();
     for(const auto mode:{document::ProjectionOutput::Curves,document::ProjectionOutput::Split,document::ProjectionOutput::Surface}) {
         kernel::OcctKernel engine;workspace::Workspace live;
@@ -53,7 +83,7 @@ int main(){try {
             if(face.owner_id==base.id&&face.semantic_key.find("end:from:")!=std::string::npos)target=face;
         require(target.valid(),"No current bounded target face");
         auto source=sketcher::Sketch::create_default();source.plane_auto=false;
-        const auto circle=source.add_circle(0,0,4);
+        const auto circle=source.add_circle(0,0,mode==document::ProjectionOutput::Curves?18:4);
         auto feature=document::PartDocument::create_feature_container(source.id);
         feature.feature.type=document::FeatureType::Projection;feature.placement.z=20;
         feature.feature.projection.output=mode;

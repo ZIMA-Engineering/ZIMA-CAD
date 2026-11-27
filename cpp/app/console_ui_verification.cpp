@@ -27,6 +27,8 @@
 #include <QGroupBox>
 #include <QScrollArea>
 #include "primitive_properties_dialog.hpp"
+#include "mech_keyway_parameter_panel.hpp"
+#include <zima/workspace/mech_keyway_operations.hpp>
 #include "sweep2d_dialog.hpp"
 #include "feature_view_cues.hpp"
 #include "authored_feature_wire.hpp"
@@ -291,6 +293,7 @@ Q_NEVER_INLINE static int verify_sketch_roles(QApplication& application, Assembl
 #include "relief_confirmation_ui_verification.inc"
 #include "projection_ui_verification.inc"
 #include "wrapping_ui_verification.inc"
+#include "mech_keyway_ui_verification.inc"
 #include "drawing_file_rename_ui_verification.inc"
 
 #include "cylinder_mate_ui_verification.inc"

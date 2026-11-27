@@ -30,7 +30,7 @@ kernel::ViewerMesh PartDocument::projection_preview_mesh(
     direction=placement_vec_normalized(direction);if(p.reverse)direction=placement_vec_scale(direction,-1);
     std::vector<FaceReference> selected_faces;
     for(const auto& target:p.targets)selected_faces.push_back(target.reference);
-    if(p.output==ProjectionOutput::Relief||p.output==ProjectionOutput::Curves)
+    if(p.output==ProjectionOutput::Relief)
         selected_faces=continued_viewer_surfaces(input,selected_faces,precision_value(document_precision,"linear_tolerance",0.001),[&](const auto& face) {
             if(!owners||!body)return true;
             const auto* owner=owners->body_owner_for_object(face.owner_id);
@@ -40,9 +40,24 @@ kernel::ViewerMesh PartDocument::projection_preview_mesh(
     std::map<std::tuple<std::string,std::string,std::string>,std::shared_ptr<const SurfaceGeometry>> supports;
     for(const auto& face:viewer_surface_references(input))
         supports.emplace(std::tuple{face.owner_id,face.semantic_key,face.instance_path},face.surface?face.surface:face.contour_surface);
+    struct Analytic {SurfaceGeometry surface;std::size_t target;};std::vector<Analytic> analytic;
+    const auto add_analytic=[&](const SurfaceGeometry& source,std::size_t target,bool external) {
+        if(p.output!=ProjectionOutput::Curves||source.kind==SurfaceGeometry::Kind::Torus)return;
+        auto surface=source;
+        if(!external) {
+            surface.origin=local(source.origin);
+            surface.axis=placement_vec_normalized(placement_vec_sub(local(placement_vec_add(source.origin,source.axis)),surface.origin));
+        }
+        analytic.push_back({surface,target});
+    };
+    for(std::size_t i=0;i<selected_faces.size();++i) {
+        const auto& face=selected_faces[i];const auto found=supports.find({face.owner_id,face.semantic_key,face.instance_path});
+        if(found!=supports.end()&&found->second)add_analytic(*found->second,i,false);
+    }
     for(std::size_t i=0;i<input.triangle_references.size();++i) {
         const auto target=std::ranges::find(selected_faces,input.triangle_references[i]);
         if(target==selected_faces.end()||i*3+2>=input.triangles.size())continue;
+        if(std::ranges::any_of(analytic,[&](const auto& item){return item.target==static_cast<std::size_t>(target-selected_faces.begin());}))continue;
         const auto a=input.triangles[i*3],b=input.triangles[i*3+1],c=input.triangles[i*3+2];
         if(a>=input.vertices.size()||b>=input.vertices.size()||c>=input.vertices.size())continue;
         const auto& face=input.triangle_references[i];
@@ -51,6 +66,14 @@ kernel::ViewerMesh PartDocument::projection_preview_mesh(
     }
     // External packets are already expressed in the destination Body frame.
     for(std::size_t i=0;i<p.targets.size();++i)if(p.targets[i].external_source) {
+        auto references=p.targets[i].external_source->source_face->mesh.original_references;
+        if(owners)references=owners->construction_reference_geometry_for(body?body->scope.id:feature.id,std::move(references));
+        const auto& selected=p.targets[i].reference;
+        for(const auto& face:references.triangle_references)if(face.owner_id==selected.owner_id&&face.semantic_key==selected.semantic_key) {
+            const auto support=face.surface?face.surface:face.contour_surface;
+            if(support){add_analytic(*support,i,true);break;}
+        }
+        if(std::ranges::any_of(analytic,[&](const auto& item){return item.target==i;}))continue;
         const auto& points=p.targets[i].fallback_triangles;
         for(std::size_t j=0;j+2<points.size();j+=3)triangles.push_back({points[j],points[j+1],points[j+2],i});
     }
@@ -58,6 +81,7 @@ kernel::ViewerMesh PartDocument::projection_preview_mesh(
     const auto cast=[&](Vec3 point)->std::optional<Hit> {
         double closest=std::numeric_limits<double>::infinity(),signed_depth=0;std::size_t owner=0;bool ambiguous=false,on_boundary=false;
         const Triangle* nearest=nullptr;
+        const Analytic* nearest_analytic=nullptr;
         for(const auto& triangle:triangles) {
             const auto e1=placement_vec_sub(triangle.b,triangle.a),e2=placement_vec_sub(triangle.c,triangle.a);
             const auto h=placement_vec_cross(direction,e2);const double determinant=placement_vec_dot(e1,h);
@@ -72,8 +96,57 @@ kernel::ViewerMesh PartDocument::projection_preview_mesh(
             else if(std::abs(distance-closest)<1e-7&&
                 (std::abs(depth-signed_depth)>1e-7||(owner!=triangle.target&&!(boundary&&on_boundary))))ambiguous=true;
         }
+        // Curves use the complete analytic support; current mesh trims must not
+        // remove a mathematically defined preview or choose a faceted hit.
+        for(const auto& item:analytic) {
+            const auto& surface=item.surface;const auto axis=placement_vec_normalized(surface.axis);
+            const auto delta=placement_vec_sub(point,surface.origin);
+            const double axial=placement_vec_dot(delta,axis),axial_direction=placement_vec_dot(direction,axis);
+            const auto radial=placement_vec_sub(delta,placement_vec_scale(axis,axial));
+            const auto radial_direction=placement_vec_sub(direction,placement_vec_scale(axis,axial_direction));
+            std::vector<double> roots;
+            const auto quadratic=[&](double a,double b,double c) {
+                if(std::abs(a)<1e-14){if(std::abs(b)>1e-14)roots.push_back(-c/b);return;}
+                const double discriminant=b*b-4*a*c;
+                const double roundoff=32*std::numeric_limits<double>::epsilon()*(b*b+std::abs(4*a*c));
+                if(discriminant< -roundoff)return;
+                const double q=-.5*(b+std::copysign(std::sqrt(std::max(0.,discriminant)),b));
+                if(q==0)roots.push_back(-b/(2*a));else {roots.push_back(q/a);roots.push_back(c/q);}
+            };
+            if(surface.kind==SurfaceGeometry::Kind::Plane) {
+                if(std::abs(axial_direction)>1e-14)roots.push_back(-axial/axial_direction);
+            }else if(surface.kind==SurfaceGeometry::Kind::Sphere) {
+                quadratic(1,2*placement_vec_dot(delta,direction),placement_vec_dot(delta,delta)-surface.radius*surface.radius);
+            }else {
+                const double slope=surface.kind==SurfaceGeometry::Kind::Cone?std::tan(surface.semi_angle):0;
+                const double radius=surface.radius+axial*slope,rate=axial_direction*slope;
+                quadratic(placement_vec_dot(radial_direction,radial_direction)-rate*rate,
+                    2*(placement_vec_dot(radial,radial_direction)-radius*rate),placement_vec_dot(radial,radial)-radius*radius);
+            }
+            for(const double depth:roots) {
+                if(!std::isfinite(depth)||(!both_directions&&depth< -1e-7))continue;
+                if(surface.kind==SurfaceGeometry::Kind::Cone&&surface.radius+(axial+depth*axial_direction)*std::tan(surface.semi_angle)<=1e-7)continue;
+                const double distance=std::abs(depth);
+                if(distance<closest-1e-7) {
+                    closest=distance;signed_depth=depth;owner=item.target;ambiguous=false;nearest_analytic=&item;
+                }else if(std::abs(distance-closest)<1e-7&&
+                    (std::abs(depth-signed_depth)>1e-7||(owner!=item.target&&
+                        !(nearest_analytic&&same_surface_support(nearest_analytic->surface,surface,1e-7)))))ambiguous=true;
+            }
+        }
         if(!std::isfinite(closest)||ambiguous)return {};
         const auto hit=placement_vec_add(point,placement_vec_scale(direction,signed_depth));
+        if(nearest_analytic) {
+            const auto& surface=nearest_analytic->surface;const auto axis=placement_vec_normalized(surface.axis);
+            const auto delta=placement_vec_sub(hit,surface.origin);
+            const auto radial=placement_vec_sub(delta,placement_vec_scale(axis,placement_vec_dot(delta,axis)));
+            auto normal=axis;
+            if(surface.kind==SurfaceGeometry::Kind::Sphere)normal=placement_vec_normalized(delta);
+            else if(surface.kind==SurfaceGeometry::Kind::Cylinder)normal=placement_vec_normalized(radial);
+            else if(surface.kind==SurfaceGeometry::Kind::Cone)normal=placement_vec_sub(
+                placement_vec_scale(placement_vec_normalized(radial),std::cos(surface.semi_angle)),placement_vec_scale(axis,std::sin(surface.semi_angle)));
+            return Hit{hit,placement_vec_scale(normal,surface.reversed?-1.:1.)};
+        }
         auto normal=placement_vec_normalized(placement_vec_cross(placement_vec_sub(nearest->b,nearest->a),placement_vec_sub(nearest->c,nearest->a)));
         // Smooth analytic normals come from the already calculated face packet.
         // Triangle orientation remains authoritative for the material side.

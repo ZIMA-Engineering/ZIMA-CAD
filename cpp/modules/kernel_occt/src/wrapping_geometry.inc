@@ -34,11 +34,8 @@ PrimitiveData make_wrapping_data(const WrappingRequest& request,const std::strin
     const auto charts=native_wrap_charts(request,available_faces);
     for(const auto& chart:charts) {
     const auto* analytic=&chart.surface;const auto& map=chart.map;
-    TopoDS_Face target;std::vector<TopoDS_Face> coverage;
-    for(const auto& reference:chart.coverage)for(const auto& face:available_faces)if(same_face_identity(face.reference,reference)) {
-        if(reference==chart.anchor)target=TopoDS::Face(face.shape);
-        if(std::ranges::none_of(coverage,[&](const auto& f){return f.IsSame(face.shape);}))coverage.push_back(TopoDS::Face(face.shape));
-    }
+    TopoDS_Face target;
+    for(const auto& face:available_faces)if(same_face_identity(face.reference,chart.anchor))target=TopoDS::Face(face.shape);
     if(target.IsNull())throw std::runtime_error("Wrap target is unavailable.");
     auto support=BRep_Tool::Surface(target);
     const auto anchor=map.point(0,0);
@@ -133,25 +130,9 @@ PrimitiveData make_wrapping_data(const WrappingRequest& request,const std::strin
         auto mapped=edge.Edge();
         if(!BRepLib::BuildCurve3d(mapped,tolerance/4))throw std::runtime_error("Wrap curve construction failed.");
         if(reversed)mapped.Reverse();
-        // Validate the trimmed target, including holes, at the actual mapped
-        // edge. Wrapping onto the analytic support must not escape its face.
-        BRepAdaptor_Curve check(mapped);
-        for(int i=0;i<=64;++i) {
-            const auto point=check.Value(check.FirstParameter()+(check.LastParameter()-check.FirstParameter())*i/64.);
-            if(std::ranges::none_of(coverage,[&](const auto& face) {
-                const auto state=BRepClass_FaceClassifier(face,point,tolerance).State();
-                return state==TopAbs_IN||state==TopAbs_ON;
-            }))
-                throw std::runtime_error("Wrapped geometry extends outside the selected face.");
-        }
-        // Point samples cannot detect a narrow hole between two samples.
-        // Check the complete mapped edge against the exact bounded face.
-        BRepAlgoAPI_Cut outside;
-        NCollection_List<TopoDS_Shape> arguments,tools;arguments.Append(mapped);for(const auto& face:coverage)tools.Append(face);
-        outside.SetArguments(arguments);outside.SetTools(tools);outside.SetNonDestructive(true);outside.SetFuzzyValue(tolerance);outside.Build();
-        if(!outside.IsDone()||outside.HasErrors())throw std::runtime_error("Wrapped region is not valid.");
-        GProp_GProps uncovered;BRepGProp::LinearProperties(outside.Shape(),uncovered);
-        if(uncovered.Mass()>tolerance)throw std::runtime_error("Wrapped geometry extends outside the selected face.");
+        // Analytic charts retain their exact support outside the picked trim.
+        // Mapping tolerance, singularities and authored chart limits are still
+        // checked; unrelated intersecting faces never replace this support.
         result.edges.push_back({mapped,{owner,key,{}}});
         if(edge_targets)for(const auto& face:chart.coverage) {
             auto& targets=(*edge_targets)[key];const auto identity=encoded_topology_reference(face);
@@ -199,14 +180,6 @@ PrimitiveData make_wrapping_data(const WrappingRequest& request,const std::strin
         const auto skin_surface=analytic_surface(skin);
         if(!skin_surface)throw std::runtime_error("Wrapped region is not valid.");
         if(skin_surface->reversed!=analytic->reversed)skin.Reverse();
-        BRepAlgoAPI_Cut outside;
-        NCollection_List<TopoDS_Shape> arguments,tools;arguments.Append(skin);for(const auto& face:coverage)tools.Append(face);
-        outside.SetArguments(arguments);outside.SetTools(tools);outside.SetNonDestructive(true);outside.SetFuzzyValue(tolerance);outside.Build();
-        if(!outside.IsDone()||outside.HasErrors())throw std::runtime_error("Wrapped region is not valid.");
-        GProp_GProps uncovered,boundary_length;BRepGProp::SurfaceProperties(outside.Shape(),uncovered);
-        BRepGProp::LinearProperties(skin,boundary_length);
-        if(uncovered.Mass()>tolerance*std::max(tolerance,boundary_length.Mass()))
-            throw std::runtime_error("Wrapped geometry extends outside the selected face.");
         std::ranges::sort(sources);std::string key=prefix+":region";for(const auto& source:sources)key+=":"+field(source);
         FaceReference reference{owner,key,{}};reference.surface_result=true;
         if(request.output==WrappingResult::Surface) {result.faces.push_back({skin,reference});builder.Add(compound,skin);}

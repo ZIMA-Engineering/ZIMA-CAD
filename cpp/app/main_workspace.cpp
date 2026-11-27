@@ -2155,6 +2155,9 @@ int verify_sweep2d_command(QApplication& application,zima::app::AssemblyWorkspac
     });
     modal_watch.start(100);
     auto doc=zima::document::PartDocument::create_default();
+    zima::document::BodyHistoryGraph sweep_bodies;
+    const auto sweep_body=sweep_bodies.create_body("Sweep fixture");
+    doc.set_body_history(std::move(sweep_bodies));
     auto datum=zima::document::PartDocument::create_construction(
         zima::document::ConstructionKind::Plane);
     datum.name="Path reference plane";datum.origin={0,0,-15};
@@ -2168,6 +2171,42 @@ int verify_sweep2d_command(QApplication& application,zima::app::AssemblyWorkspac
     action->trigger();application.processEvents();
     auto* dialog=dynamic_cast<zima::app::Sweep2DDialog*>(window.findChild<QDialog*>("sweep2dDialog"));
     if(!verify(dialog!=nullptr,"2D Sweep properties did not open"))return 1;
+    {
+        const auto revision=window.execute_console_command("documents").data;
+        const auto calculations=zima::kernel::body_calculation_count.load();
+        auto* tree=window.findChild<QTreeWidget*>("documentTree");
+        QTreeWidgetItem* reference=nullptr;
+        if(tree)for(QTreeWidgetItemIterator it(tree);*it;++it)
+            if(((*it)->data(0,Qt::UserRole+6).isValid()?(*it)->data(0,Qt::UserRole+6):(*it)->data(0,Qt::UserRole)).toString().toStdString()==doc.body_history.find(sweep_body)->origin().id&&
+                (*it)->data(0,Qt::UserRole+5)=="origin:plane:xy"){reference=*it;break;}
+        if(!verify(reference&&dialog->request_placement,"2D Sweep first-plane Tree entry unavailable"))return 1;
+        dialog->request_placement(0);application.processEvents();
+        for(auto* parent=reference->parent();parent;parent=parent->parent())parent->setExpanded(true);
+        tree->scrollToItem(reference);application.processEvents();
+        const auto position=QPointF(tree->visualItemRect(reference).center());
+        for(const auto type:{QEvent::MouseButtonPress,QEvent::MouseButtonRelease}) {
+            QMouseEvent event(type,position,QPointF(tree->viewport()->mapToGlobal(position.toPoint())),
+                Qt::LeftButton,type==QEvent::MouseButtonPress?Qt::LeftButton:Qt::NoButton,Qt::NoModifier);
+            QApplication::sendEvent(tree->viewport(),&event);application.processEvents();
+        }
+        window.grab().save(QString::fromStdWString((directory/"sweep-first-plane.png").wstring()));
+        if(!verify(!dialog->pending.placement.references.empty()&&
+                dialog->pending.placement.references.front().orientation_role=="top",
+                "2D Sweep first mouse-picked plane did not define local XY"))return 1;
+        for(double offset:{0.,3.,-2.}) {
+            if(offset!=0)dialog->set_inline_parameter_value("placement:reference_offset:0",offset);
+            application.processEvents();
+            const auto guide=zima::sketcher::Sketch::from_serialized(dialog->pending.sweep2d.path_sketch);
+            if(!verify(std::abs(guide.resolved_normal.z-1)<1e-8&&std::abs(guide.resolved_origin.z-offset)<1e-8,
+                    "2D Sweep path did not follow its first plane and signed offset"))return 1;
+        }
+        dialog->reject();application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+        if(!verify(window.execute_console_command("documents").data==revision&&
+                zima::kernel::body_calculation_count.load()==calculations,"2D Sweep first-plane Cancel changed the model"))return 1;
+        action->trigger();application.processEvents();
+        dialog=dynamic_cast<zima::app::Sweep2DDialog*>(window.findChild<QDialog*>("sweep2dDialog"));
+        if(!verify(dialog!=nullptr,"2D Sweep properties did not reopen after first-plane Cancel"))return 1;
+    }
     const auto feature_id=dialog->pending.id;
     auto* add_operation=dialog->findChild<QPushButton*>("primitiveAddOperation");
     auto* subtract_operation=dialog->findChild<QPushButton*>("primitiveSubtractOperation");
@@ -12440,6 +12479,7 @@ int verify_startup_contract(
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_GENERAL_SURFACE_ONLY")) return zima::app::verify_general_surface_ui(application,window,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SURFACE_TRIM_ONLY")) return zima::app::verify_surface_trim_ui(application,window,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_PROJECTION_ONLY")) return zima::app::verify_projection_ui(application,window,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_MECH_KEYWAY_WORKSPACE")) return zima::app::verify_mech_keyway_workspace_ui(application,window,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_WRAPPING_ONLY")) return zima::app::verify_wrapping_ui(application,window,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SURFACE_INTERSECTION_ONLY")) return zima::app::verify_surface_intersection_ui(application,window,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SPLINE_TANGENT_ONLY")) return verify_spline_tangent_selection(application,test_directory);
@@ -17057,6 +17097,14 @@ int main(int argc, char* argv[]) {
     UpdateService::get()->acknowledgeStartup();
     UpdateService::get()->scheduleStartupCheck();
     window.offer_system_setup();
+    QTimer::singleShot(0,&window,[] {
+        try {
+            zima::app::desktop::refresh_registered_icons(zima::app::desktop::current_context());
+        } catch(const std::exception& error) {
+            // An unavailable shell shortcut must not prevent CAD startup.
+            std::cerr<<error.what()<<'\n';
+        }
+    });
     const int result = application.exec();
     if (!window.restart_state()) return result;
     startup_directory = window.restart_state()->working_directory;

@@ -86,7 +86,8 @@ PrimitiveData make_projection_data(const ProjectionRequest& request,const std::s
         throw std::invalid_argument("Select a retained region on the target face before confirming the projection.");
     const auto field=[](const std::string& value){return std::to_string(value.size())+":"+value;};
     std::vector<detail::ProjectionTarget> targets;
-    const auto selected_faces=(request.output==ProjectionResult::Relief||request.output==ProjectionResult::Curves)?
+    std::vector<std::pair<SurfaceGeometry,TopoDS_Face>> analytic_supports;
+    const auto selected_faces=request.output==ProjectionResult::Relief?
         continued_native_surfaces(input_faces,request.targets,request.tolerance):request.targets;
     for(const auto& selected:selected_faces) {
         if(std::ranges::any_of(targets,[&](const auto& target){return target.target_key==encoded_topology_reference(selected);}))continue;
@@ -97,6 +98,41 @@ PrimitiveData make_projection_data(const ProjectionRequest& request,const std::s
         }
         if(!found)throw std::runtime_error("Projection source ancestry is missing.");
         detail::ProjectionTarget target{TopoDS::Face(found->shape),encoded_topology_reference(selected)};
+        if(request.output==ProjectionResult::Curves) {
+            // Continue the selected analytic support, never an ancestor face
+            // or the surface of the feature which removed part of this face.
+            // Material partition outputs still operate on actual Body faces.
+            if(const auto analytic=analytic_surface(target.face)) {
+                const auto& s=*analytic;
+                const gp_Ax3 frame(gp_Pnt(s.origin.x,s.origin.y,s.origin.z),
+                    gp_Dir(s.axis.x,s.axis.y,s.axis.z),gp_Dir(s.radial.x,s.radial.y,s.radial.z));
+                Handle(Geom_Surface) support;
+                switch(s.kind) {
+                case SurfaceGeometry::Kind::Plane:support=new Geom_Plane(frame);break;
+                case SurfaceGeometry::Kind::Cylinder:support=new Geom_CylindricalSurface(frame,s.radius);break;
+                case SurfaceGeometry::Kind::Cone:support=new Geom_ConicalSurface(frame,s.semi_angle,s.radius);break;
+                case SurfaceGeometry::Kind::Sphere:support=new Geom_SphericalSurface(frame,s.radius);break;
+                default:break;
+                }
+                if(!support.IsNull()) {
+                    const auto existing=std::ranges::find_if(analytic_supports,[&](const auto& item){
+                        return same_surface_support(item.first,s,request.tolerance);
+                    });
+                    if(existing!=analytic_supports.end())target.face=existing->second;
+                    else {
+                        if(s.kind==SurfaceGeometry::Kind::Cone) {
+                            const double apex=-s.radius/std::sin(s.semi_angle);
+                            target.face=BRepBuilderAPI_MakeFace(support,0,2*std::numbers::pi,
+                                s.semi_angle>0?apex:-Precision::Infinite(),
+                                s.semi_angle>0?Precision::Infinite():apex,request.tolerance).Face();
+                        } else target.face=BRepBuilderAPI_MakeFace(support,request.tolerance).Face();
+                        if(s.reversed)target.face.Reverse();
+                        analytic_supports.emplace_back(s,target.face);
+                    }
+                    target.extended_support=true;
+                }
+            }
+        }
         if(request.output==ProjectionResult::Relief) {
             // The current solid, rather than its generating face binding,
             // owns the material normal (also for a native cylindrical bore).
@@ -107,7 +143,7 @@ PrimitiveData make_projection_data(const ProjectionRequest& request,const std::s
             if(!index)throw std::runtime_error("Projection target must be a preceding bounded face in the active Body.");
             target.face=TopoDS::Face(material_faces.FindKey(index));
         }
-        for(TopExp_Explorer it(found->shape,TopAbs_EDGE);it.More();it.Next()) {
+        for(TopExp_Explorer it(found->shape,TopAbs_EDGE);!target.extended_support&&it.More();it.Next()) {
             const auto edge=TopoDS::Edge(it.Current());
             if(BRep_Tool::Degenerated(edge))continue;
             auto boundary=std::ranges::find_if(available_edges,[&](const auto& source){return source.shape.IsSame(edge);});

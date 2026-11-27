@@ -6,6 +6,9 @@
 namespace zima::kernel {
 // Kernel-only materialization, for explicit geometry calculation/export.
 [[nodiscard]] TopoDS_Shape read_calculated_body_shape(const BodyResult& body);
+// Restore a deferred face-picking presentation from its exact saved B-Rep and
+// identity bindings. No history replay, material calculation or renaming.
+[[nodiscard]] bool restore_calculated_body_face_mesh(BodyResult&,double mesh_deflection);
 
 // Explicit CAM calculation uses private work-coordinate solids. Remaining stock
 // is an inspection/material result, not a new source of design topology references.

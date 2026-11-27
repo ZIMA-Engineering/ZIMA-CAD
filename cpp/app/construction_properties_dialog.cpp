@@ -1,5 +1,6 @@
 #include "reference_table_style.hpp"
 #include <zima/document/placement_orientation.hpp>
+#include <zima/document/sketch_placement.hpp>
 #include "sweep_station_label.hpp"
 #include "work_plane_selection.hpp"
 #include <zima/ui/numeric_value_lock.hpp>
@@ -1069,6 +1070,18 @@ void ConstructionPropertiesDialog::refresh_preview() {
     notify_preview();
 }
 
+zima::document::ConstructionReference ConstructionPropertiesDialog::prepare_reference_candidate(
+        std::size_t index, zima::document::ConstructionReference reference) const {
+    // New Points, including Curve/Sweep stations, use the same surface-normal
+    // convention as automatic profiles: local Z is normal to local XY.
+    // Existing authoring choices and whole-Origin placement remain unchanged.
+    const auto existing=placement_->combined_references(3);
+    if(initial_.kind==zima::document::ConstructionKind::Point &&
+            existing.empty() && !entering_whole_origin())
+        zima::document::prepare_profile_plane_reference(index,reference,existing);
+    return reference;
+}
+
 bool ConstructionPropertiesDialog::set_reference(std::size_t index,
     zima::document::ConstructionReference reference, const QString& label,
     zima::document::ConstructionDefinition definition) {
@@ -1088,7 +1101,8 @@ bool ConstructionPropertiesDialog::set_reference(std::size_t index,
     // FRONT/TOP composition shared with Point/Axis.
     {
     const QScopedValueRollback transaction(updating_reference_,true);
-    if (!placement_->set_reference(index, std::move(reference), label, &error)) {
+    if (!placement_->set_reference(index,
+            prepare_reference_candidate(index,std::move(reference)), label, &error)) {
         if (!error.isEmpty()) error_->setText(error);
         return false;
     }

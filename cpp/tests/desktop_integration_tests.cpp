@@ -16,6 +16,8 @@
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QPushButton>
+#include <QScopeGuard>
+#include <QDir>
 #include <algorithm>
 #include <iostream>
 #include <memory>
@@ -23,10 +25,46 @@
 #ifdef Q_OS_WIN
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#include <shobjidl.h>
+#include <propkey.h>
+#include <propvarutil.h>
 #endif
 
 using namespace zima::app::desktop;
 void check(bool ok,const char* message) {if(!ok)throw std::runtime_error(message);}
+#ifdef Q_OS_WIN
+struct LinkValues { QString icon,arguments,directory,id; };
+LinkValues link_values(const QString& path,const LinkValues* replacement=nullptr) {
+    const auto status=CoInitializeEx(nullptr,COINIT_APARTMENTTHREADED);
+    check(SUCCEEDED(status)||status==RPC_E_CHANGED_MODE,"COM initialization failed");
+    const auto close_com=qScopeGuard([&]{if(SUCCEEDED(status))CoUninitialize();});
+    IShellLinkW* link{};check(SUCCEEDED(CoCreateInstance(CLSID_ShellLink,nullptr,CLSCTX_INPROC_SERVER,IID_PPV_ARGS(&link))),"Link creation failed");
+    const auto close_link=qScopeGuard([&]{link->Release();});
+    IPersistFile* file{};check(SUCCEEDED(link->QueryInterface(IID_PPV_ARGS(&file))),"Link persistence failed");
+    const auto close_file=qScopeGuard([&]{file->Release();});
+    const auto native=QDir::toNativeSeparators(path).toStdWString();
+    check(SUCCEEDED(file->Load(native.c_str(),replacement?STGM_READWRITE:STGM_READ)),"Link load failed");
+    IPropertyStore* properties{};check(SUCCEEDED(link->QueryInterface(IID_PPV_ARGS(&properties))),"Link properties failed");
+    const auto close_properties=qScopeGuard([&]{properties->Release();});
+    if(replacement) {
+        check(SUCCEEDED(link->SetIconLocation(replacement->icon.toStdWString().c_str(),0))&&
+            SUCCEEDED(link->SetArguments(replacement->arguments.toStdWString().c_str()))&&
+            SUCCEEDED(link->SetWorkingDirectory(replacement->directory.toStdWString().c_str())),"Link fixture failed");
+        PROPVARIANT id;PropVariantInit(&id);
+        check(SUCCEEDED(InitPropVariantFromString(replacement->id.toStdWString().c_str(),&id)),"Link identity fixture failed");
+        const auto clear=qScopeGuard([&]{PropVariantClear(&id);});
+        check(SUCCEEDED(properties->SetValue(PKEY_AppUserModel_ID,id))&&SUCCEEDED(properties->Commit())&&
+            SUCCEEDED(file->Save(native.c_str(),TRUE)),"Link fixture save failed");
+    }
+    wchar_t icon[32768]{},arguments[32768]{},directory[32768]{};int index{};
+    check(SUCCEEDED(link->GetIconLocation(icon,32768,&index))&&SUCCEEDED(link->GetArguments(arguments,32768))&&
+        SUCCEEDED(link->GetWorkingDirectory(directory,32768)),"Link read failed");
+    PROPVARIANT id;PropVariantInit(&id);const auto clear=qScopeGuard([&]{PropVariantClear(&id);});
+    check(SUCCEEDED(properties->GetValue(PKEY_AppUserModel_ID,&id)),"Link identity read failed");
+    return {QString::fromWCharArray(icon),QString::fromWCharArray(arguments),QString::fromWCharArray(directory),
+        id.vt==VT_LPWSTR?QString::fromWCharArray(id.pwszVal):QString{}};
+}
+#endif
 class Catalog final:public QTranslator {
 public:
     QJsonObject messages;
@@ -82,6 +120,7 @@ int main(int argc,char** argv) {
         registry.setValue("Classes/.prtz/.","Other.CAD");
         registry.setValue("UserChoice/ProgId","Other.CAD");registry.sync();
         check(!registered(c),"Portable mode registered itself");
+        check(!refresh_registered_icons(c),"Icon refresh registered an unregistered installation");
         install(c);check(registered(c),"Registration incomplete");
         const auto check_application_icon=[](const QImage& image) {
             std::size_t white{},cyan{};
@@ -116,11 +155,20 @@ int main(int argc,char** argv) {
             "Registered application icon missing");
         const auto application_icon_bytes=application_icon_file.readAll();
         application_icon_file.close();
-        check(application_icon_bytes.left(6)==
-                QByteArray::fromHex("000001000100"),
-            "Registered application icon header is invalid");
-        check_application_icon(QImage::fromData(
-            application_icon_bytes.mid(22),"PNG"));
+        QFile embedded_icon(":/zima/branding/windows-app-icon.ico");
+        check(embedded_icon.open(QIODevice::ReadOnly)&&embedded_icon.readAll()==application_icon_bytes,
+            "Registration diverged from the executable artwork");
+        const QIcon registered_icon(application_icon_path);
+        for(const int size:{16,24,32,48,64,128,256}) {
+            const auto image=registered_icon.pixmap(size,size).toImage();
+            check(!image.isNull(),"Registered application icon cannot be decoded");
+            check_application_icon(image);
+            int first=image.height(),last=-1;
+            for(int y=0;y<image.height();++y)for(int x=0;x<image.width();++x)
+                if(image.pixelColor(x,y).alpha()>100){first=std::min(first,y);last=std::max(last,y);}
+            check(last-first+1>image.height()*0.68&&last-first+1<=image.height()*0.85,
+                "Registered application icon has incorrect vertical proportions");
+        }
         const QIcon executable_icon(QFileInfo(__FILE__).absolutePath()+
             "/../app/windows/app-icon.ico");
         check(!executable_icon.isNull(),"Embedded Windows icon is missing");
@@ -134,6 +182,26 @@ int main(int argc,char** argv) {
         check(!registered(c),"Obsolete shortcut identity was not detected");
         install(c);check(registered(c),
             "Register or repair did not rewrite the application shortcut");
+        const auto pins=dir.path()+"/taskbar";
+        check(QDir().mkpath(pins),"Pin fixture directory failed");c.shortcut_directories={pins};
+        const auto pinned=pins+"/User named ZC.lnk",foreign=pins+"/Other identity.lnk";
+        check(QFile::copy(application_shortcut,pinned)&&QFile::copy(application_shortcut,foreign),"Pin fixtures failed");
+        const LinkValues obsolete{dir.path()+"/old.ico","--working-directory \"custom project\"",dir.path(),"ZIMA.CAD."+c.id};
+        link_values(pinned,&obsolete);
+        auto other_identity=obsolete;other_identity.id="Other.Application";link_values(foreign,&other_identity);
+        registry.setValue("ZIMA-CAD/Desktop/"+c.id+"/Capabilities/ApplicationIcon",obsolete.icon);registry.sync();
+        check(refresh_registered_icons(c)&&registered(c),"Automatic icon refresh failed");
+        const auto refreshed=link_values(pinned);
+        check(QDir::fromNativeSeparators(refreshed.icon)==QDir::fromNativeSeparators(application_icon_path)&&
+            refreshed.arguments==obsolete.arguments&&QDir::fromNativeSeparators(refreshed.directory)==obsolete.directory&&
+            refreshed.id==obsolete.id,"Icon refresh changed shortcut launch settings or identity");
+        check(QDir::fromNativeSeparators(link_values(foreign).icon)==other_identity.icon,"Icon refresh modified a foreign application shortcut");
+        const auto icon_time=QFileInfo(application_icon_path).lastModified();
+        const auto pin_time=QFileInfo(pinned).lastModified();
+        check(!refresh_registered_icons(c)&&QFileInfo(application_icon_path).lastModified()==icon_time&&
+            QFileInfo(pinned).lastModified()==pin_time,"Unchanged startup rewrote shell assets");
+        link_values(pinned,&obsolete);install(c);
+        check(QDir::fromNativeSeparators(link_values(pinned).icon)==QDir::fromNativeSeparators(application_icon_path),"Manual repair retained stale pinned icon");
         for(const auto* ext:{"prtz","asmz","drwz","frmz","tblz","symz"}) {
             QFile icon(c.data+"/zima-cad/desktop/"+c.id+'/'+ext+".ico");
             check(icon.open(QIODevice::ReadOnly),"Document icon missing");
@@ -155,6 +223,7 @@ int main(int argc,char** argv) {
         remove(c);check(!registered(c)&&registered(other),"Removal affected another installation");
         check(registry.value("Classes/.prtz/.").toString()=="Other.CAD","Removal changed defaults");
         remove(other);remove(c);
+        check(!refresh_registered_icons(c)&&!registered(c),"Startup recreated removed registration");
         install(c);
         registry.setValue("Classes/ZIMA.CAD."+c.id+".Part/Owner","another installation");registry.sync();
         bool rejected=false;try {install(c);}catch(const std::exception&){rejected=true;}

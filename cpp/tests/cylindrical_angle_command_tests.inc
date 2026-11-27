@@ -1,8 +1,9 @@
 void cylindrical_angle_commands(const kernel::OcctKernel& kernel,const fs::path& directory) {
-    for(const std::string kind:{"point","body","section"}) {
+    for(bool conical:{false,true})for(bool angle_first:{false,true})for(const std::string kind:{"point","body","section"}) {
         auto part=document::PartDocument::create_default();
         auto sketch=sketcher::Sketch::create_default();static_cast<void>(sketch.add_circle(0,0,10));
         auto stock=document::PartDocument::create_feature_container(sketch.id);stock.feature.sides[0].length=25;
+        if(conical)stock.feature.sides[0].draft_angle_degrees=5.;
         sketch.owner_container_id=stock.id;part.history={stock};part.sketches={sketch};
         document::BodyHistoryGraph graph;const auto body=graph.create_body("Cylinder");
         graph.insert({document::PartHistoryKind::Feature,stock.id});
@@ -21,9 +22,9 @@ void cylindrical_angle_commands(const kernel::OcctKernel& kernel,const fs::path&
         const auto calculated=workspace::calculate_part_with_resolved_references(kernel,part);
         std::optional<kernel::FaceReference> face;
         for(const auto& boundary:calculated)for(const auto& candidate:boundary.mesh.original_references.triangle_references)
-            if(candidate.surface&&candidate.surface->kind==kernel::SurfaceGeometry::Kind::Cylinder)face=candidate;
+            if(candidate.surface&&candidate.surface->kind==(conical?kernel::SurfaceGeometry::Kind::Cone:kernel::SurfaceGeometry::Kind::Cylinder))face=candidate;
         require(face.has_value(),"Angle command fixture lacks a cylinder");
-        const auto file=directory/("angular-"+kind+".prtz");part.save(file,calculated);
+        const auto file=directory/("angular-"+kind+(conical?"-cone":"-cylinder")+(angle_first?"-angle-first":"-axial-first")+".prtz");part.save(file,calculated);
         workspace::Workspace live;auto active_directory=directory;command_host::Host host(live,kernel,active_directory,{});
         run(host,"open",{{"path",file.generic_string()}});const auto id=live.active_document_id();
         if(kind=="section")object=run(host,"section.create",{{"path_mm",Json::array({Json::array({-5,0}),Json::array({5,0})})},
@@ -38,19 +39,25 @@ void cylindrical_angle_commands(const kernel::OcctKernel& kernel,const fs::path&
         const Json cylinder={{"owner",face->owner_id},{"key",face->semantic_key}},
             axial={{"owner",stock.container_origin.id},{"key","origin:plane:xy"}},
             zero={{"owner",stock.container_origin.id},{"key","origin:plane:yz"}};
-        set_reference(0,cylinder);set_reference(1,axial,{{"offset_mm",8}});set_reference(2,zero,{{"angle_degrees",30}});
+        const std::size_t angular_index=angle_first?1:2;
+        const std::string angular_value="reference_offset:"+std::to_string(angular_index);
+        set_reference(0,cylinder);
+        if(angle_first){set_reference(1,zero,{{"angle_degrees",30}});set_reference(2,axial,{{"offset_mm",8}});}
+        else {set_reference(1,axial,{{"offset_mm",8}});set_reference(2,zero,{{"angle_degrees",30}});}
         const auto position=[&](double degrees) {
             const auto p=get().at("placement").get<document::Placement>();
             // Positive angles follow the persisted analytic cylinder axis;
             // this profile's outward cylinder uses the negative Z direction.
-            near(p.x,10*std::cos(degrees*std::acos(-1.)/180.));
-            near(p.y,face->surface->axis.z*10*std::sin(degrees*std::acos(-1.)/180.));near(p.z,8);
-            require(p.references[2].use_angle&&!p.references[2].orientation_drives_rotation,"Command lost angular mode/role");
+            const auto& surface=*face->surface;
+            const double radius=surface.radius+(conical?(8-surface.origin.z)*surface.axis.z*std::tan(surface.semi_angle):0.);
+            near(p.x,radius*std::cos(degrees*std::acos(-1.)/180.));
+            near(p.y,surface.axis.z*radius*std::sin(degrees*std::acos(-1.)/180.));near(p.z,8);
+            require(p.references[angular_index].use_angle&&!p.references[angular_index].orientation_drives_rotation,"Command lost angular mode/role");
         };
         position(120); // angle_degrees is plane-relative; native offsets remain normal-relative.
         const auto edit=[&](double angle) {
-            if(kind=="section")run(host,"section.set",{{"object",object},{"placement",{{"reference_offset:2",angle}}}});
-            else run(host,"placement.set",{{"object",object},{"values",{{"reference_offset:2",angle}}}});
+            if(kind=="section")run(host,"section.set",{{"object",object},{"placement",{{angular_value,angle}}}});
+            else run(host,"placement.set",{{"object",object},{"values",{{angular_value,angle}}}});
         };
         for(double angle:{90.,-90.,450.,60.}){edit(angle);position(angle);}
         const auto accepted=get();edit(60);require(get().at("revision")==accepted.at("revision"),"Unchanged angle committed a transaction");
@@ -59,7 +66,7 @@ void cylindrical_angle_commands(const kernel::OcctKernel& kernel,const fs::path&
         // though removing it temporarily leaves Angle without an axis.
         set_reference(0,cylinder);position(120);
         const auto before=get();
-        Json invalid={{"object",object},{"index",2},{"reference",axial},{"angle_degrees",20}};
+        Json invalid={{"object",object},{"index",angular_index},{"reference",axial},{"angle_degrees",20}};
         const auto rejected=host.execute({{"command",kind=="section"?"section.reference.set":"placement.reference.set"},{"arguments",invalid}});
         require(!rejected.ok&&get()==before,"Parallel zero plane changed the document despite rejection");
         invalid["reference"]=zero;invalid["offset_mm"]=2;

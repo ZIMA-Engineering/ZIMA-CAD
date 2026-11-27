@@ -1,5 +1,6 @@
 #include "../loft_dialog.hpp"
 #include <zima/workspace/loft_operations.hpp>
+#include <zima/workspace/mech_keyway_operations.hpp>
 #include <zima/workspace/family_operations.hpp>
 #include "../inline_dimension_edit.hpp"
 #include <zima/workspace/placement_edit.hpp>
@@ -689,11 +690,22 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
                         workspace_, workspace_.active_document_id(), candidate.owner_id);
                     changed = workspace::assign_displayed_placement_dimension(
                         *container, geometry, placement_key, next_value);
+                } else if(container->feature_kind==FeatureKind::MechKeyway) {
+                    auto& p=container->mech_keyway;
+                    if(key=="mech_length"&&p.position!=document::KeywayPosition::TwoSided&&!(p.type==document::KeywayType::Woodruff&&!p.internal))positive(p.length);
+                    else if(key=="mech_offset"){p.axial_offset=next_value;changed=true;}
+                    else if(key=="mech_angle"){p.angular_offset=next_value;changed=true;}
+                    else for(std::size_t i=0;i<2;++i){
+                        if(key==(i?"mech_reverse_length":"mech_forward_length")&&p.position==document::KeywayPosition::TwoSided&&
+                                p.limits[i].termination==document::KeywayTermination::Length&&next_value>=0){p.limits[i].length=next_value;changed=true;}
+                        if(key==(i?"mech_reverse_correction":"mech_forward_correction")&&p.position==document::KeywayPosition::TwoSided&&
+                                p.limits[i].termination==document::KeywayTermination::UpTo){p.limits[i].correction=next_value;changed=true;}
+                    }
                 } else if(container->feature_kind==FeatureKind::Bend&&
                         (key=="corner_first"||key=="corner_last")) {
-                    if(next_value!=0.&&next_value!=1.)throw std::runtime_error("Corner closure must be 0 or 1.");
+                    if(!std::isfinite(next_value)||next_value<0.||next_value>1.)throw std::runtime_error("Corner closure must be between 0 and 1.");
                     const auto side=key=="corner_last"?1:0;
-                    container->bend.corner[side]=next_value==1.;changed=true;
+                    container->bend.corner[side]=next_value;changed=true;
                 } else if (container->feature_kind == FeatureKind::Sketch &&
                            key == "profile_offset") {
                     const auto sketch = std::find_if(next.sketches.begin(),
@@ -971,6 +983,9 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
                     kernel_,next.document_id,*dimension_feature,
                     *dimension_feature_sketch));
                 construction_dimension_object_id_=dimension_feature->id;
+            } else if(edited_feature&&edited_feature->feature_kind==document::FeatureKind::MechKeyway) {
+                static_cast<void>(workspace::commit_mech_keyway(workspace_,kernel_,next.document_id,*edited_feature));
+                construction_dimension_object_id_=edited_feature->id;
             } else if(edited_feature && edited_feature->feature_kind==document::FeatureKind::Feature &&
                candidate.semantic_key.starts_with("parameter:")) {
                 workspace::commit_profile(workspace_,kernel_,next.document_id,*edited_feature,

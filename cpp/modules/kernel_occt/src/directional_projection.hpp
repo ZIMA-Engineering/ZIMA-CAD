@@ -24,6 +24,9 @@ struct ProjectionTarget {
     TopoDS_Face face;
     std::string target_key;
     std::vector<ProjectionCurve> boundaries;
+    // The caller supplies an exact analytic support with its natural domain.
+    // This is transient calculation state, never a persisted face identity.
+    bool extended_support{};
 };
 struct ProjectedCurve {
     TopoDS_Edge edge;

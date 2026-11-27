@@ -954,6 +954,16 @@ void AssemblyWorkspaceWindow::add_part_tree_children(
         return static_cast<QTreeWidgetItem*>(nullptr);
     };
     for(const auto& profile:document.history) {
+        if(profile.feature_kind==zima::document::FeatureKind::MechKeyway) {
+            auto* group=find_history_row(profile.id);if(!group)continue;
+            for(const auto& child:document.history)if(child.mech_keyway_binding.parent_id==profile.id){
+                auto* row=find_history_row(child.id);if(!row||!row->parent())continue;
+                row->parent()->takeChild(row->parent()->indexOfChild(row));group->addChild(row);
+                if(row->data(0,history_cursor_end_role).isValid())group->setData(0,history_cursor_end_role,
+                    std::max(group->data(0,history_cursor_end_role).toULongLong(),row->data(0,history_cursor_end_role).toULongLong()));
+            }
+            group->setExpanded(false);continue;
+        }
         if(profile.feature_kind!=zima::document::FeatureKind::SheetProfile)
             continue;
         auto* profile_row=find_history_row(profile.id);

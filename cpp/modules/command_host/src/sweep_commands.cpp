@@ -56,6 +56,7 @@ Json sweep_details(const workspace::PartState& state, const document::HistoryCon
         result["profiles"] = std::move(profiles);
         if (planar) {
             result["path_sketch"] = sketcher::Sketch::from_serialized(feature.sweep2d.path_sketch).id;
+            result["path_reversed"] = feature.sweep2d.path_reversed;
             const auto& plane = feature.sweep2d.path_plane;
             result["path_plane"] = plane ? Json{{"owner", plane->owner_id}, {"key", plane->semantic_key},
                 {"instance_path", plane->instance_path}, {"offset_mm", plane->offset}} : Json(nullptr);
@@ -110,7 +111,11 @@ bool replace_profiles(document::HistoryContainer& value, const document::History
     const document::PartDocument& part, const Json& entries) {
     if (entries.empty() || entries.size() > 5000)
         throw Error("invalid_profile", "A Sweep requires between 1 and 5000 profile Sketches.");
-    const auto& previous = original.feature_kind == Kind::Sweep2D ? original.sweep2d.profiles : original.sweep3d.profiles;
+    auto previous = original.feature_kind == Kind::Sweep2D ? original.sweep2d.profiles : original.sweep3d.profiles;
+    // A combined direction/profile edit inherits the already reversed station
+    // roles unless the caller explicitly supplies a replacement role.
+    if(original.feature_kind==Kind::Sweep2D&&original.sweep2d.path_reversed!=value.sweep2d.path_reversed)
+        for(auto& profile:previous)profile.incoming=!profile.incoming;
     std::vector<document::Sweep3DProfile> profiles; bool adopted = false;
     for (const auto& entry : entries) {
         if (entry.is_object() && entry.contains("profile")) {
@@ -198,6 +203,9 @@ void sweep_properties(document::HistoryContainer& value, const Json& args,
                 throw Error("parameter_not_editable", "The placement parameter is unknown, constrained or locked.");
         }
     }
+    if(value.feature_kind==Kind::Sweep2D&&args.contains("path_reversed")&&
+            args.at("path_reversed").get<bool>()!=value.sweep2d.path_reversed)
+        document::PartDocument::reverse_sweep2d_path(value);
     if (args.contains("path_plane")) {
         const auto& plane = args.at("path_plane");
         if (plane.empty()) value.sweep2d.path_plane.reset();
@@ -262,7 +270,7 @@ void Host::register_sweep_commands() {
         std::vector<commands::Argument> fields{{"source_path", true}, {"profiles", true, Type::Array}, {"name", false}, {"combine", false},
          {"placement", false, Type::Object}, {"result_type", false}, {"thin_mode", false},
          {"thickness_mm", false, Type::Number}, {"precision_mm",false,Type::Number}, {"custom_precision",false,Type::Boolean}, {"document", false}};
-        if (kind == Kind::Sweep2D) fields.push_back({"path_plane", false, Type::Object});
+        if (kind == Kind::Sweep2D) {fields.push_back({"path_plane", false, Type::Object});fields.push_back({"path_reversed",false,Type::Boolean});}
         dispatcher_.add({kind == Kind::Sweep2D ? "sweep2d.create" : "sweep3d.create",
             tr(kind == Kind::Sweep2D ? "Create a 2D Sweep by adopting a path Sketch and profile Sketches."
                 : "Create a 3D Sweep by adopting a standalone path and profile Sketches."), std::move(fields), true}, [this, kind](const Json& args) {
@@ -364,7 +372,7 @@ void Host::register_sweep_commands() {
         } else {
             fields.push_back({"profiles", false, Type::Array});
             if (kind == Kind::Sweep3D) fields.push_back({"path", false, Type::Object});
-            else fields.push_back({"path_plane", false, Type::Object});
+            else {fields.push_back({"path_plane", false, Type::Object});fields.push_back({"path_reversed",false,Type::Boolean});}
         }
         dispatcher_.add({prefix + ".set", tr("Edit and calculate a Sweep through the shared Properties transaction."),
             std::move(fields), true}, [this, kind](const Json& args) {

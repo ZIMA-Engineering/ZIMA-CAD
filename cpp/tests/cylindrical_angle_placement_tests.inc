@@ -3,13 +3,15 @@ void cylindrical_angle_model() {
     const auto add=[](V a,V b,double k=1.){return V{a.x+k*b.x,a.y+k*b.y,a.z+k*b.z};};
     const auto dot=[](V a,V b){return a.x*b.x+a.y*b.y+a.z*b.z;};
     const auto cross=[](V a,V b){return V{a.y*b.z-a.z*b.y,a.z*b.x-a.x*b.z,a.x*b.y-a.y*b.x};};
+    for(double slope:{0.,.1,-.15})
     for (int direction=0;direction<3;++direction) for(bool reversed:{false,true})
     for(bool flip:{false,true}) for(double offset:{-2.,0.,3.}) {
         const V axis=direction==0?V{0,0,1}:direction==1?V{0,1,0}:V{.6,0,.8};
         const V zero=direction==0?V{1,0,0}:direction==1?V{0,0,1}:V{.8,0,-.6};
         const V tangent=cross(axis,zero), center{11,-7,19};
         auto cylinder=std::make_shared<kernel::SurfaceGeometry>();
-        cylinder->kind=kernel::SurfaceGeometry::Kind::Cylinder;cylinder->axis=axis;
+        cylinder->kind=slope==0.?kernel::SurfaceGeometry::Kind::Cylinder:kernel::SurfaceGeometry::Kind::Cone;cylinder->axis=axis;
+        cylinder->semi_angle=std::atan(slope);
         cylinder->origin=center;cylinder->radial=zero;cylinder->radius=10.;cylinder->reversed=reversed;
         auto zero_plane=std::make_shared<kernel::SurfaceGeometry>();
         zero_plane->kind=kernel::SurfaceGeometry::Kind::Plane;
@@ -30,7 +32,7 @@ void cylindrical_angle_model() {
             p.references[2].offset=degrees;
             require(document::resolve_placement(p,geometry),"Cylindrical angle failed to resolve");
             const double angle=degrees*std::acos(-1.)/180.;
-            const double radius=10.+(reversed?-offset:offset),sign=flip?-1.:1.;
+            const double radius=10.+13*slope+(reversed?-offset:offset)*std::hypot(1.,slope),sign=flip?-1.:1.;
             const auto expected=add(add(add(center,axis,13.),zero,sign*radius*std::cos(angle)),
                 tangent,sign*radius*std::sin(angle));
             near(p.x,expected.x,"Angle X equation failed");near(p.y,expected.y,"Angle Y equation failed");near(p.z,expected.z,"Angle Z equation failed");
@@ -66,14 +68,17 @@ void cylindrical_angle_model() {
         p.references.erase(p.references.begin()+1);
         require(document::resolve_placement(p,geometry),"Angle without axial plane failed");
         require(document::point_constraint_remaining_dof(p.references,geometry,{p.x,p.y,p.z})==1,"Angle constrained axial travel");
-        p.x+=axis.x*8.;p.y+=axis.y*8.;p.z+=axis.z*8.;
+        const double last_radius=10.+13*slope+(reversed?-offset:offset)*std::hypot(1.,slope);
+        const auto radial=add(add(V{p.x,p.y,p.z},center,-1.),axis,-13.);
+        const auto travel=add(axis,radial,slope/last_radius);
+        p.x+=travel.x*8.;p.y+=travel.y*8.;p.z+=travel.z*8.;
         require(document::resolve_placement(p,geometry),"Free axial movement failed");
         near(dot(add(V{p.x,p.y,p.z},center,-1.),axis),21.,"Free axial movement was discarded");
         for(int invalid=0;invalid<4;++invalid) {
             auto broken=valid;auto bad=geometry;
             if(invalid==0)bad.triangle_references.erase(bad.triangle_references.begin());
             if(invalid==1) {auto parallel=std::make_shared<kernel::SurfaceGeometry>(*zero_plane);parallel->axis=axis;bad.triangle_references[1].surface=parallel;}
-            if(invalid==2)broken.references[0].offset=reversed?10.:-10.;
+            if(invalid==2)broken.references[0].offset=(reversed?1.:-1.)*(10.+13*slope)/std::hypot(1.,slope);
             if(invalid==3)broken.references[0].use_axis=true;
             require(!document::resolve_placement(broken,bad),"Invalid angular support was accepted");
             near(broken.x,valid.x,"Lost reference moved X");near(broken.y,valid.y,"Lost reference moved Y");near(broken.z,valid.z,"Lost reference moved Z");
@@ -83,6 +88,19 @@ void cylindrical_angle_model() {
         std::reverse(ordered.references.begin(),ordered.references.end());
         require(document::resolve_placement(ordered,geometry),"Reordered angular references failed");
         near(ordered.x,valid.x,"Reference order changed angular placement");
+        if(slope!=0.) {
+            for(const double new_radius:{12.,9.,11.}) {
+                cylinder->radius=new_radius;cylinder->semi_angle=std::atan(slope*1.3);
+                auto changed=valid;
+                require(document::resolve_placement(changed,geometry),"Changed conical support did not resolve");
+                const auto delta=add(V{changed.x,changed.y,changed.z},center,-1.);
+                const double station=dot(delta,axis);
+                const auto radial=add(delta,axis,-station);
+                near(station,13.,"Cone edit moved the axial station");
+                near(std::sqrt(dot(radial,radial)),new_radius+station*slope*1.3+(reversed?-offset:offset)*std::hypot(1.,slope*1.3),
+                    "Cone radius/slope edit violates the exact offset equation");
+            }
+        }
     }
 }
 

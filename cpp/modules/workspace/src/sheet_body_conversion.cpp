@@ -4,6 +4,7 @@
 #include <zima/workspace/part_transactions.hpp>
 #include <zima/workspace/history_policy.hpp>
 #include <zima/workspace/history_deletion.hpp>
+#include <zima/workspace/flat_operations.hpp>
 #include <zima/document/bend.hpp>
 #include <zima/document/flat.hpp>
 #include <zima/document/sheet_rip.hpp>
@@ -1664,6 +1665,7 @@ void bind_flat_outline_to_attachment(sketcher::Sketch& sketch,
         throw std::invalid_argument("Flat profile conflicts with its sheet endpoint references.");
     for(const auto& [id,fixed]:retained_fixed_state)
         if(auto* point=sketch.find_point(id))point->fixed=fixed;
+    initialize_converted_flat_corrections(sketch);
 }
 const kernel::ViewerEdge& bend_preview_edge(const kernel::ViewerMesh& preview,
         std::string_view role) {
@@ -1843,17 +1845,59 @@ bool apply_measured_bend_corner_corrections(document::PartDocument& part,
     return !corrections.empty();
 }
 
+bool resolve_bend_corner_directions(document::PartDocument& part,
+        const std::vector<std::string>& created) {
+    struct End {std::string id;std::size_t side;V first,last,outer_first,outer_last,radial,end_radial;};
+    std::vector<End> ends;
+    const auto defaults=document::sheet_metal_defaults(part);
+    for(const auto& id:created) {
+        const auto* feature=part.find_container(id);
+        if(!feature||feature->feature_kind!=document::FeatureKind::Bend||feature->bend.corner_gap!=0)continue;
+        const auto& sketch=*std::ranges::find(part.sketches,feature->bend.sketch_id,&sketcher::Sketch::id);
+        const auto material=document::bend_material_definition(*feature,sketch,defaults);
+        const auto preview=document::bend_preview(*feature,sketch,defaults);
+        const auto end_radial=add(mul(material.radial,std::cos(material.angle)),
+            mul(material.tangent,std::sin(material.angle)));
+        for(std::size_t side=0;side<2;++side)if(feature->bend.corner[side]) {
+            const auto& edge=bend_preview_edge(preview,side?"inner-last":"inner-first");
+            const auto& outer=bend_preview_edge(preview,side?"outer-last":"outer-first");
+            ends.push_back({id,side,edge.points.front(),edge.points.back(),
+                outer.points.front(),outer.points.back(),material.radial,end_radial});
+        }
+    }
+    const auto near=[](V a,V b){const auto d=sub(a,b);return dot(d,d)<1e-12;};
+    bool changed=false;
+    for(std::size_t i=0;i<ends.size();++i)for(std::size_t j=i+1;j<ends.size();++j) {
+        const auto& a=ends[i];const auto& b=ends[j];
+        if(a.id==b.id||!((near(a.first,b.first)&&near(a.last,b.last))||
+            (near(a.outer_first,b.outer_first)&&near(a.outer_last,b.outer_last))))continue;
+        // The common tangent plane determines which end of the cylindrical
+        // arc drives the seam. Extension sign alone cannot distinguish an
+        // inward return from an outward return on a later level of the part.
+        std::optional<bool> reverse;
+        if(std::abs(dot(a.radial,b.radial))>1-1e-8)reverse=false;
+        else if(std::abs(dot(a.end_radial,b.end_radial))>1-1e-8)reverse=true;
+        if(!reverse)continue;
+        for(const auto* end:{&a,&b}) {
+            auto& value=part.find_container(end->id)->bend.corner_reversed[end->side];
+            if(value!=reverse){value=reverse;changed=true;}
+        }
+    }
+    return changed;
+}
+
 bool apply_remaining_bend_corner_corrections(document::PartDocument& part,
         const std::vector<std::string>& created) {
     // Continuation Bends bridge planar regions after a deleted common corner
     // fillet. They are not represented by a cylinder Node above, so close any
     // remaining zero-gap corner from the authored Bend geometry itself. The
-    // measured inner-end motion is the same source of truth as for direct
+    // measured skin-end motion is the same source of truth as for direct
     // cylinder branches and supports both shortening and extension.
     struct BendEndpoint {
         std::string feature_id;
         std::size_t end{};
         V point;
+        V outer_point;
         V motion;
         double thickness{};
     };
@@ -1883,6 +1927,9 @@ bool apply_remaining_bend_corner_corrections(document::PartDocument& part,
         for(std::size_t end=0;end<2;++end) {
             if(!feature->bend.corner[end])continue;
             const V point=bend_inner_end(*feature,*sketch,end,defaults);
+            const auto preview=document::bend_preview(*feature,*sketch,defaults);
+            const V outer_point=bend_preview_edge(preview,
+                end?"outer-last":"outer-first").points.back();
             auto probed=*feature;
             auto probed_extensions=extensions;
             probed_extensions[end]-=probe;
@@ -1890,7 +1937,7 @@ bool apply_remaining_bend_corner_corrections(document::PartDocument& part,
                 probed_extensions[0],probed_extensions[1]);
             const V motion=mul(sub(bend_inner_end(
                 probed,*sketch,end,defaults),point),1/probe);
-            endpoints.push_back({id,end,point,motion,
+            endpoints.push_back({id,end,point,outer_point,motion,
                 parameters.thickness});
         }
     }
@@ -1901,8 +1948,9 @@ bool apply_remaining_bend_corner_corrections(document::PartDocument& part,
             if(first==second||endpoints[first].feature_id==
                     endpoints[second].feature_id)
                 continue;
-            const double gap=distance(
-                endpoints[first].point,endpoints[second].point);
+            const double gap=std::min(distance(
+                endpoints[first].point,endpoints[second].point),distance(
+                endpoints[first].outer_point,endpoints[second].outer_point));
             if(gap<nearest_distance[first]) {
                 nearest_distance[first]=gap;
                 nearest[first]=second;
@@ -1917,11 +1965,9 @@ bool apply_remaining_bend_corner_corrections(document::PartDocument& part,
         const auto& first=endpoints[first_index];
         const auto& second=endpoints[second_index];
         const double gap=nearest_distance[first_index];
-        if(gap<=1e-7)continue;
         const double maximum_gap=2*std::max(
             first.thickness,second.thickness)+join_tolerance;
         if(gap>maximum_gap)continue;
-        const V right=sub(second.point,first.point);
         const V first_column=first.motion;
         const V second_column=mul(second.motion,-1);
         const double a=dot(first_column,first_column);
@@ -1929,17 +1975,27 @@ bool apply_remaining_bend_corner_corrections(document::PartDocument& part,
         const double c=dot(second_column,second_column);
         const double determinant=a*c-b*b;
         if(determinant<=1e-12)continue;
-        const double first_rhs=dot(first_column,right);
-        const double second_rhs=dot(second_column,right);
-        const double first_setback=(first_rhs*c-b*second_rhs)/determinant;
-        const double second_setback=(a*second_rhs-b*first_rhs)/determinant;
-        const V first_intersection=add(first.point,
-            mul(first.motion,first_setback));
-        const V second_intersection=add(second.point,
-            mul(second.motion,second_setback));
-        if(!std::isfinite(first_setback)||!std::isfinite(second_setback)||
-                distance(first_intersection,second_intersection)>1e-5)
-            continue;
+        std::optional<std::array<double,2>> setbacks;
+        // Convex branches meet on the inner skin; concave branches meet on
+        // the outer skin. Closing only the inner curves of a concave corner
+        // leaves a full thickness-by-thickness overlap in the following Flats.
+        // Intersect both exact skin endpoints and retain the shorter material
+        // span. This also covers oblique corners without a 90-degree formula.
+        for(bool outer:{false,true}) {
+            const V p=outer?first.outer_point:first.point;
+            const V q=outer?second.outer_point:second.point;
+            const V right=sub(q,p);
+            const double first_rhs=dot(first_column,right);
+            const double second_rhs=dot(second_column,right);
+            const double s=(first_rhs*c-b*second_rhs)/determinant;
+            const double t=(a*second_rhs-b*first_rhs)/determinant;
+            if(!std::isfinite(s)||!std::isfinite(t)||
+                    distance(add(p,mul(first.motion,s)),add(q,mul(second.motion,t)))>1e-5)
+                continue;
+            if(!setbacks||(s>=(*setbacks)[0]-1e-7&&t>=(*setbacks)[1]-1e-7))
+                setbacks=std::array{s,t};
+        }
+        if(!setbacks||(std::abs((*setbacks)[0])<=1e-7&&std::abs((*setbacks)[1])<=1e-7))continue;
         const auto store=[&](const BendEndpoint& endpoint,double value) {
             auto& existing=residual[endpoint.feature_id].setback[endpoint.end];
             if(existing&&std::abs(*existing-value)>1e-5)
@@ -1947,8 +2003,8 @@ bool apply_remaining_bend_corner_corrections(document::PartDocument& part,
                     "Sheet conversion found conflicting continuation Bend corners.");
             existing=value;
         };
-        store(first,first_setback);
-        store(second,second_setback);
+        store(first,(*setbacks)[0]);
+        store(second,(*setbacks)[1]);
     }
     for(const auto& [id,correction]:residual) {
         auto* feature=part.find_container(id);
@@ -2333,6 +2389,39 @@ SheetBodyConversion prepare_sheet_from_body(const document::PartDocument& source
     const auto continuations=imported_step_source?
         std::vector<ContinuationBend>{}:
         infer_corner_continuations(mesh,nodes);
+    // A visited exit is a closed material loop, not an implicit manufacturing
+    // seam. Dropping its returning Bend would silently discard a branch.
+    // Explicitly excluded faces remain permitted; only retained exits count.
+    for(std::size_t index=0;!imported_step_source&&index<nodes.size();++index) {
+        const auto& node=nodes[index];
+        if(!node.parent||!node.face.surface||node.face.surface->kind!=
+                kernel::SurfaceGeometry::Kind::Cylinder||bend_exit_edge(nodes,index))continue;
+        for(const auto& edge:mesh.edges) {
+            if(edge.parameter_seam||edge.reference.semantic_key.starts_with("rip:curve:")||
+                    edge.edge_treatment_side_references.size()!=2||!straight(edge))continue;
+            const auto first=edge_face_fragment(mesh,edge.edge_treatment_side_references[0],edge);
+            const auto second=edge_face_fragment(mesh,edge.edge_treatment_side_references[1],edge);
+            if(!first||!second)continue;
+            const Face* other=same_fragment(*first,node.face)?&*second:
+                same_fragment(*second,node.face)?&*first:nullptr;
+            if(!other||same_fragment(*other,nodes[*node.parent].face)||!other->surface||
+                    other->surface->kind!=kernel::SurfaceGeometry::Kind::Plane)continue;
+            const auto at=edge.points[edge.points.size()/2];
+            if(dot(normal(node.face,at),normal(*other,at))<1-1e-6)continue;
+            const auto exit=std::ranges::find_if(nodes,[&](const auto& candidate){return same_fragment(candidate.face,*other);});
+            if(exit==nodes.end())continue;
+            const auto exit_index=static_cast<std::size_t>(exit-nodes.begin());
+            // A crossing corner fillet can already have an exact reconstructed
+            // continuation. That transition is retained, not a discarded loop.
+            const bool reconstructed=std::ranges::any_of(continuations,[&](const auto& continuation) {
+                return continuation.transition==node.face&&
+                    ((continuation.planes[0]==*node.parent&&continuation.planes[1]==exit_index)||
+                     (continuation.planes[1]==*node.parent&&continuation.planes[0]==exit_index));
+            });
+            if(!reconstructed)
+                throw std::invalid_argument("Closed sheet branches require an explicit RIP Sketch.");
+        }
+    }
     std::map<std::size_t,std::vector<std::size_t>> continuations_by_target;
     for(std::size_t index=0;index<continuations.size();++index)
         continuations_by_target[continuations[index].planes[1]].
@@ -3181,8 +3270,20 @@ SheetBodyConversion prepare_sheet_from_body(const document::PartDocument& source
         result.calculated=calculate_part_with_resolved_references(
             kernel,result.document,&result.calculated,policy);
     }
-    if(!imported_step_source&&apply_remaining_bend_corner_corrections(
-            result.document,result.created)) {
+    if(!imported_step_source) {
+        // A corrected parent moves the attachment of a subsequent Bend.
+        // Re-measure after that dependency has regenerated; simultaneous
+        // corrections based on the previous frames do not close deeper rings.
+        for(std::size_t pass=0;apply_remaining_bend_corner_corrections(
+                result.document,result.created);++pass) {
+            if(pass>=result.created.size())throw std::invalid_argument(
+                "Sheet conversion cannot close the measured Bend corner.");
+            PartCalculationPolicy policy;policy.reject_errors=true;
+            result.calculated=calculate_part_with_resolved_references(
+                kernel,result.document,&result.calculated,policy);
+        }
+    }
+    if(!imported_step_source&&resolve_bend_corner_directions(result.document,result.created)) {
         PartCalculationPolicy policy;policy.reject_errors=true;
         result.calculated=calculate_part_with_resolved_references(
             kernel,result.document,&result.calculated,policy);
@@ -3748,6 +3849,8 @@ bool refresh_sheet_from_body_associations(
             std::string sketch_data=generated_sketch->serialized();
             replace_generated_identity(sketch_data,replacements);
             auto next_sketch=sketcher::Sketch::from_serialized(sketch_data);
+            if(next.feature_kind==document::FeatureKind::Flat)
+                retain_converted_flat_corrections(next_sketch,*current_sketch);
             if(next.feature_kind==document::FeatureKind::Bend)
                 document::prepare_bend_sketches(next,next_sketch,document::sheet_metal_defaults(source));
             if(next!=*current) {

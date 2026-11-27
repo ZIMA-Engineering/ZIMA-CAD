@@ -1,4 +1,5 @@
 #include <zima/document/placement_drag.hpp>
+#include <zima/document/sweep2d_profile_sources.hpp>
 #include <zima/kernel/placement_route.hpp>
 #include <zima/kernel/surface_wrap.hpp>
 #include <zima/kernel/viewer_wrap_charts.hpp>
@@ -3799,7 +3800,7 @@ const ConstructionReference* placement_angle_cylinder_source(
         const auto& ref=item.get();
         if (ref.orientation_only || ref.use_axis || ref.use_angle) continue;
         const auto* candidate=placement_surface(ref,geometry);
-        if (!candidate || candidate->kind!=kernel::SurfaceGeometry::Kind::Cylinder) continue;
+        if (!candidate || !placement_surface_has_axis(*candidate)) continue;
         if (cylinder) return {}; // No implicit choice between different axes.
         cylinder=&ref;
     }
@@ -3818,8 +3819,9 @@ std::optional<CylindricalAngleFrame> placement_angle_frame(
     const auto* cylinder=placement_angle_cylinder_source(references,geometry);
     if (!cylinder || !std::isfinite(cylinder->offset)) return {};
     const auto* surface=placement_surface(*cylinder,geometry);
-    const double radius=surface->radius+(surface->reversed?-cylinder->offset:cylinder->offset);
-    if (!(radius>1e-9)) return {}; // An origin on the axis has no angular station.
+    const double slope=surface->kind==kernel::SurfaceGeometry::Kind::Cone?std::tan(surface->semi_angle):0.;
+    const double radius=surface->radius+(surface->reversed?-cylinder->offset:cylinder->offset)*std::hypot(1.,slope);
+    if (!std::isfinite(slope)||!std::isfinite(radius)||(slope==0.&&!(radius>1e-9))) return {};
     const auto axis=placement_vec_normalized(surface->axis);
     auto normal=placement_vec_scale(plane->normal,angle.flip?-1.:1.);
     auto zero=placement_vec_sub(normal,placement_vec_scale(axis,placement_vec_dot(normal,axis)));
@@ -3829,7 +3831,7 @@ std::optional<CylindricalAngleFrame> placement_angle_frame(
     const double radians=std::remainder(angle.offset,360.)*std::numbers::pi/180.;
     const auto radial=placement_vec_add(placement_vec_scale(zero,std::cos(radians)),
         placement_vec_scale(tangent,std::sin(radians)));
-    return CylindricalAngleFrame{surface->origin,axis,zero,radial,radius,cylinder};
+    return CylindricalAngleFrame{surface->origin,axis,zero,radial,radius,cylinder,slope};
 }
 
 // Solves the origin from an arbitrary set of point/axis/plane position
@@ -3886,10 +3888,11 @@ bool placement_solve_position_step(
         if (angular) return false;
         angular=placement_angle_frame(item.get(),placement_references,geometry);
         if (!angular) return false;
-        // Cylinder + directed angle is an exact line parallel to its axis.
-        // Reuse the established linear solve for axial distance and free motion.
+        // A directed angle selects one exact generator of a cylinder/cone.
+        // Normal offsets shift the cone's radius by offset/cos(semi_angle).
         add_axis_equations({placement_vec_add(angular->axis_origin,
-            placement_vec_scale(angular->radial,angular->radius)),angular->axis});
+            placement_vec_scale(angular->radial,angular->radius)),placement_vec_normalized(
+                placement_vec_add(angular->axis,placement_vec_scale(angular->radial,angular->slope)))});
     }
     for (const auto& wrapped : placement_references) {
         const auto& reference = wrapped.get();
@@ -3961,6 +3964,12 @@ bool placement_solve_position_step(
             return std::abs(placement_vec_dot(normal, solved) - rhs) <= 1.0e-5;
         });
     if (!consistent) return false;
+    if (angular && angular->slope!=0.) {
+        const double station=placement_vec_dot(placement_vec_sub(solved,angular->axis_origin),angular->axis);
+        if (!(angular->radius+station*angular->slope>1e-9))return false;
+        const auto* surface=placement_surface(*angular->cylinder,geometry);
+        if(!surface||!project_placement_surface(*surface,solved))return false;
+    }
     origin = solved;
     return true;
 }
@@ -3981,7 +3990,7 @@ bool placement_solve_position(
             const auto* surface=placement_surface(ref,geometry);
             if (!ref.use_axis && !ref.use_angle && surface &&
                 surface->kind!=kernel::SurfaceGeometry::Kind::Plane &&
-                surface->kind!=kernel::SurfaceGeometry::Kind::Cylinder) return false;
+                !placement_surface_has_axis(*surface)) return false;
             if (!ref.use_axis && !surface && placement_exact::is_surface(ref,geometry) &&
                 !construction_reference_is_planar_face(ref,geometry)) return false;
         }
@@ -5885,7 +5894,8 @@ std::vector<zima::kernel::ViewerDimension> construction_point_dimensions(
             if (!frame) continue;
             const auto center=placement_vec_add(frame->axis_origin,placement_vec_scale(frame->axis,
                 placement_vec_dot(placement_vec_sub(object.origin,frame->axis_origin),frame->axis)));
-            const double radius=frame->radius+8.;
+            const double station=placement_vec_dot(placement_vec_sub(object.origin,frame->axis_origin),frame->axis);
+            const double radius=frame->radius+frame->slope*station+8.;
             const auto plane_zero=placement_vec_cross(frame->axis,frame->zero);
             const double displayed=placement_reference_display_value(reference);
             result.push_back({center,center,placement_vec_add(center,placement_vec_scale(plane_zero,radius)),
@@ -9293,7 +9303,17 @@ struct PlanarSweepPath {
 PlanarSweepPath planar_sweep_path(const HistoryContainer& c) {
     using namespace helical_geometry;
     PlanarSweepPath path;path.sketch=zima::sketcher::Sketch::from_serialized(c.sweep2d.path_sketch);
-    path.curves=guide_curves(path.sketch,P{0,0},true,true);
+    std::vector<std::string> starts;
+    for(const auto& profile:c.sweep2d.profiles)
+        if(profile.incoming==c.sweep2d.path_reversed)starts.push_back(profile.point_id);
+    path.curves=guide_curves(path.sketch,P{0,0},false,true,&starts);
+    if(c.sweep2d.path_reversed) {
+        std::ranges::reverse(path.curves);
+        for(auto& curve:path.curves) {
+            std::swap(curve.start,curve.end);std::swap(curve.start_point_id,curve.end_point_id);
+            curve.at=[at=curve.at](double u){return at(1-u);};
+        }
+    }
     for(std::size_t i=0;i<path.curves.size();++i)
         for(unsigned j=0;j<=128;++j)static_cast<void>(unit(path.derivative(i,double(j)/128)));
     return path;
@@ -9452,7 +9472,8 @@ Curve3DRoute PartDocument::sweep2d_route(const HistoryContainer& c,double tolera
             if(b-a<1e-7)throw std::runtime_error("Dva body stanice 2D tažení splývají");
             const auto start=path.at(i,a),end=path.at(i,b);
             kernel::Sweep3DRequest::PathSegment segment;
-            segment.source_id=points.size()==2?curve.id:curve.id+":span:"+first_id+":"+last_id;
+            segment.source_id=points.size()==2?curve.id:curve.id+":span:"+
+                (c.sweep2d.path_reversed?last_id+":"+first_id:first_id+":"+last_id);
             segment.start=start;segment.end=end;
             if(std::ranges::any_of(path.sketch.arcs,[&](const auto& arc){return arc.id==curve.id;}))
                 segment.arc_midpoint=path.at(i,(a+b)/2);
@@ -9494,10 +9515,18 @@ void PartDocument::reframe_sweep2d_sketches(HistoryContainer& c,unsigned) {
         auto sketch=zima::sketcher::Sketch::from_serialized(profile.sketch_serialized);
         sketch.owner_container_id=c.id;sketch.plane_offset=0;
         sketch.plane_reference_owner_id=c.id+":sweep2d:profile:"+profile.id;
-        sketch.resolved_origin=station->origin;sketch.resolved_normal=unit(station->tangent);
-        sketch.resolved_x_axis=unit(cross(binormal,station->tangent));sketch.resolved_y_axis=binormal;
+        const auto tangent=mul(station->tangent,c.sweep2d.path_reversed?-1.:1.);
+        sketch.resolved_origin=station->origin;sketch.resolved_normal=unit(tangent);
+        sketch.resolved_x_axis=unit(cross(binormal,tangent));sketch.resolved_y_axis=binormal;
         profile.sketch_serialized=sketch.serialized();
     }
+}
+void PartDocument::reverse_sweep2d_path(HistoryContainer& c) {
+    auto next=c;next.sweep2d.path_reversed=!next.sweep2d.path_reversed;
+    for(auto& profile:next.sweep2d.profiles)profile.incoming=!profile.incoming;
+    reframe_sweep2d_sketches(next);
+    static_cast<void>(sweep2d_route(next));
+    c=std::move(next);
 }
 std::size_t PartDocument::ensure_sweep2d_profile(HistoryContainer& c,const std::string& point_id,bool incoming) {
     for(std::size_t i=0;i<c.sweep2d.profiles.size();++i)
@@ -9716,6 +9745,11 @@ void update_flat_sheet_attachment(HistoryContainer& feature,sketcher::Sketch& sk
                 (constraint.second_point_id==sketch.id+":flat-attachment:first"||
                  constraint.second_point_id==sketch.id+":flat-attachment:last"))
             attachment_points.insert(constraint.first_point_id);
+    for(const auto& dimension:sketch.dimensions)
+        if(dimension.driving&&!dimension.suppressed&&
+            (dimension.id==sketch.id+":flat-correction:first"||
+             dimension.id==sketch.id+":flat-correction:last"))
+            attachment_points.insert(dimension.second_point_id);
     const bool guide_free_source_outline=
         std::ranges::none_of(sketch.segments,
             &sketcher::SketchSegment::construction)&&
@@ -9778,11 +9812,18 @@ void update_flat_sheet_attachment(HistoryContainer& feature,sketcher::Sketch& sk
             const std::array delta{
                 target[0]-existing->cached_points.front()[0],
                 target[1]-existing->cached_points.front()[1]};
-            for(const auto& reference:sketch.constraints) {
-                if(reference.suppressed||reference.kind!=
-                        sketcher::ConstraintKind::PointReference||
-                        reference.second_point_id!=id)continue;
-                auto* joining=sketch.find_point(reference.first_point_id);
+            std::set<std::string> driven_points;
+            for(const auto& reference:sketch.constraints)
+                if(!reference.suppressed&&reference.kind==
+                        sketcher::ConstraintKind::PointReference&&reference.second_point_id==id)
+                    driven_points.insert(reference.first_point_id);
+            for(const auto& dimension:sketch.dimensions)
+                if(dimension.driving&&!dimension.suppressed&&dimension.first_point_id==id&&
+                    (dimension.id==sketch.id+":flat-correction:first"||
+                     dimension.id==sketch.id+":flat-correction:last"))
+                    driven_points.insert(dimension.second_point_id);
+            for(const auto& point_id:driven_points) {
+                auto* joining=sketch.find_point(point_id);
                 if(!joining)continue;
                 std::set<std::string> moved;
                 for(const auto& side:sketch.segments) {
@@ -9820,8 +9861,9 @@ void update_flat_sheet_attachment(HistoryContainer& feature,sketcher::Sketch& sk
         existing->cached_points={target};existing->broken=false;
     }
     const auto solved=sketch.solve();
-    if(solved.status==sketcher::SolveStatus::Conflicting||solved.status==sketcher::SolveStatus::Invalid)
+    if(solved.status==sketcher::SolveStatus::Conflicting||solved.status==sketcher::SolveStatus::Invalid) {
         throw std::invalid_argument("Flat profile conflicts with its sheet endpoint references.");
+    }
 }
 
 double flat_thickness(const HistoryContainer& feature,const SheetMetalDefaults& defaults) {
@@ -10043,7 +10085,16 @@ if (sweep.separate_segments) {
 
 zima::kernel::Sweep3DRequest PartDocument::sweep2d_request(const HistoryContainer& input,std::optional<double> override_tolerance) {
     const double tolerance=override_tolerance.value_or(input.sweep_precision.effective());
-    auto c=input;reframe_sweep2d_sketches(c);const auto route=sweep2d_route(c,tolerance);
+    auto c=input;
+    // Traversal is an authoring preference. Calculate in the original native
+    // order so reversing station entry cannot exchange cap/rail identities or
+    // mirror an asymmetric profile. The ordinary kernel path remains shared
+    // with sheet features; no alternative transport or topology naming is needed.
+    if(c.sweep2d.path_reversed) {
+        c.sweep2d.path_reversed=false;
+        for(auto& profile:c.sweep2d.profiles)profile.incoming=!profile.incoming;
+    }
+    reframe_sweep2d_sketches(c);const auto route=sweep2d_route(c,tolerance);
     kernel::Sweep3DRequest request;request.linear_tolerance=tolerance;request.separate_segments=true;
     const bool closed=helical_geometry::norm(helical_geometry::sub(
         route.stations.front().origin,route.stations.back().origin))<1e-7;
@@ -10058,7 +10109,25 @@ zima::kernel::Sweep3DRequest PartDocument::sweep2d_request(const HistoryContaine
         request.thin_first=p.thin_mode==ThinMode::OneSide?0:p.thin_mode==ThinMode::OtherSide?-p.thickness:-p.thickness/2;
         request.thin_second=p.thin_mode==ThinMode::OtherSide?0:p.thin_mode==ThinMode::OneSide?p.thickness:p.thickness/2;
     }
-    fill_sweep_sections(request,p.profiles,true);
+    auto profiles=p.profiles;
+    const auto sources=sweep2d_profile_sources(p,route);
+    const auto path=zima::sketcher::Sketch::from_serialized(p.path_sketch);
+    // An endpoint-only profile also defines the otherwise empty leading span.
+    // Seed it transiently without inserting another authored Sketch.
+    if(const auto* source=sources.front();source) {
+        const auto& station=route.stations.front();
+        const bool own=source->point_id==station.point_id&&source->incoming==station.incoming;
+        if(!own) {
+            auto seed=*source;seed.point_id=station.point_id;seed.incoming=station.incoming;
+            auto sketch=zima::sketcher::Sketch::from_serialized(seed.sketch_serialized);
+            sketch.resolved_origin=station.origin;sketch.resolved_normal=station.tangent;
+            sketch.resolved_x_axis=helical_geometry::unit(helical_geometry::cross(path.resolved_normal,sketch.resolved_normal));
+            sketch.resolved_y_axis=path.resolved_normal;seed.sketch_serialized=sketch.serialized();
+            std::erase_if(profiles,[&](const auto& profile){return profile.point_id==station.point_id&&profile.incoming==station.incoming;});
+            profiles.push_back(std::move(seed));
+        }
+    }
+    fill_sweep_sections(request,profiles,true);
     if(closed && request.sections.back().point_index+1!=request.path_points.size()) {
         auto closing=request.sections.front();
         closing.point_index=request.path_points.size()-1;
@@ -10085,20 +10154,29 @@ zima::kernel::ViewerMesh PartDocument::sweep2d_preview_mesh(const HistoryContain
     auto c=input;reframe_sweep2d_sketches(c);
     const auto path=planar_sweep_path(c);const auto route=sweep2d_route(c);
     kernel::ViewerMesh result;
+    const auto& first=route.stations.front();
+    const kernel::EdgeReference start_ref{c.id,"sweep2d:path-start:"+first.point_id,{}};
+    result.points.push_back({first.origin,{start_ref.owner_id,start_ref.semantic_key,{}}});
+    result.constraint_markers.push_back({first.origin,"1",start_ref,{}});
+    const double arrow_length=std::clamp(norm(sub(route.segments.front().end,first.origin))*.1,1.,8.);
+    const auto tip=add(first.origin,mul(first.tangent,arrow_length));
+    const auto side=unit(cross(path.sketch.resolved_normal,first.tangent));
+    const auto back=sub(tip,mul(first.tangent,arrow_length*.3));
+    kernel::ViewerEdge arrow;arrow.reference={c.id,"sweep2d:path-direction",{}};
+    arrow.points={first.origin,tip,add(back,mul(side,arrow_length*.15)),tip,sub(back,mul(side,arrow_length*.15))};
+    result.edges.push_back(std::move(arrow));
     for(std::size_t i=0;i<path.curves.size();++i) {
         kernel::ViewerEdge edge;edge.reference={c.id,"sweep2d:path:"+path.curves[i].id,{}};
         for(unsigned j=0;j<=128;++j)edge.points.push_back(path.at(i,double(j)/128));
         result.edges.push_back(std::move(edge));
     }
-    const Sweep3DProfile* source=nullptr;
-    for(const auto& station:route.stations) {
-        for(const auto& candidate:c.sweep2d.profiles)
-            if(candidate.point_id==station.point_id&&candidate.incoming==station.incoming&&
-                sweep3d_profile_has_geometry(zima::sketcher::Sketch::from_serialized(candidate.sketch_serialized)))source=&candidate;
+    const auto sources=sweep2d_profile_sources(c.sweep2d,route);
+    for(std::size_t i=0;i<route.stations.size();++i) {
+        const auto& station=route.stations[i];const auto* source=sources[i];
         if(!source)continue;
         auto sketch=zima::sketcher::Sketch::from_serialized(source->sketch_serialized);
-        sketch.resolved_origin=station.origin;sketch.resolved_normal=station.tangent;
-        sketch.resolved_x_axis=unit(cross(path.sketch.resolved_normal,station.tangent));sketch.resolved_y_axis=path.sketch.resolved_normal;
+        sketch.resolved_origin=station.origin;sketch.resolved_normal=mul(station.tangent,c.sweep2d.path_reversed?-1.:1.);
+        sketch.resolved_x_axis=unit(cross(path.sketch.resolved_normal,sketch.resolved_normal));sketch.resolved_y_axis=path.sketch.resolved_normal;
         auto edges=profile_preview_source_edges(sketch);
         if(c.sweep2d.result_type==ProfileResultType::Thin)try {
             std::optional<V> start;std::string end;
@@ -11237,6 +11315,15 @@ bool PartDocument::sheet_from_body_child_bound(
 
 void PartDocument::erase_history_object(const std::string& id) {
     if (id.empty()) throw std::invalid_argument("Cannot delete an empty object ID");
+    const auto erase_owned_textures=[](PartDocument& document,const std::set<std::string>& removed){
+        std::set<std::string> symbols;
+        for(const auto& feature:document.history)
+            if(removed.contains(feature.id)&&feature.feature_kind==FeatureKind::MechKeyway){
+                if(!feature.mech_keyway.walls_symbol_id.empty())symbols.insert(feature.mech_keyway.walls_symbol_id);
+                if(!feature.mech_keyway.floor_symbol_id.empty())symbols.insert(feature.mech_keyway.floor_symbol_id);
+            }
+        std::erase_if(document.symbol_annotations,[&](const auto& value){return symbols.contains(value.symbol.id);});
+    };
     if(body_history.find(id)||body_history.find_boolean(id)) {
         auto next=*this;
         std::set<std::string> removed{id};
@@ -11244,6 +11331,7 @@ void PartDocument::erase_history_object(const std::string& id) {
             for(const auto& entry:body->entries)removed.insert(entry.id);
         auto graph=next.body_history;
         graph.erase_step(id);
+        erase_owned_textures(next,removed);
         std::erase_if(next.history,[&](const auto& entry){return removed.contains(entry.id);});
         std::erase_if(next.constructions,[&](const auto& entry){return removed.contains(entry.id);});
         std::erase_if(next.sketches,[&](const auto& sketch){return removed.contains(sketch.id)||removed.contains(sketch.owner_container_id);});
@@ -11254,6 +11342,11 @@ void PartDocument::erase_history_object(const std::string& id) {
     auto next = *this;
     std::set<std::string> removed{id};
     if(const auto* selected=next.find_container(id)) {
+        if(!selected->mech_keyway_binding.parent_id.empty())
+            throw std::invalid_argument("Decompose the MECH feature before editing its children");
+        if(selected->feature_kind==FeatureKind::MechKeyway)
+            for(const auto& feature:next.history)
+                if(feature.mech_keyway_binding.parent_id==selected->id)removed.insert(feature.id);
         if(!selected->sheet_profile_binding.parent_id.empty())
             throw std::invalid_argument(
                 "Edit or delete this generated feature through its parent Profile.");
@@ -11295,6 +11388,7 @@ void PartDocument::erase_history_object(const std::string& id) {
             if(lost_face||lost_edge)source.references_valid=false;
         }
     }
+    erase_owned_textures(next,removed);
     std::erase_if(next.history, [&](const auto& entry) { return removed.contains(entry.id); });
     std::erase_if(next.constructions, [&](const auto& entry) { return removed.contains(entry.id); });
     std::erase_if(next.sketches, [&](const auto& sketch) {
@@ -11388,7 +11482,8 @@ std::size_t PartDocument::body_operation_count_at_history_cursor() const {
         return static_cast<std::size_t>(std::count_if(history.begin(),
             history.end(), [](const auto& container) {
                 return container.feature_kind != FeatureKind::Sketch &&
-                    container.feature_kind != FeatureKind::SheetProfile;
+                    container.feature_kind != FeatureKind::SheetProfile &&
+                    container.feature_kind != FeatureKind::MechKeyway;
             }));
     }
     std::size_t count{};
@@ -11399,7 +11494,8 @@ std::size_t PartDocument::body_operation_count_at_history_cursor() const {
         const auto* container = find_container(entry.id);
         if (container != nullptr &&
             container->feature_kind != FeatureKind::Sketch &&
-            container->feature_kind != FeatureKind::SheetProfile) {
+            container->feature_kind != FeatureKind::SheetProfile &&
+            container->feature_kind != FeatureKind::MechKeyway) {
             ++count;
         }
     }
@@ -11650,7 +11746,8 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
     for (const auto* ordered_container : ordered_history) {
         const auto& container = *ordered_container;
         if (container.feature_kind == FeatureKind::Sketch ||
-            container.feature_kind == FeatureKind::SheetProfile) continue;
+            container.feature_kind == FeatureKind::SheetProfile ||
+            container.feature_kind == FeatureKind::MechKeyway) continue;
         if (container.feature_kind == FeatureKind::SheetFromBody) {
             kernel::FeatureGroupRequest marker;
             marker.allow_empty = true;
@@ -11777,6 +11874,16 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
                 const auto* source=find_container(source_id);
                 if(!source)throw std::runtime_error(
                     "Copy source feature is missing.");
+                if(source->feature_kind==FeatureKind::MechKeyway){
+                    // The logical MECH owner contributes its existing native
+                    // operands. The ordinary copy evaluator retains the exact
+                    // cut and edge-treatment material phases and ancestry.
+                    for(const auto& child:history)if(child.mech_keyway_binding.parent_id==source_id&&!child.suppressed&&
+                            child.feature_kind!=FeatureKind::Sketch)
+                        copy.copy_sources.push_back({{},child.id,child.combine_mode==CombineMode::Subtract?
+                            kernel::BooleanOperation::Subtract:kernel::BooleanOperation::Add});
+                    continue;
+                }
                 copy.copy_sources.push_back({{},source_id,
                     source->combine_mode==CombineMode::Subtract?
                         kernel::BooleanOperation::Subtract:
@@ -12897,7 +13004,8 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
             if (entry.kind != PartHistoryKind::Feature) return std::nullopt;
             const auto* container = find_container(entry.id);
             if (container->feature_kind == FeatureKind::Sketch ||
-                container->feature_kind == FeatureKind::SheetProfile)
+                container->feature_kind == FeatureKind::SheetProfile ||
+                container->feature_kind == FeatureKind::MechKeyway)
                 return std::nullopt;
             return local.at(entry.id);
         });
@@ -13539,7 +13647,7 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
             type != "fillet" && type != "chamfer" &&
             type != "derived_copy" && type != "shell" && type != "twisted_sheet" && type != "sheet_transition" && type != "boundary_surface" && type != "surface_sewing" && type != "surface_thicken" && type != "surface_intersection" && type != "surface_trim" && type != "general_surface" && type != "unbend" && type != "bend_back" && type != "straighten" && type != "restore_shape" &&
             type != "flat" && type != "sheet_from_body" && type != "sheet_profile" && type != "bend" && type != "line_bend" && type != "holes" && type != "hole" && type != "thread" && type != "shaft_thread" &&
-            type != "drill_point" && type != "sheet_form" && type != "loft") {
+            type != "drill_point" && type != "sheet_form" && type != "loft" && type != "mech_keyway") {
             throw std::runtime_error("Unsupported history feature type");
         }
         HistoryContainer container;
@@ -13567,6 +13675,7 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
             : type == "flat" ? FeatureKind::Flat
             : type == "sheet_from_body" ? FeatureKind::SheetFromBody
             : type == "sheet_profile" ? FeatureKind::SheetProfile
+            : type == "mech_keyway" ? FeatureKind::MechKeyway
             : type == "unbend" ? FeatureKind::Unbend
             : type == "straighten" ? FeatureKind::Straighten
             : type == "restore_shape" ? FeatureKind::RestoreShape
@@ -13636,6 +13745,15 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
         container.combine_mode = combine == "subtract"
             ? CombineMode::Subtract : CombineMode::Add;
         container.suppressed = source.at("suppressed").get<bool>();
+        if(source.contains("mech_keyway_binding")) {
+            const auto& binding=source.at("mech_keyway_binding");
+            container.mech_keyway_binding.parent_id=binding.at("parent_id");
+            container.mech_keyway_binding.role=binding.at("role");
+            if(container.mech_keyway_binding.parent_id.empty()||container.mech_keyway_binding.role.empty())
+                throw std::runtime_error("Invalid MECH child binding");
+        }
+        if(container.feature_kind==FeatureKind::MechKeyway)
+            container.mech_keyway=load_mech_keyway(source.at("mech_keyway"));
         if (const auto binding = source.value(
                 "sheet_profile_binding", nlohmann::json{});
                 !binding.empty()) {
@@ -13695,6 +13813,8 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
                container.sheet_from_body.thickness>1000000)
                 throw std::runtime_error(
                     "Invalid Sheet from Body definition");
+        } else if (container.feature_kind == FeatureKind::MechKeyway) {
+            // The typed MECH codec above owns this compound definition.
         } else if (container.feature_kind == FeatureKind::SheetProfile) {
             const auto& definition = source.at("sheet_profile");
             auto& profile = container.sheet_profile;
@@ -13735,7 +13855,10 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
                 p.conversion_base_extensions=b.at("conversion_base_extensions").get<std::array<double,2>>();
             if(b.contains("corner_closure")) {
                 const auto& corner=b.at("corner_closure");
-                p.corner=corner.at("ends").get<std::array<bool,2>>();p.corner_gap=corner.at("gap");
+                p.corner=corner.at("ends").get<std::array<double,2>>();p.corner_gap=corner.at("gap");
+                if(corner.contains("reversed"))for(std::size_t end=0;end<2;++end)
+                    if(!corner.at("reversed").at(end).is_null())
+                        p.corner_reversed[end]=corner.at("reversed").at(end).get<bool>();
             }
             p.sheet_attachment=b.at("sheet_attachment");
             p.auxiliary_sketches=b.at("auxiliary_sketches").get<std::array<std::string,2>>();
@@ -14106,6 +14229,7 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
         } else if (container.feature_kind == FeatureKind::Sweep2D) {
             const auto& data=source.at("sweep2d");auto& p=container.sweep2d;
             p.path_sketch=data.at("path_sketch_serialized").get<std::string>();
+            p.path_reversed=data.value("path_reversed",false);
             if(const auto& ref=data.at("path_plane");!ref.is_null())
                 p.path_plane=ConstructionReference{ref.at("instance_path"),ref.at("owner_id"),ref.at("semantic_key"),ref.at("offset")};
             std::set<std::string> ids;
@@ -14475,6 +14599,7 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
     }
     document.validate_sheet_from_body();
     document.validate_sheet_profiles();
+    document.validate_mech_keyways();
     const auto expected_operations = document.kernel_operations(false, true);
     profile.phase("authored model");
     std::vector<zima::kernel::BodyResult> loaded_boundaries;
@@ -14642,6 +14767,7 @@ nlohmann::json PartDocument::serialized(
     validate_general_surface_document_ownership(*this);
     validate_sheet_from_body();
     validate_sheet_profiles();
+    validate_mech_keyways();
     // Recoverable model errors must not prevent saving the authored document.
     // Structural ownership is checked independently below, including failed
     // containers; only calculation-dependent validation may be skipped.
@@ -15029,6 +15155,8 @@ nlohmann::json PartDocument::serialized(
                 throw std::runtime_error("Invalid Sheet Profile parameters");
             }
             validate_sheet_profile_width(profile);
+        } else if (container.feature_kind == FeatureKind::MechKeyway) {
+            validate_mech_keyway(container.mech_keyway);
         } else if (container.edge_treatment.routes.empty() ||
                    std::any_of(container.edge_treatment.routes.begin(),
                        container.edge_treatment.routes.end(),
@@ -15061,6 +15189,7 @@ nlohmann::json PartDocument::serialized(
                 : container.feature_kind == FeatureKind::Flat ? "flat"
                 : container.feature_kind == FeatureKind::SheetFromBody ? "sheet_from_body"
                 : container.feature_kind == FeatureKind::SheetProfile ? "sheet_profile"
+                : container.feature_kind == FeatureKind::MechKeyway ? "mech_keyway"
                 : container.feature_kind == FeatureKind::Bend ? "bend"
                 : container.feature_kind == FeatureKind::LineBend ? "line_bend"
                 : container.feature_kind == FeatureKind::Unbend ? "unbend"
@@ -15173,7 +15302,12 @@ nlohmann::json PartDocument::serialized(
                 {"references", std::move(placement_references)},
             };
         }
-        if (container.feature_kind == FeatureKind::DerivedCopy) {
+        if(!container.mech_keyway_binding.parent_id.empty())
+            serialized["mech_keyway_binding"]={{"parent_id",container.mech_keyway_binding.parent_id},
+                {"role",container.mech_keyway_binding.role}};
+        if (container.feature_kind == FeatureKind::MechKeyway) {
+            serialized["mech_keyway"]=serialize_mech_keyway(container.mech_keyway);
+        } else if (container.feature_kind == FeatureKind::DerivedCopy) {
             serialized["derived_copy"]=container.derived_copy;
         } else if (container.feature_kind == FeatureKind::Sketch) {
             // No additional feature parameters: the owned Sketch is stored
@@ -15230,8 +15364,14 @@ nlohmann::json PartDocument::serialized(
                 {"k_factor_override",p.k_factor_override},{"radius_follows_thickness",p.radius_follows_thickness},
                 {"auxiliary_sketches",p.auxiliary_sketches},
                 {"sheet_attachment",p.sheet_attachment}};
-            if(p.corner[0]||p.corner[1]||p.corner_gap!=.05)
+            if(p.corner[0]||p.corner[1]||p.corner_gap!=.05||p.corner_reversed[0]||p.corner_reversed[1]) {
                 serialized["bend"]["corner_closure"]={{"ends",p.corner},{"gap",p.corner_gap}};
+                if(p.corner_reversed[0]||p.corner_reversed[1]) {
+                    nlohmann::json directions=nlohmann::json::array({nullptr,nullptr});
+                    for(std::size_t end=0;end<2;++end)if(p.corner_reversed[end])directions[end]=*p.corner_reversed[end];
+                    serialized["bend"]["corner_closure"]["reversed"]=std::move(directions);
+                }
+            }
             if(p.conversion_base_extensions)
                 serialized["bend"]["conversion_base_extensions"]=*p.conversion_base_extensions;
         } else if (container.feature_kind == FeatureKind::LineBend) {
@@ -15508,7 +15648,7 @@ nlohmann::json PartDocument::serialized(
                 {"correspondence_reversed",profile.correspondence_reversed}});
             if(p.path_plane){const auto& ref=*p.path_plane;plane={{"instance_path",ref.instance_path},{"owner_id",ref.owner_id},
                 {"semantic_key",ref.semantic_key},{"offset",ref.offset}};}
-            serialized["sweep2d"]={{"path_sketch_serialized",p.path_sketch},{"path_plane",plane},{"profiles",profiles},{"thickness",p.thickness},
+            serialized["sweep2d"]={{"path_sketch_serialized",p.path_sketch},{"path_reversed",p.path_reversed},{"path_plane",plane},{"profiles",profiles},{"thickness",p.thickness},
                 {"result_type",p.result_type==ProfileResultType::Thin?"thin":p.result_type==ProfileResultType::Surface?"surface":"solid"},
                 {"thin_mode",p.thin_mode==ThinMode::OneSide?"one_side":p.thin_mode==ThinMode::OtherSide?"other_side":"symmetric"}};
         } else if (container.feature_kind == FeatureKind::HelicalSweep) {

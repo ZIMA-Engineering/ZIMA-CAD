@@ -10065,7 +10065,8 @@ bool Sketch::refresh_external_references(
             }
             if (match_count > 0) {
                 const bool circular_support=reference.kind==ExternalReferenceKind::Face&&reference.exact_spline&&
-                    !is_face_curve_key(reference.source_semantic_key)&&detail::exact_external_circle(*reference.exact_spline).has_value();
+                    (!is_face_curve_key(reference.source_semantic_key)||is_analytic_section_key(reference.source_semantic_key))&&
+                    detail::exact_external_circle(*reference.exact_spline).has_value();
                 auto cylinder_reference=reference;
                 if(circular_support&&next.cache_external_cylinder_support(cylinder_reference,source_geometry)) {
                     face_projection_resolved=true;
@@ -17527,10 +17528,10 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh(
             rendered.unit_suffix += " " + dimension->single_tolerance;
         } else if (dimension->tolerance_mode == "deviations") {
             if (!dimension->upper_tolerance.empty()) {
-                rendered.unit_suffix += " +" + dimension->upper_tolerance;
+                rendered.unit_suffix += " " + zima::kernel::dimension_signed_deviation(dimension->upper_tolerance,'+');
             }
             if (!dimension->lower_tolerance.empty()) {
-                rendered.unit_suffix += " /-" + dimension->lower_tolerance;
+                rendered.unit_suffix += " /" + zima::kernel::dimension_signed_deviation(dimension->lower_tolerance,'-');
             }
         }
         for (const auto& point_id : {dimension->first_point_id,

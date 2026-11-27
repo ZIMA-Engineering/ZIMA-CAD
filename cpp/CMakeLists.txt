@@ -260,6 +260,13 @@ foreach(ZIMA_THREAD_STANDARD metric whitworth pipe)
 endforeach()
 file(APPEND "${ZIMA_THREAD_CATALOG_SOURCE}" "return {}; } }\n")
 
+set(ZIMA_KEYWAY_CATALOG_PATH "${CMAKE_SOURCE_DIR}/../resources/data/mech/keyways.json")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${ZIMA_KEYWAY_CATALOG_PATH}")
+file(READ "${ZIMA_KEYWAY_CATALOG_PATH}" ZIMA_KEYWAY_CATALOG_HEX HEX)
+string(REGEX REPLACE "(..)" "0x\\1," ZIMA_KEYWAY_CATALOG_BYTES "${ZIMA_KEYWAY_CATALOG_HEX}")
+set(ZIMA_KEYWAY_CATALOG_SOURCE "${CMAKE_CURRENT_BINARY_DIR}/keyway_catalog_data.cpp")
+file(WRITE "${ZIMA_KEYWAY_CATALOG_SOURCE}" "#include <string_view>\nnamespace zima::document { std::string_view bundled_keyway_catalog() { static const unsigned char bytes[]={${ZIMA_KEYWAY_CATALOG_BYTES}}; return {reinterpret_cast<const char*>(bytes),sizeof(bytes)}; } }\n")
+
 add_library(zima_transition_core research/transition_surface.cpp research/transition_model.cpp research/transition_half.cpp research/transition_sheet.cpp research/transition_sketches.cpp)
 target_include_directories(zima_transition_core PUBLIC research)
 target_link_libraries(zima_transition_core PUBLIC zima_sketcher)
@@ -280,6 +287,9 @@ add_library(zima_document_core
     modules/document_core/src/line_bend.cpp
     modules/document_core/src/sheet_rip.cpp
     modules/document_core/src/sheet_profile.cpp
+    modules/document_core/src/mech_keyway.cpp
+    modules/document_core/src/keyway_catalog.cpp
+    "${ZIMA_KEYWAY_CATALOG_SOURCE}"
     modules/document_core/src/sheet_state.cpp
     modules/document_core/src/sheet_form_definition.cpp
     modules/document_core/src/profile_targets.cpp
@@ -434,6 +444,7 @@ add_library(zima_workspace modules/workspace/src/workspace.cpp
     modules/workspace/src/holes_operations.cpp
     modules/workspace/src/bend_operations.cpp
     modules/workspace/src/sheet_profile_operations.cpp
+    modules/workspace/src/mech_keyway_operations.cpp
     modules/workspace/src/sheet_state_operations.cpp
     modules/workspace/src/solid_state_operations.cpp
     modules/workspace/src/sheet_exchange_operations.cpp
@@ -621,7 +632,8 @@ if(ZIMA_BUILD_TESTS)
         app/application_settings.cpp app/zima_resources.qrc)
     set_target_properties(zima_file_manager_ui_tests PROPERTIES AUTOMOC ON AUTORCC ON)
     target_include_directories(zima_file_manager_ui_tests PRIVATE app)
-    target_link_libraries(zima_file_manager_ui_tests PRIVATE zima_ui Qt6::Widgets Qt6::Svg Qt6::WebEngineWidgets)
+    find_package(Qt6 REQUIRED COMPONENTS Test)
+    target_link_libraries(zima_file_manager_ui_tests PRIVATE zima_ui Qt6::Widgets Qt6::Svg Qt6::WebEngineWidgets Qt6::Test)
     target_compile_options(zima_file_manager_ui_tests PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
     add_test(NAME zima_file_manager_ui COMMAND zima_file_manager_ui_tests)
     add_test(NAME zima_file_manager_controls_ui COMMAND zima_file_manager_ui_tests --file-controls)
@@ -1216,7 +1228,8 @@ if(ZIMA_BUILD_TESTS)
     target_link_libraries(zima_cpp_derived_copy_contract_tests PRIVATE zima_document_core zima_assembly zima_kernel_occt zima_workspace)
     add_test(NAME zima_cpp_derived_copy_contract_tests COMMAND zima_cpp_derived_copy_contract_tests)
     add_executable(zima_cpp_sweep2d_contract_tests tests/sweep2d_contract_tests.cpp)
-    target_link_libraries(zima_cpp_sweep2d_contract_tests PRIVATE zima_document_core zima_kernel_occt)
+    target_link_libraries(zima_cpp_sweep2d_contract_tests PRIVATE zima_document_core zima_kernel_occt TKTopAlgo)
+    target_link_options(zima_cpp_sweep2d_contract_tests PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/STACK:8388608>)
     add_test(NAME zima_cpp_sweep2d_contract_tests COMMAND zima_cpp_sweep2d_contract_tests)
     add_executable(zima_cpp_curve3d_sweep_contract_tests tests/curve3d_sweep_contract_tests.cpp)
     target_link_libraries(zima_cpp_curve3d_sweep_contract_tests PRIVATE zima_document_core zima_kernel_occt nlohmann_json::nlohmann_json)
@@ -1258,6 +1271,7 @@ if(ZIMA_BUILD_TESTS)
         app/document_tools_dialogs.cpp)
     target_sources(zima_cpp_ui_contract_tests PRIVATE app/sketch_properties_dialog.cpp)
     target_sources(zima_cpp_ui_contract_tests PRIVATE tests/feature_unit_input_contract.cpp)
+    target_sources(zima_cpp_ui_contract_tests PRIVATE tests/mech_keyway_ui_contract.cpp)
     target_sources(zima_cpp_ui_contract_tests PRIVATE app/sketch_dimension_properties_dialog.cpp)
     target_sources(zima_cpp_ui_contract_tests PRIVATE app/sketch_bspline_properties_dialog.cpp)
     target_sources(zima_cpp_ui_contract_tests PRIVATE app/sketch_text_properties_dialog.cpp)
@@ -1271,6 +1285,9 @@ if(ZIMA_BUILD_TESTS)
         Qt6::Widgets Qt6::Svg nlohmann_json::nlohmann_json)
     set_target_properties(zima_cpp_ui_contract_tests PROPERTIES AUTORCC ON)
     add_test(NAME zima_cpp_ui_contract_tests COMMAND zima_cpp_ui_contract_tests)
+    add_test(NAME zima_cpp_mech_keyway_ui_contract COMMAND zima_cpp_ui_contract_tests)
+    set_tests_properties(zima_cpp_mech_keyway_ui_contract PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." ENVIRONMENT "ZIMA_VERIFY_MECH_KEYWAY_ONLY=1")
     set_tests_properties(zima_cpp_ui_contract_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     add_test(NAME zima_cpp_history_tree_contract COMMAND zima_cpp_ui_contract_tests)
     set_tests_properties(zima_cpp_history_tree_contract PROPERTIES
@@ -3011,7 +3028,11 @@ if(ZIMA_BUILD_TESTS)
     set_tests_properties(zima_cpp_sheet_cut_wire_preview_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     add_executable(zima_cpp_bend_command_tests tests/bend_command_tests.cpp)
     add_executable(zima_cpp_sheet_profile_tests tests/sheet_profile_tests.cpp)
+    add_executable(zima_cpp_mech_keyway_tests tests/mech_keyway_tests.cpp)
+    target_link_libraries(zima_cpp_mech_keyway_tests PRIVATE zima_workspace TKTopAlgo)
+    add_test(NAME zima_cpp_mech_keyway_tests COMMAND zima_cpp_mech_keyway_tests)
     target_link_libraries(zima_cpp_sheet_profile_tests PRIVATE zima_workspace)
+    target_link_options(zima_cpp_sheet_profile_tests PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/STACK:8388608>)
     target_compile_options(zima_cpp_sheet_profile_tests PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
     add_test(NAME zima_cpp_sheet_profile_tests COMMAND zima_cpp_sheet_profile_tests)
     set_tests_properties(zima_cpp_sheet_profile_tests PROPERTIES
@@ -3237,6 +3258,7 @@ if(ZIMA_BUILD_TESTS)
     add_test(NAME zima_cpp_transition_attachment_tests COMMAND zima_cpp_transition_attachment_tests)
     set_tests_properties(zima_cpp_transition_attachment_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 900 ENVIRONMENT "ZIMA_CPP_EAGER_ANALYSIS=1")
     target_link_libraries(zima_cpp_sheet_transition_command_tests PRIVATE zima_workspace TKBRep TKTopAlgo)
+    target_link_options(zima_cpp_sheet_transition_command_tests PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/STACK:8388608>)
     add_test(NAME zima_cpp_sheet_transition_command_tests COMMAND zima_cpp_sheet_transition_command_tests)
     set_tests_properties(zima_cpp_sheet_transition_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 180 LABELS "sheet-branch;mandatory")
     set_tests_properties(zima_cpp_sheet_transition_command_tests PROPERTIES FIXTURES_SETUP sheet_transition_fixture ENVIRONMENT "ZIMA_CPP_EAGER_ANALYSIS=1")
@@ -3507,7 +3529,7 @@ endif()
 
 # These focused verification tools own an isolated runtime so native library and
 # presentation checks do not replace DLLs used by the running development app.
-foreach(fastener_check_target zima_cpp_fastener_library_contract_tests zima_file_manager_ui_tests zima_cpp_ui_contract_tests zima_cpp_feature_direction_command_tests)
+foreach(fastener_check_target zima_cpp_fastener_library_contract_tests zima_file_manager_ui_tests zima_cpp_ui_contract_tests zima_cpp_feature_direction_command_tests zima_cpp_mech_keyway_tests zima_cpp_modeling_confirmation_tests)
     if(TARGET ${fastener_check_target})
         set_target_properties(${fastener_check_target} PROPERTIES
             RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/fastener-runtime")

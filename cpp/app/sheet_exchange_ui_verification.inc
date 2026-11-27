@@ -8,6 +8,8 @@ int verify_sheet_exchange_ui(QApplication& application,const std::filesystem::pa
         const auto fixture=qEnvironmentVariable("ZIMA_VERIFY_SHEET_EXCHANGE");
         const bool same_body=qEnvironmentVariableIsSet("ZIMA_VERIFY_SHEET_SAME_BODY");
         std::string rip_id,rip_owner;
+        std::optional<kernel::FaceReference> authored_seed;
+        std::vector<std::string> fixture_rips;
         if(fixture!="1")part=document::PartDocument::load(fixture.toStdString(),&cache);
         else {
             static_cast<void>(part.body_history.create_body("Source"));
@@ -31,6 +33,26 @@ int verify_sheet_exchange_ui(QApplication& application,const std::filesystem::pa
             cache=workspace::calculate_part_with_resolved_references(kernel,part);
             if(!same_body)static_cast<void>(part.body_history.create_body("Sheet"));
         }
+        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_CONVERTED_FLAT_CORRECTIONS")) {
+            const auto conversion=std::ranges::find_if(part.history,[](const auto& f){return f.feature_kind==document::FeatureKind::SheetFromBody;});
+            check(conversion!=part.history.end(),"Correction fixture has no source conversion");
+            const auto prefix=std::size_t(conversion-part.history.begin());
+            authored_seed=conversion->sheet_from_body.source_face.reference;
+            fixture_rips=conversion->sheet_from_body.rip_sketches;
+            std::vector<std::pair<document::HistoryContainer,sketcher::Sketch>> preserved_rips;
+            for(const auto& id:fixture_rips) {
+                const auto sketch=std::ranges::find(part.sketches,id,&sketcher::Sketch::id);
+                check(sketch!=part.sketches.end(),"Correction fixture lost its authored RIP");
+                preserved_rips.emplace_back(*part.find_container(sketch->owner_container_id),*sketch);
+            }
+            while(part.history.size()>prefix)part.erase_history_object(part.history.back().id);
+            for(auto& [owner,sketch]:preserved_rips)if(!part.find_container(owner.id)) {
+                part.insert_history_entry(document::PartHistoryKind::Feature,owner.id);
+                part.history.push_back(std::move(owner));part.sketches.push_back(std::move(sketch));
+            }
+            cache.clear();
+        }
+        if(cache.empty())cache=workspace::calculate_part_with_resolved_references(kernel,part);
         const auto target=std::ranges::find_if(part.body_history.bodies(),[](const auto& body){return body.entries.empty();});
         const auto target_id=same_body?part.body_history.active_body_id():target==part.body_history.bodies().end()?part.body_history.create_body("Conversion verification"):target->scope.id;
         part.body_history.move_body(target_id,part.body_history.order().size()-1);part.body_history.activate(target_id);
@@ -58,6 +80,10 @@ int verify_sheet_exchange_ui(QApplication& application,const std::filesystem::pa
         auto seed=*std::ranges::max_element(offered_faces,{},[&](const auto& entry) {
             return entry.second->measured_area.value_or(0)+(fixture=="1"&&entry.second->surface->origin.z>0?1.:0.);
         })->second;
+        if(authored_seed) {
+            const auto found=offered_faces.find(authored_seed->owner_id+":"+authored_seed->semantic_key);
+            check(found!=offered_faces.end(),"Correction fixture source face is unavailable");seed=*found->second;
+        }
         const auto requested_face=qEnvironmentVariable("ZIMA_VERIFY_SHEET_EXCHANGE_FACE");
         if(!requested_face.isEmpty()) {
             bool valid=false;const auto index=requested_face.toULongLong(&valid);
@@ -72,8 +98,9 @@ int verify_sheet_exchange_ui(QApplication& application,const std::filesystem::pa
             // Exact user-file regressions exercise the persisted command and
             // resulting View independently of camera-facing picker coverage.
             // The ordinary fixture below still verifies the real View picker.
-            if(!requested_face.isEmpty()) {
+            if(!requested_face.isEmpty()||authored_seed) {
                 dialog()->set_reference(seed,1);
+                for(std::size_t i=0;i<fixture_rips.size();++i)dialog()->assign_rip(int(i),fixture_rips[i],QStringLiteral("RIP"));
                 flush();
                 check(dialog()->selected().has_value(),
                     "Exact source face was not accepted by Sheet from Body");
@@ -196,10 +223,31 @@ int verify_sheet_exchange_ui(QApplication& application,const std::filesystem::pa
             rips->cellClicked(0,1);flush();
             auto* owned=window.findChild<QDialog*>("generalSurfaceSketchProperties");
             check(owned&&owned->isVisible(),"RIP field did not create its Sketch editor");
+            auto* owned_properties=dynamic_cast<app::PrimitivePropertiesDialog*>(owned);
+            check(owned_properties&&owned_properties->pending_value().placement.references.empty(),
+                "New RIP inherited the conversion source face instead of offering an empty support");
             owned->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
             check(current->rip_sketches().empty(),"Cancelled new RIP left an empty reference");
             rips->cellClicked(0,1);flush();owned=window.findChild<QDialog*>("generalSurfaceSketchProperties");
             check(owned&&owned->isVisible(),"RIP editor did not reopen");
+            owned_properties=dynamic_cast<app::PrimitivePropertiesDialog*>(owned);
+            check(owned_properties&&owned_properties->pending_value().placement.references.empty(),
+                "Recreated RIP inherited a source plane");
+            document::ConstructionReference rip_support{{},seed.owner_id,seed.semantic_key,0.,true};
+            check(owned_properties->set_reference(0,rip_support,QStringLiteral("RIP support")),
+                "Explicit RIP support was rejected");
+            owned_properties->refresh_sketch_preview();flush();
+            const auto entered_rip_references=owned_properties->pending_value().placement.references;
+            check(!entered_rip_references.empty()&&std::ranges::all_of(entered_rip_references,[&](const auto& ref){
+                    return (ref.owner_id.empty()&&ref.semantic_key.empty())||
+                        (ref.owner_id==seed.owner_id&&ref.semantic_key==seed.semantic_key);}),
+                "Explicit RIP support changed before drawing");
+            const auto entered_rip_placement=owned_properties->pending_value().placement;
+            // Leave the next placement row armed, as automatic advancement does
+            // after picking only one plane, then enter the embedded Sketcher.
+            auto* placement_rows=owned->findChild<QTableWidget*>("primitiveReferenceTable");
+            check(placement_rows,"Owned RIP placement table missing");
+            placement_rows->cellClicked(1,1);flush();
             auto* open=owned->findChild<QPushButton*>("featureSketchButton");
             check(open&&open->isEnabled(),"RIP Sketch drawing is unavailable");open->click();flush();
             QEventLoop animation;QTimer::singleShot(950,&animation,&QEventLoop::quit);animation.exec();
@@ -222,9 +270,23 @@ int verify_sheet_exchange_ui(QApplication& application,const std::filesystem::pa
             check(window.active_sketch_for_test()->segments.size()==1,"RIP mouse drawing did not create a native segment");
             window.findChild<QAction*>("finishSketchAction")->trigger();flush();
             check(owned->isVisible(),"Finishing RIP Sketch did not return to its Properties");
+            check(owned_properties->pending_value().placement.references==entered_rip_references,
+                "Finishing RIP drawing changed the explicit support");
+            const auto drawn_rip_placement=owned_properties->pending_value().placement;
+            const auto rip_plane_owner=owned_properties->pending_value().id;
+            check(drawn_rip_placement.x==entered_rip_placement.x&&drawn_rip_placement.y==entered_rip_placement.y&&
+                    drawn_rip_placement.z==entered_rip_placement.z&&drawn_rip_placement.rotation_x==entered_rip_placement.rotation_x&&
+                    drawn_rip_placement.rotation_y==entered_rip_placement.rotation_y&&drawn_rip_placement.rotation_z==entered_rip_placement.rotation_z,
+                "Drawing RIP geometry moved its owning Sketch frame");
             owned->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
             check(current->isVisible()&&current->rip_sketches().size()==1,"Owned RIP confirmation did not restore conversion");
             const auto owned_rip=current->rip_sketches().front();
+            rips->cellClicked(0,1);flush();
+            owned=window.findChild<QDialog*>("generalSurfaceSketchProperties");
+            owned_properties=dynamic_cast<app::PrimitivePropertiesDialog*>(owned);
+            check(owned_properties&&owned_properties->pending_value().placement.references==entered_rip_references,
+                "Editing an existing RIP discarded its explicitly selected support");
+            owned->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
             check(window.execute_console_command("documents").data==before,"Draft RIP modified the live document");
             current->buttons()->button(commit?QDialogButtonBox::Ok:QDialogButtonBox::Cancel)->click();flush();
             if(failed) {
@@ -233,6 +295,9 @@ int verify_sheet_exchange_ui(QApplication& application,const std::filesystem::pa
                 current->buttons()->button(QDialogButtonBox::Ok)->click();flush();
             }
             check(!window.findChild<QDialog*>("sheetFromBodyDialog"),"RIP confirmation did not close the dialog");
+            check(std::ranges::none_of(view->mesh().edges,[&](const auto& edge) {
+                return edge.reference.owner_id==rip_plane_owner;
+            }),"The owned RIP placement plane remained after conversion finished");
             window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
             const auto saved=document::PartDocument::load(path);
             if(commit) {
@@ -266,12 +331,13 @@ int verify_sheet_exchange_ui(QApplication& application,const std::filesystem::pa
         action->trigger();flush();pick();window.grab().save(QString::fromStdString((directory/"sheet-conversion-properties.png").string()));
         QMouseEvent middle(QEvent::MouseButtonDblClick,QPointF(20,20),QPointF(20,20),QPointF(20,20),Qt::MiddleButton,Qt::MiddleButton,Qt::NoModifier);
         QApplication::sendEvent(view,&middle);flush();
+        if(window.findChild<QDialog*>("sheetFromBodyDialog"))window.grab().save(QString::fromStdString((directory/"sheet-conversion-failure.png").string()));
         check(!window.findChild<QDialog*>("sheetFromBodyDialog"),"Conversion OK failed");
         check(!view->mesh().triangles.empty(),
             "Sheet from Body history boundary hid the complete model View");
         const auto save=[&]{window.findChild<QAction*>("saveDocumentAction")->trigger();flush();return document::PartDocument::load(path);};
         const auto saved=save();check(saved.history.size()>original,"Conversion created no native sheet features");
-        const auto conversion=std::ranges::find_if(saved.history,[](const auto& feature){return feature.feature_kind==document::FeatureKind::SheetFromBody;});
+        const auto conversion=std::find_if(saved.history.begin()+original,saved.history.end(),[](const auto& feature){return feature.feature_kind==document::FeatureKind::SheetFromBody;});
         auto* tree=window.findChild<QTreeWidget*>("documentTree");
         if(same_body) {
             check(conversion!=saved.history.end()&&
@@ -622,6 +688,61 @@ int verify_sheet_exchange_ui(QApplication& application,const std::filesystem::pa
                 "Bound Sheet from Body child opened independent Properties");
             check(save().serialized()==unchanged,
                 "Blocked generated feature Properties changed the document");
+        }
+        const auto corrected_flat=std::find_if(saved.history.begin()+original,saved.history.end(),[&](const auto& feature) {
+            return feature.feature_kind==document::FeatureKind::Flat&&feature.flat.sheet_attachment&&
+                saved.body_owner_for_object(feature.id)->scope.id==target_id&&saved.sheet_from_body_child_bound(feature.id);
+        });
+        check(corrected_flat!=saved.history.end()||!qEnvironmentVariableIsSet("ZIMA_VERIFY_CONVERTED_FLAT_CORRECTIONS"),
+            "Converted Flat correction GUI fixture missing");
+        if(corrected_flat!=saved.history.end()) {
+        const auto correction_owner=corrected_flat->id,correction_sketch=corrected_flat->flat.sketch_id;
+        const auto& correction_profile=*std::ranges::find(saved.sketches,correction_sketch,&sketcher::Sketch::id);
+        view->set_view_direction(correction_profile.resolved_normal);view->fit_all();flush();
+        const auto unchanged_corrections=save().serialized();
+        for(const auto suffix:{":first",":last"})for(double value:{.5,-.25}) {
+            const auto& original_dimension=*std::ranges::find(correction_profile.dimensions,correction_sketch+":flat-correction"+suffix,&sketcher::SketchDimension::id);
+            const auto expected_native=sketcher::dimension_value_from_input(original_dimension,value,correction_profile.plane);
+            std::cout<<"Flat GUI correction "<<suffix<<" input "<<value<<std::endl;
+            auto* row=tree_row(correction_owner);check(row,"Corrected Flat Tree row missing");
+            const auto inspection_before=window.execute_console_command("documents").data;
+            tree->setCurrentItem(row);tree->itemClicked(row,0);flush();
+            check(std::ranges::none_of(view->mesh().dimensions,[&](const auto& d){return d.reference.owner_id==correction_sketch;}),
+                "Single Flat selection exposed its corrections");
+            row=tree_row(correction_owner);tree->itemDoubleClicked(row,0);flush();
+            check(window.execute_console_command("documents").data==inspection_before,
+                "Inspecting Flat corrections changed the document");
+            const auto key="dimension:"+correction_sketch+":flat-correction"+suffix;
+            const auto shown=std::ranges::find_if(view->mesh().dimensions,[&](const auto& d){return d.reference.owner_id==correction_sketch&&d.reference.semantic_key==key;});
+            check(shown!=view->mesh().dimensions.end(),"Zero Flat correction is not inspectable");
+            viewer::ViewerCandidate candidate;candidate.kind=viewer::CandidateKind::Dimension;
+            candidate.owner_id=correction_sketch;candidate.semantic_key=key;
+            candidate.geometry_index=std::size_t(shown-view->mesh().dimensions.begin());
+            const auto pixel=view->candidate_dimension_label_position(candidate);
+            check(pixel.has_value(),"Flat correction label has no screen position");
+            for(auto type:{QEvent::MouseMove,QEvent::MouseButtonPress,QEvent::MouseButtonRelease,QEvent::MouseButtonDblClick,QEvent::MouseButtonRelease}) {
+                QMouseEvent mouse(type,*pixel,QPointF(view->mapToGlobal(*pixel)),type==QEvent::MouseMove?Qt::NoButton:Qt::LeftButton,
+                    type==QEvent::MouseButtonPress||type==QEvent::MouseButtonDblClick?Qt::LeftButton:Qt::NoButton,Qt::NoModifier);
+                QApplication::sendEvent(view,&mouse);flush();
+            }
+            auto* editor=view->findChild<QLineEdit*>("inlineDimensionValueEdit");
+            check(editor&&editor->isVisible(),"Flat correction double-click did not open its value editor");
+            check(editor->property("dimensionIdentifier").toString().toStdString()==saved.dimension_identifiers.identifier(correction_sketch,key),
+                "Flat correction mouse click selected another dimension");
+            editor->setText(QString::number(value));QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);
+            QApplication::sendEvent(editor,&enter);flush();
+            window.grab().save(QString::fromStdString((directory/"flat-correction-after-edit.png").string()));
+            const auto changed=save();const auto& profile=*std::ranges::find(changed.sketches,correction_sketch,&sketcher::Sketch::id);
+            const auto dimension=std::ranges::find(profile.dimensions,correction_sketch+":flat-correction"+suffix,&sketcher::SketchDimension::id);
+            check(dimension!=profile.dimensions.end()&&std::abs(dimension->value-expected_native)<1e-7,
+                "Flat correction value was not persisted");
+            window.findChild<QAction*>("undoAction")->trigger();flush();
+            check(save().serialized()==unchanged_corrections,"Flat correction GUI Undo changed its source");
+            window.findChild<QAction*>("redoAction")->trigger();flush();
+            check(save().serialized()==changed.serialized(),"Flat correction GUI Redo changed identity");
+            window.findChild<QAction*>("undoAction")->trigger();flush();
+            window.finish_parameter_dimensions();flush();
+        }
         }
         const auto before=save().serialized();dxf=window.findChild<QAction*>("sheetDxfAction");dxf->trigger();flush();
         const auto directory_name=app::ApplicationSettings::load().drawing_dxf_directory;

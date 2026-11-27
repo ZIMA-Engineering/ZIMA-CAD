@@ -58,7 +58,9 @@ async function main() {
             imagesLoaded: [...document.images].every(image => image.complete && image.naturalWidth > 0),
             figures: [...document.querySelectorAll('.reference-figure img')].map(image => {
               const box=image.getBoundingClientRect();
-              return {height:box.height,left:box.left,width:box.width,ratio:image.naturalWidth/image.naturalHeight};
+              const group=image.closest('.reference-figures-side-by-side')?.getBoundingClientRect();
+              return {height:box.height,left:box.left,width:box.width,ratio:image.naturalWidth/image.naturalHeight,
+                anchorLeft:group?.left ?? box.left,groupRight:group?.right};
             }),
             language: document.documentElement.lang, rows: [...document.querySelectorAll('tbody tr')].filter(row => !row.closest('.print-only')).length };
         });
@@ -73,7 +75,8 @@ async function main() {
             Math.abs(metrics.mainLeft) > 1 || Math.abs(metrics.mainWidth - viewportWidth) > 1 || !metrics.imagesLoaded ||
             (metrics.brandRight !== undefined && Math.abs(metrics.brandRight - (viewportWidth - (viewportWidth <= 700 ? 12 : 20))) > 1))
           failures.push({ topic: topic.path, language, ...metrics });
-        if (metrics.figures.some(figure => figure.height > 191 || Math.abs(figure.left - (viewportWidth <= 700 ? 12 : 20)) > 1 ||
+        if (metrics.figures.some(figure => figure.height > 191 || Math.abs(figure.anchorLeft - (viewportWidth <= 700 ? 12 : 20)) > 1 ||
+            (figure.groupRight !== undefined && (figure.left < figure.anchorLeft-1 || figure.left+figure.width > figure.groupRight+1)) ||
             (figure.height > 0 && Math.abs(figure.width / figure.height - figure.ratio) > .02)))
           throw Error(`Reference figure exceeded its quarter-window limit or changed aspect: ${topic.path}/${language}`);
         const expectedRows = topic.display_row_count ?? (topic.rows.length + (topic.sections || []).reduce((n, block) => n + block.rows.length, 0));

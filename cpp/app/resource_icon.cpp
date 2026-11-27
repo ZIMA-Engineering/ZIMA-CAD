@@ -326,7 +326,7 @@ static QPixmap branding_pixmap(const QString& path, const QSize& size, qreal sca
     pixmap.fill(Qt::transparent);
     QSizeF bounds = renderer.viewBoxF().size();
     bounds.scale(size, Qt::KeepAspectRatio);
-    if(tall) {bounds=QSizeF(size.width(),size.height()*0.875);renderer.setAspectRatioMode(Qt::IgnoreAspectRatio);}
+    if(tall) {bounds=QSizeF(size.width(),size.height()*0.80);renderer.setAspectRatioMode(Qt::IgnoreAspectRatio);}
     const QRectF target(QPointF((size.width() - bounds.width()) / 2,
                                (size.height() - bounds.height()) / 2), bounds);
     QPainter painter(&pixmap);

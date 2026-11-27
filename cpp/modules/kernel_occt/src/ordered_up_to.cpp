@@ -107,6 +107,7 @@ TopoDS_Face extend_support(const TopoDS_Face& authored,const Bnd_Box& box,
             // nearer screen-space branch or truncate the opposite side.
             for(int i=1;i<=projected.NbPoints();++i) {
                 double u,v;projected.Parameters(i,u,v);
+                if(type==GeomAbs_Cone&&adaptor.Cone().RefRadius()+v*std::sin(adaptor.Cone().SemiAngle())<=tolerance)continue;
                 pu0=std::min(pu0,u);pu1=std::max(pu1,u);
                 pv0=std::min(pv0,v);pv1=std::max(pv1,v);
             }

@@ -2819,10 +2819,13 @@ double extrusion_limit_span(const ExtrusionLimitView& limit,const Vec3& unit,
         const auto ray_distance = [&](const gp_Pnt& point) {
             double nearest = std::numeric_limits<double>::infinity();
             if(exact) {
-                exact_intersection.Perform(gp_Lin(point,gp_Dir(unit.x,unit.y,unit.z)),0,1e12);
+                exact_intersection.Perform(gp_Lin(point,gp_Dir(unit.x,unit.y,unit.z)),-1e-8,1e12);
                 if(exact_intersection.IsDone())for(int i=1;i<=exact_intersection.NbPnt();++i)
-                    if(exact_intersection.WParameter(i)>1e-8)
-                        nearest=std::min(nearest,exact_intersection.WParameter(i));
+                    // Contact at the Sketch is already the nearest target.
+                    // Skipping it selects the far wall of a cylinder/cone and
+                    // can retain a second, disconnected overrun after clipping.
+                    if(exact_intersection.WParameter(i)>=-1e-8)
+                        nearest=std::min(nearest,std::max(0.,exact_intersection.WParameter(i)));
                 if(!std::isfinite(nearest))throw std::runtime_error("Extrusion profile misses target surface");
                 return nearest;
             }
@@ -2851,7 +2854,7 @@ double extrusion_limit_span(const ExtrusionLimitView& limit,const Vec3& unit,
                 if (v < -1e-8 || u + v > 1.0 + 1e-8) continue;
                 const double distance = inverse *
                     (edge2.x * q.x + edge2.y * q.y + edge2.z * q.z);
-                if (distance > 1e-8) nearest = std::min(nearest, distance);
+                if (distance >= -1e-8) nearest = std::min(nearest, std::max(0., distance));
             }
             if (!std::isfinite(nearest)) {
                 throw std::runtime_error("Extrusion profile misses target surface");
@@ -3264,6 +3267,16 @@ PrimitiveData make_extrusion_data(
             }
             limiting_face = *exact;
             keep_point = profile_keep_point;
+            if(BRepAdaptor_Surface(limiting_face,false).GetType()==GeomAbs_Cone) {
+                // An unbounded cone includes its opposite nappe. OCCT's
+                // half-space builder can then retain the wrong material side
+                // even for an exterior keep point. Reuse the exact bounded
+                // analytic continuation prepared for ordered Up To targets.
+                Bnd_Box envelope;BRepBndLib::AddOptimal(result.shape,envelope,false,false);
+                envelope.Enlarge(std::max(1.,10*linear_tolerance));
+                limiting_face=detail::build_ordered_up_to({{limiting_face,{},{}}},
+                    envelope,std::max(linear_tolerance,Precision::Confusion())).patches.front().face;
+            }
         }
         BRepPrimAPI_MakeHalfSpace half_space(limiting_face, keep_point);
         BRepAlgoAPI_Common clip;
@@ -12750,7 +12763,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     aggregate_property_demand==AggregatePropertyDemand::DeferredAdaptive;
                 auto published=make_result(native.shape,
                     native.topology->faces,native.topology->edges,
-                    native.topology->vertices,false,true,false,
+                    native.topology->vertices,true,true,false,
                     native.topology->hidden_display_edges,
                     operations.back().mesh_deflection,calculate_properties);
                 auto& retained=reused.back();
@@ -12986,6 +12999,33 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 break;
             }
             --reusable_prefix;
+        }
+        // A restored boundary may have been used by an earlier suffix which
+        // needed fewer source faces. Its presence alone does not prove that
+        // it contains the ancestry required by this new edit.
+        if(reusable_prefix>0) {
+            const auto cached=live_cache_->boundaries.find(
+                previous_boundaries[reusable_prefix-1].source_fingerprint);
+            if(cached!=live_cache_->boundaries.end()) {
+                std::set<std::string> prefix_owners;
+                for(std::size_t i=0;i<reusable_prefix;++i)prefix_owners.insert(operations[i].owner_id);
+                const std::vector<HistoryOperation> suffix(operations.begin()+
+                    static_cast<std::ptrdiff_t>(reusable_prefix),operations.end());
+                std::vector<OwnedFace> recovered;
+                for(const auto& required:extrusion_references(suffix)) {
+                    if(!required.instance_path.empty()||!prefix_owners.contains(required.owner_id))continue;
+                    bool present=false;
+                    for(auto node=cached->second.original_faces;node&&!present;node=node->previous)
+                        present=std::ranges::any_of(node->faces,[&](const auto& face){return same_face_identity(face.reference,required);});
+                    if(present)continue;
+                    const auto begin=recovered.size();
+                    if(cached->second.topology)for(const auto& face:cached->second.topology->faces)
+                        if(same_face_identity(face.reference,required))recovered.push_back(face);
+                    if(recovered.size()==begin) {reusable_prefix=0;break;}
+                }
+                if(reusable_prefix&&!recovered.empty())cached->second.original_faces=
+                    std::make_shared<OriginalFaces>(OriginalFaces{std::move(recovered),cached->second.original_faces,{},{}});
+            }
         }
         const bool reusable_prefix_has_live_ancestry = reusable_prefix > 0 &&
             live_cache_->boundaries.contains(
@@ -19032,6 +19072,21 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
     } catch (const Standard_Failure& failure) {
         throw std::runtime_error(failure.GetMessageString());
     }
+}
+
+bool restore_calculated_body_face_mesh(BodyResult& body,double mesh_deflection) {
+    if(body.kernel_shape.empty()||body.kernel_shape==kernel_body_compound||body.kernel_faces.empty()||
+        body.mesh.triangles.empty()||std::ranges::any_of(body.mesh.triangle_references,
+            [](const auto& face){return face.valid();}))return false;
+    const auto native=bound_face_geometry(body,true);
+    auto restored=make_result(native.shape,native.faces,native.edges,native.vertices,
+        true,false,false,{},mesh_deflection,false).mesh;
+    if(restored.triangle_references.empty()||!std::ranges::all_of(restored.triangle_references,
+            [](const auto& face){return face.valid();}))return false;
+    body.mesh.vertices=std::move(restored.vertices);
+    body.mesh.triangles=std::move(restored.triangles);
+    body.mesh.triangle_references=std::move(restored.triangle_references);
+    return true;
 }
 
 TopoDS_Shape read_calculated_body_shape(const BodyResult& body) {

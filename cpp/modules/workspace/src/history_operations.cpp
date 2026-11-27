@@ -104,6 +104,10 @@ bool set_part_history_suppressed(Workspace& live,const std::string& document_id,
     // and commit the complete change after one calculation.
     auto affected=part_history_dependency_closure(part.session.document(),id,suppressed);
     if(const auto* selected=part.session.document().find_container(id);
+            selected&&selected->feature_kind==document::FeatureKind::MechKeyway)
+        for(const auto& feature:part.session.document().history)
+            if(feature.mech_keyway_binding.parent_id==selected->id)affected.insert(feature.id);
+    if(const auto* selected=part.session.document().find_container(id);
             selected&&selected->feature_kind==document::FeatureKind::SheetProfile)
         for(const auto& feature:part.session.document().history)
             if(feature.sheet_profile_binding.parent_id==selected->id)
@@ -122,6 +126,9 @@ bool move_part_history(Workspace& live,const std::string& document_id,const kern
     require_editable(part.session.document(),id);
     const auto& original=part.session.document();
     const auto* moved=original.find_container(id);
+    if(moved&&(moved->feature_kind==document::FeatureKind::MechKeyway||
+             !moved->mech_keyway_binding.parent_id.empty()))
+        throw HistoryOperationError("atomic_history_group","Decompose the MECH feature before editing its children");
     if(moved&&(moved->feature_kind==document::FeatureKind::SheetProfile||
              !moved->sheet_profile_binding.parent_id.empty()))
         throw HistoryOperationError("atomic_history_group",

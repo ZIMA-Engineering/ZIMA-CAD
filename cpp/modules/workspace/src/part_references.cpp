@@ -306,6 +306,15 @@ zima::kernel::ViewerReferenceGeometry part_construction_dimension_geometry(
 bool refresh_sketch_external_references(
     zima::document::PartDocument& document,
     const std::vector<zima::kernel::BodyResult>& calculated_boundaries,const kernel::OcctKernel* explicit_kernel) {
+    // MECH dependency errors belong to its compound lifecycle. Sketch refresh
+    // must not retire them and repeatedly re-enable invalid material children.
+    std::map<std::string,std::string> compound_errors;
+    for(const auto& feature:document.history)if(feature.feature_kind==document::FeatureKind::MechKeyway)
+        if(const auto error=document.reference_errors.find(feature.id);error!=document.reference_errors.end()) {
+            compound_errors.emplace(*error);
+            for(const auto& child:document.history)if(child.mech_keyway_binding.parent_id==feature.id)
+                compound_errors[child.id]=error->second;
+        }
     bool has_external_references=false;
     visit_document_sketches(document,[&](const auto& sketch) {
         has_external_references=!sketch.external_references.empty();
@@ -314,8 +323,8 @@ bool refresh_sketch_external_references(
     if(!has_external_references) {
         // Preserve retirement of stale errors, but do not copy a complete body
         // reference packet when no native or embedded Sketch can consume it.
-        const bool changed=!document.reference_errors.empty();
-        document.reference_errors.clear();return changed;
+        const bool changed=document.reference_errors!=compound_errors;
+        document.reference_errors=std::move(compound_errors);return changed;
     }
     const bool profile_enabled=std::getenv("ZIMA_CPP_PROFILE_COMMAND")!=nullptr;
     auto profile_start=profile_enabled?std::chrono::steady_clock::now():std::chrono::steady_clock::time_point{};
@@ -385,8 +394,9 @@ bool refresh_sketch_external_references(
         return changed;
     };
     const auto before=document.reference_errors;
-    std::map<std::string,std::string> errors;
+    auto errors=std::move(compound_errors);
     const bool changed=update_document_sketches(document,[&](auto& sketch) {
+        if(errors.contains(sketch.owner_container_id))return false;
         if(sketch.external_references.empty())return false;
         // Refresh is transactional per Sketch. A failed later profile must not
         // invalidate the successfully calculated predecessors that drive it.

@@ -6,6 +6,11 @@ namespace zima::sketcher {
 // The selector is part of the persisted source identity, never a mesh index.
 inline constexpr std::string_view face_curve_prefix="sketch-outline:";
 inline bool is_face_curve_key(std::string_view key) { return key.starts_with(face_curve_prefix); }
+// Explicit nominal analytic section, as opposed to the bounded face outline.
+// Currently a plane normal to a cylinder/cone axis. The source identity and
+// Sketch frame together define the section; display facets never define it.
+inline bool is_analytic_section_key(std::string_view key) { return key.starts_with("sketch-outline:section:"); }
+inline std::string analytic_section_key(const std::string& key) { return "sketch-outline:section:"+key; }
 // Fillet and Chamfer publish exact persisted result-edge identities. Unlike an
 // anonymous Boolean/result fragment, these edges can be refreshed from the
 // calculated Body before a later Sketch.

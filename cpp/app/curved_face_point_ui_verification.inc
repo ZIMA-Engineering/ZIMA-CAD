@@ -1,5 +1,6 @@
 int verify_curved_face_point_ui(QApplication& application,const std::filesystem::path& directory) {
     using namespace zima;
+    std::filesystem::create_directories(directory);
     const auto rotate=[](kernel::Vec3 p,kernel::Vec3 degrees,bool inverse) {
         const auto axis=[](kernel::Vec3 p,int i,double a) {
             const double c=std::cos(a),s=std::sin(a);
@@ -58,6 +59,7 @@ int verify_curved_face_point_ui(QApplication& application,const std::filesystem:
         flush();const auto before=kernel::body_calculation_count.load();
         const auto parent_id=sweep?parent->pending_sweep_value().id:parent->pending_value().id;
         std::vector<kernel::Vec3> positions;
+        std::vector<kernel::Vec3> rotations;
         for(int point_index=0;point_index<3;++point_index) {
             auto* rows=parent->findChild<QTableWidget*>("curve3DPoints");emit rows->cellClicked(rows->rowCount()-1,0);flush();
             auto* point=dialog();if(!verify(point&&point!=parent,"Cannot create an owned Point"))return 1;
@@ -117,8 +119,8 @@ int verify_curved_face_point_ui(QApplication& application,const std::filesystem:
                 offset->setValue(distance);flush();
                 const auto edited=point->pending_value();
                 const kernel::Vec3 expected{pending.origin.x+normal.x*distance,pending.origin.y+normal.y*distance,pending.origin.z+normal.z*distance};
-                const auto front=rotate({0,1,0},edited.rotation,false);
-                const auto dot=front.x*normal.x+front.y*normal.y+front.z*normal.z;
+                const auto top=rotate({0,0,1},edited.rotation,false);
+                const auto dot=top.x*normal.x+top.y*normal.y+top.z*normal.z;
                 if(!edited.reference_valid||norm(minus(edited.origin,expected))>=1e-6||
                         std::abs(dot-(edited.references.front().flip?-1.:1.))>=1e-8)
                     std::cerr<<"Point offset diagnostic distance="<<distance<<" error="<<norm(minus(edited.origin,expected))
@@ -126,9 +128,10 @@ int verify_curved_face_point_ui(QApplication& application,const std::filesystem:
                         <<" role="<<edited.references.front().orientation_role<<" rotation="<<edited.rotation.x<<","<<edited.rotation.y<<","<<edited.rotation.z<<std::endl;
                 if(!verify(edited.reference_valid&&norm(minus(edited.origin,expected))<1e-6&&
                     std::abs(dot-(edited.references.front().flip?-1.:1.))<1e-8,
-                    "Owned Point offset or orientation differs from the exact surface normal"))return 1;
+                    "Owned Point offset or local XY normal differs from the exact surface normal"))return 1;
             }
             positions.push_back(point->pending_value().origin);
+            rotations.push_back(point->pending_value().rotation);
             point->buttons()->button(QDialogButtonBox::Ok)->click();flush();
             if(!verify(dialog()==parent&&parent->pending_value().curve_points.size()==positions.size(),"Point OK did not return to its owning path"))return 1;
         }
@@ -164,23 +167,46 @@ int verify_curved_face_point_ui(QApplication& application,const std::filesystem:
         const auto expected_plane=rotate({0,0,120-parent_origin.z},parent_rotation,true);
         if(!verify(!planar_point.references.empty()&&norm(minus(planar_point.origin,expected_plane))<1e-6,
                 "Planar support captured the mouse position instead of projecting the owning Origin"))return 1;
+        const auto planar_top=rotate({0,0,1},planar_point.rotation,false);
+        const auto planar_normal=rotate({0,0,planar_point.references.front().flip?-1.:1.},parent_rotation,true);
+        if(!verify(norm(minus(planar_top,planar_normal))<1e-8,
+                "Planar Point did not retain the same local XY normal convention"))return 1;
         planar->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
         if(!verify(parent->pending_value().curve_points.size()==3&&kernel::body_calculation_count.load()==before,
                 "Canceled planar Point changed the route or calculated a Body"))return 1;
         if(sweep) {
-            std::cout<<"Create section"<<std::endl;
-            auto* profiles=parent->findChild<QTableWidget*>("sweep3DProfiles");
-            auto* first=qobject_cast<QPushButton*>(profiles->cellWidget(0,1));
-            if(!verify(first&&first->isEnabled(),"Sweep cannot create its initial section"))return 1;
-            first->click();flush();
-            std::cout<<"Section opened"<<std::endl;
-            window.findChild<QAction*>("finishSketchAction")->trigger();flush();
-            std::cout<<"Section returned"<<std::endl;
-            if(!verify(dialog()==parent,"Cannot return from the section Sketch"))return 1;
-            const auto* entry=parent->sweep_profile(0);if(!verify(entry!=nullptr,"Sweep has no initial section"))return 1;
-            auto section=sketcher::Sketch::from_serialized(entry->sketch_serialized);
-            static_cast<void>(section.add_circle(0,0,1));parent->set_sweep_profile_sketch(0,section);flush();
-            std::cout<<"Section populated"<<std::endl;
+            const int count=parent->findChild<QTableWidget*>("sweep3DProfiles")->rowCount();
+            for(int row=0;row<count;++row) {
+                auto* profiles=parent->findChild<QTableWidget*>("sweep3DProfiles");
+                auto* button=qobject_cast<QPushButton*>(profiles->cellWidget(row,1));
+                if(!verify(button&&button->isEnabled(),"Sweep cannot open a station section"))return 1;
+                button->click();flush();
+                window.findChild<QAction*>("finishSketchAction")->trigger();flush();
+                if(!verify(dialog()==parent,"Cannot return from the section Sketch"))return 1;
+                const auto* entry=parent->sweep_profile(row);
+                if(!verify(entry!=nullptr,"Sweep lost an authored station section"))return 1;
+                auto section=sketcher::Sketch::from_serialized(entry->sketch_serialized);
+                // An asymmetric section exposes a swapped/mirrored frame that
+                // a centered circular section would conceal.
+                static_cast<void>(section.add_rectangle(-.4,-.3,1.6,.9));
+                parent->set_sweep_profile_sketch(row,section);flush();
+            }
+            const auto pending=parent->pending_sweep_value();
+            const auto route=document::curve3d_route(pending.sweep3d.path);
+            for(const auto& profile:pending.sweep3d.profiles) {
+                const auto station=std::ranges::find_if(route.stations,[&](const auto& s) {
+                    return s.point_id==profile.point_id&&s.incoming==profile.incoming;
+                });
+                if(!verify(station!=route.stations.end(),"Section lost its stable station identity"))return 1;
+                const auto section=sketcher::Sketch::from_serialized(profile.sketch_serialized);
+                const auto expected=rotate(rotate(station->tangent,pending.sweep3d.path.rotation,false),
+                    {pending.placement.rotation_x,pending.placement.rotation_y,pending.placement.rotation_z},false);
+                const auto x=section.resolved_x_axis,y=section.resolved_y_axis;
+                const kernel::Vec3 cross{x.y*y.z-x.z*y.y,x.z*y.x-x.x*y.z,x.x*y.y-x.y*y.x};
+                if(!verify(norm(minus(section.resolved_normal,expected))<1e-8&&
+                        norm(minus(cross,expected))<1e-8&&std::abs(norm(x)-1)<1e-8&&std::abs(norm(y)-1)<1e-8,
+                        "Sweep station section is not right-handed and perpendicular to its exact tangent"))return 1;
+            }
         }
         QPointer<app::ConstructionPropertiesDialog> guard(parent);
         QTimer watchdog;
@@ -215,7 +241,9 @@ int verify_curved_face_point_ui(QApplication& application,const std::filesystem:
             const auto* curve=sweep?(owner?&owner->sweep3d.path:nullptr):loaded.find_construction(parent_id);
             if(!curve||!curve->reference_valid||curve->curve_points.size()!=positions.size())return false;
             for(std::size_t i=0;i<positions.size();++i)if(!curve->curve_points[i].reference_valid||
-                norm(minus(curve->curve_points[i].origin,positions[i]))>1e-7)return false;
+                norm(minus(curve->curve_points[i].origin,positions[i]))>1e-7||
+                norm(minus(curve->curve_points[i].rotation,rotations[i]))>1e-7||
+                curve->curve_points[i].references.front().orientation_role!="top")return false;
             return true;
         };
         if(!verify(check(saved),"Saving lost the captured surface Points"))return 1;

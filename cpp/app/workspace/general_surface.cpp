@@ -97,7 +97,12 @@ void AssemblyWorkspaceWindow::show_owned_sketch_properties(ui::PropertiesSubWind
     };
     dialog->set_edit_sketch_callback([this,dialog,guard,pending,stage,framed,draft,local_pick](auto owned) {
         if(!guard)return;
-        if(feature_reference_end_){auto end=feature_reference_end_;end();}
+        // Placement entry belongs to Properties, not to the embedded Sketcher.
+        // In particular, automatic next-reference entry after one support must
+        // not consume the endpoints subsequently selected while drawing.
+        static_cast<void>(finish_active_reference_selection());
+        set_local_origin_selection_mode(false);
+        primitive_reference_dialog_=nullptr;
         auto feature=framed(owned);
         *draft=feature.general_surface.boundaries.at(stage);
         sweep_profile_sketch_draft_=document::general_surface_display_sketch(feature,*draft);

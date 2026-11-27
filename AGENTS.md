@@ -351,6 +351,23 @@ anchored. The shared properties-window implementation owns this layout policy.
 
 ## History container editing
 
+### Failed modeling confirmation (mandatory)
+
+- The first failed OK keeps the pending definition private and reports the
+  failure. An unchanged second OK closes Properties and saves the definition
+  as unresolved in one ordinary Undo transaction. Cancel discards pending edits.
+- Reuse the shared modeling-confirmation mechanism, including its source
+  generation guard. Parameter or source changes invalidate the acknowledgement.
+  The second unchanged OK must reuse the failed result without recalculation.
+- Include failures during feature preparation, such as unavailable catalogue
+  sizes or unresolved references, not only failures inside the solid kernel.
+  Preserve the last valid frame and owned definitions for repair; never publish
+  fabricated geometry or claim that unresolved material is valid. Structural
+  document validation still applies.
+- Verify creation and editing, changed inputs, Cancel, native save/reopen,
+  regeneration and Undo/Redo, including actual dialog confirmation.
+- This rule was requested by the user on 2026-11-27.
+
 - Rollback is a general container-editing rule, not a Fillet-specific feature.
   Opening Properties for any history container evaluates and displays the model
   at the boundary immediately before that container. The edited container

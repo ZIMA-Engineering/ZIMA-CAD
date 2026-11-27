@@ -452,9 +452,12 @@ kernel::HistoryOperation feature_preview_operation(document::PartDocument carrie
     *current=definition;
     const auto entry=std::ranges::find(carrier.history_order,definition.id,&document::PartHistoryEntry::id);
     if(entry!=carrier.history_order.end())carrier.history_cursor=static_cast<std::size_t>(entry-carrier.history_order.begin())+1;
-    const auto operations=carrier.kernel_operations(true);
+    // An unfinished downstream feature must not prevent previewing this
+    // earlier definition. Preserve and report an error on the requested item.
+    const auto operations=carrier.kernel_operations(true,true);
     const auto found=std::ranges::find(operations,definition.id,&kernel::HistoryOperation::owner_id);
     if(found==operations.end())throw ProfileOperationError("invalid_feature","Invalid Feature definition.");
+    if(!found->input_error.empty())throw std::runtime_error(found->input_error);
     auto result=*found;result.body={};return result;
 }
 

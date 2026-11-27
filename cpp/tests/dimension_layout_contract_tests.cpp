@@ -636,6 +636,33 @@ int main(int argc, char **argv) {
         }
         verify_vertical_dimension_clearance();
         {
+            // Signed manufacturing deviations must agree in inline, stacked,
+            // Drawing and Sketch presentation; default unsigned magnitudes
+            // retain their established upper-plus/lower-minus interpretation.
+            kernel::ViewerDimension dimension;dimension.value=38.3;
+            kernel::DimensionTextStyle style;style.suffix.clear();style.tolerance_mode="deviations";
+            const std::array<std::array<const char*,5>,5> cases{{
+                {{"+0.2","+0.1","38,3 +0,2 /+0,1","+0,2","+0,1"}},
+                {{"0","-0.2","38,3 +0 /-0,2","0","-0,2"}},
+                {{"-0.1","-0.2","38,3 -0,1 /-0,2","-0,1","-0,2"}},
+                {{"0.2","0.1","38,3 +0,2 /-0,1","+0,2","-0,1"}},
+                {{"+0.2","0","38,3 +0,2 /-0","+0,2","0"}}
+            }};
+            for(const auto& row:cases){
+                style.upper_tolerance=row[0];style.lower_tolerance=row[1];
+                const auto text=QString::fromStdString(kernel::dimension_text(dimension,style));
+                require(text==row[2],"Signed deviation acquired an extra or reversed sign");
+                app.setProperty("zimaStackedTolerances",false);
+                require(viewer::dimension_render_text(style,text)==text,"Inline signed tolerance changed");
+                app.setProperty("zimaStackedTolerances",true);
+                const auto stacked=viewer::dimension_render_text(style,text).split(QChar(0x1f));
+                require(stacked.size()==3&&stacked[1]==row[3]&&stacked[2]==row[4],"Stacked signed tolerance changed");
+            }
+            style.text_override="literal +0 /--0.2";
+            const auto literal=QString::fromStdString(kernel::dimension_text(dimension,style));
+            require(viewer::dimension_render_text(style,literal)==literal,"Signed tolerance formatting changed authored text");
+        }
+        {
             kernel::DimensionTextStyle style;style.tolerance_mode="deviations";style.suffix.clear();
             style.upper_tolerance="0.2";style.lower_tolerance="0.15";
             kernel::ViewerDimension dimension;dimension.value=30;

@@ -6,6 +6,8 @@
 #include "sweep_placement_dialog.hpp"
 #include "sweep_point_order_dialog.hpp"
 #include "work_plane_selection.hpp"
+#include <zima/document/sketch_placement.hpp>
+#include <zima/document/sweep2d_profile_sources.hpp>
 #include <zima/ui/reference_cell.hpp>
 #include <QComboBox>
 #include <QDoubleSpinBox>
@@ -53,6 +55,17 @@ public:
         content_layout()->addWidget(new QLabel(tr("Rovina a skica dráhy"),this));content_layout()->addLayout(path_row);
         auto* help=new QLabel(tr("Vyberte vlastní rovinu XY, YZ nebo XZ kontejneru pro skicu dráhy."),this);
         help->setWordWrap(true);content_layout()->addWidget(help);
+        reverse_path_=new QPushButton(tr("Obrátit směr"),this);
+        reverse_path_->setObjectName("sweep2dReversePath");reverse_path_->setCheckable(true);
+        reverse_path_->setChecked(pending.sweep2d.path_reversed);
+        reverse_path_->setToolTip(tr("Přepnout počátek na opačný konec dráhy. U uzavřené dráhy obrátit směr."));
+        connect(reverse_path_,&QPushButton::clicked,this,[this]{
+            try {document::PartDocument::reverse_sweep2d_path(pending);refresh_profiles();notify();}
+            catch(const std::exception& e){reverse_path_->setChecked(pending.sweep2d.path_reversed);set_status(tr(e.what()));}
+        });
+        auto* direction_row=new QHBoxLayout;
+        direction_row->addWidget(new QLabel(tr("Směr dráhy"),this));direction_row->addWidget(reverse_path_);direction_row->addStretch();
+        content_layout()->addLayout(direction_row);
         thin_form_=new QFormLayout;
         auto* result=new QComboBox(this);result->setObjectName("sweep2dResultType");result->addItems({tr("Těleso"),tr("Tenkostěnný prvek"),tr("Plocha")});
         result->setCurrentIndex(pending.sweep2d.result_type==document::ProfileResultType::Surface?2:pending.sweep2d.result_type==document::ProfileResultType::Thin?1:0);thin_form_->addRow(tr("Typ výsledku"),result);
@@ -103,6 +116,20 @@ public:
         pending.sweep2d.path_plane->orientation_drives_rotation=false;pending.sweep2d.path_plane->orientation_only=false;
         pending.sweep2d.path_plane->orientation_role.clear();refresh_plane();
     }
+    document::ConstructionReference prepare_reference_candidate(std::size_t index,
+            document::ConstructionReference reference) const override {
+        const auto& plane=pending.sweep2d.path_plane;
+        const bool own_xy=!plane||(plane->owner_id==pending.container_origin.id&&
+            plane->instance_path.empty()&&plane->semantic_key=="origin:plane:xy");
+        if(own_xy&&!entering_whole_origin())
+            document::prepare_profile_plane_reference(index,reference,pending.placement.references);
+        return reference;
+    }
+    bool set_reference(std::size_t index,document::ConstructionReference reference,
+            const QString& label) override {
+        return SweepPlacementDialog::set_reference(index,
+            prepare_reference_candidate(index,std::move(reference)),label);
+    }
     std::function<void()> request_path_plane;
     std::function<void()> path_entry_ended;
     bool point_order_open() const{return point_order_open_;}
@@ -134,14 +161,14 @@ public:
         const QSignalBlocker blocked(profiles_);profiles_->setRowCount(0);
         document::Curve3DRoute route;
         path_error_.clear();
+        reverse_path_->setEnabled(false);reverse_path_->setChecked(pending.sweep2d.path_reversed);
         try{route=document::PartDocument::sweep2d_route(pending);}catch(const std::exception& error){
             path_error_=tr("Dráha není platná: %1").arg(QObject::tr(error.what()));
             set_status(path_error_);return;
         }
         status_->clear();
-        const auto& start=route.stations.front().origin;const auto& end=route.stations.back().origin;
-        const bool closed=std::hypot(start.x-end.x,start.y-end.y,start.z-end.z)<1e-7;
-        QString inherited,first_profile;
+        reverse_path_->setEnabled(true);
+        const auto sources=document::sweep2d_profile_sources(pending.sweep2d,route);
         for(const auto& station:route.stations) {
             const int row=profiles_->rowCount();profiles_->insertRow(row);
             const auto found=std::ranges::find_if(pending.sweep2d.profiles,[&](const auto& p){return p.point_id==station.point_id&&p.incoming==station.incoming;});
@@ -155,10 +182,13 @@ public:
             qobject_cast<QWidget*>(indicator->property("_removeWidget").value<QObject*>())->setToolTip(tr("Odstranit vlastní profil (stanice zůstane)"));
             qobject_cast<QWidget*>(indicator->property("_arrowWidget").value<QObject*>())->setToolTip(tr("Skica"));
             profiles_->setItem(row,0,new ui::ReferenceCellItem(sweep_station_label(station.label)));
-            if(closed && static_cast<std::size_t>(row)+1==route.stations.size())inherited=first_profile;
+            QString inherited;
+            if(const auto* source=sources[static_cast<std::size_t>(row)]) {
+                const auto origin=std::ranges::find_if(route.stations,[&](const auto& value){return
+                    value.point_id==source->point_id&&value.incoming==source->incoming;});
+                if(origin!=route.stations.end())inherited=sweep_station_label(origin->label);
+            }
             const auto status=populated?tr("Vlastní"):inherited.isEmpty()?tr("Vyplňte první profil"):tr("Z %1").arg(inherited);
-            if(populated)inherited=sweep_station_label(station.label);
-            if(row==0)first_profile=inherited;
             profiles_->setItem(row,3,new ui::ReferenceCellItem(status));
             auto* button=new QPushButton(tr("Skica"),profiles_);style_sketch_button(button);
             button->setObjectName(QString("sweep2dStationSketch%1").arg(row));
@@ -198,6 +228,7 @@ private:
     std::function<void(document::HistoryContainer)> commit_;
     QComboBox* side_{};QDoubleSpinBox* thickness_{};QLabel* status_{};QFormLayout* thin_form_{};
     QTableWidget* profiles_{};QComboBox* plane_{};QTableWidget* path_view_{};
+    QPushButton* reverse_path_{};
     ui::ReferenceCellItem* path_field_{};
     bool plane_initialized_{},point_order_open_{},path_entry_active_{};
     QString path_error_,path_label_;

@@ -15,6 +15,7 @@
 #include <QScrollBar>
 #include <QSortFilterProxyModel>
 #include <QMouseEvent>
+#include <QKeyEvent>
 #include <QHelpEvent>
 #include <QToolTip>
 #include <QStyle>
@@ -44,6 +45,7 @@
 #include <QTabWidget>
 #include <QTableWidget>
 #include <QTemporaryDir>
+#include <QtTest/QTest>
 #include <QThread>
 #include <QTimer>
 #include <QToolButton>
@@ -68,6 +70,85 @@ public:
 };
 void check(bool condition,const char* message){if(!condition)throw std::runtime_error(message);}
 void touch(const QString& path){QFile file(path);check(file.open(QIODevice::WriteOnly),"Cannot create synthetic file");file.write("synthetic");}
+void verify_checkbox_gestures(QApplication& application) {
+    QTemporaryDir fixture;check(fixture.isValid(),"Cannot create checkbox fixture");
+    for(int i=0;i<4;++i)touch(fixture.filePath(QString("file-%1.txt").arg(i)));
+    zima::app::ApplicationSettings settings;settings.file_manager.default_view="files";
+    zima::app::FileManagerTab manager(settings,fixture.path());
+    manager.resize(1100,700);manager.show();application.processEvents();
+    auto* table=manager.findChild<QTreeWidget*>("fileManagerFiles");
+    check(table&&table->topLevelItemCount()==4,"Checkbox fixture rows missing");
+    int opened{};manager.open_file_requested=[&](const QString&){++opened;};
+    ItemGeometryProbe probe;
+    const auto position=[&](int row,bool checkbox) {
+        const auto index=table->indexFromItem(table->topLevelItem(row),0);
+        const auto geometry=probe.geometry(table,index);
+        return table->style()->subElementRect(checkbox?QStyle::SE_ItemViewItemCheckIndicator:
+            QStyle::SE_ItemViewItemText,&geometry.content,table).center();
+    };
+    const auto mouse=[&](QEvent::Type type,QPoint at,Qt::KeyboardModifiers modifiers=Qt::NoModifier) {
+        if(type==QEvent::MouseButtonPress)QTest::mousePress(table->viewport(),Qt::LeftButton,modifiers,at);
+        else if(type==QEvent::MouseButtonRelease)QTest::mouseRelease(table->viewport(),Qt::LeftButton,modifiers,at);
+        else QTest::mouseDClick(table->viewport(),Qt::LeftButton,modifiers,at);
+        application.processEvents();
+    };
+    const auto click=[&](int row,bool checkbox,Qt::KeyboardModifiers modifiers=Qt::NoModifier) {
+        const auto at=position(row,checkbox);
+        mouse(QEvent::MouseButtonPress,at,modifiers);mouse(QEvent::MouseButtonRelease,at,modifiers);
+    };
+    const auto state=[&](int row){return table->topLevelItem(row)->checkState(0);};
+    const auto clear=[&] {
+        table->clearSelection();
+        table->setCurrentItem(nullptr);
+        for(int row=0;row<4;++row)table->topLevelItem(row)->setCheckState(0,Qt::Unchecked);
+    };
+    int selection_pass{};
+    const auto select_pair=[&](Qt::KeyboardModifier modifier) {
+        ++selection_pass;
+        click(0,false);click(1,false,modifier);
+        if(table->selectedItems().size()!=2)throw std::runtime_error("Real row clicks did not retain a pair: pass "+std::to_string(selection_pass)+" count "+std::to_string(table->selectedItems().size())+" current "+std::to_string(table->indexOfTopLevelItem(table->currentItem()))+" row0 "+std::to_string(table->topLevelItem(0)->isSelected())+" row1 "+std::to_string(table->topLevelItem(1)->isSelected()));
+    };
+    for(auto modifier:{Qt::ControlModifier,Qt::ShiftModifier}) {
+        clear();select_pair(modifier);
+        // Clicking the last selected row retains Qt's pressed/current index.
+        // Programmatic setSelected alone did not reproduce the release toggle.
+        for(int pass=0;pass<4;++pass) {
+            const auto desired=pass%2?Qt::Unchecked:Qt::Checked;
+            const auto at=position(1,true);
+            mouse(QEvent::MouseButtonPress,at);
+            check(state(0)==desired&&state(1)==desired,"Group checkbox press chose the wrong state");
+            mouse(QEvent::MouseButtonRelease,at);
+            check(state(0)==desired&&state(1)==desired,"Group checkbox release toggled the rows a second time");
+            check(state(2)==Qt::Unchecked&&state(3)==Qt::Unchecked&&table->selectedItems().size()==2,
+                "Checkbox gesture changed unselected rows or selection");
+        }
+        // Both states of a mixed selection follow the checkbox actually clicked.
+        clear();table->topLevelItem(0)->setCheckState(0,Qt::Checked);select_pair(modifier);
+        click(0,true);check(state(0)==Qt::Unchecked&&state(1)==Qt::Unchecked,"Mixed group did not clear");
+        table->clearSelection();table->topLevelItem(0)->setCheckState(0,Qt::Checked);select_pair(modifier);
+        click(1,true);check(state(0)==Qt::Checked&&state(1)==Qt::Checked,"Mixed group did not check");
+        clear();select_pair(modifier);click(1,true);
+        const auto at=position(1,true);
+        mouse(QEvent::MouseButtonDblClick,at);mouse(QEvent::MouseButtonRelease,at);
+        check(state(0)==Qt::Checked&&state(1)==Qt::Checked&&!opened,
+            "Checkbox double-click reversed the group or opened a file");
+        // A consumed group release must not swallow the next ordinary click.
+        click(2,false);click(2,true);check(state(2)==Qt::Checked&&table->selectedItems().size()==1,
+            "Single checkbox failed after a group click");
+        click(2,true);check(state(2)==Qt::Unchecked,"Single checkbox did not clear");
+        clear();select_pair(modifier);
+        for(auto desired:{Qt::Checked,Qt::Unchecked}) {
+            QKeyEvent press(QEvent::KeyPress,Qt::Key_Space,Qt::NoModifier);
+            QKeyEvent release(QEvent::KeyRelease,Qt::Key_Space,Qt::NoModifier);
+            QApplication::sendEvent(table,&press);QApplication::sendEvent(table,&release);application.processEvents();
+            check(state(0)==desired&&state(1)==desired&&state(2)==Qt::Unchecked,
+                "Space no longer toggles the selected checkbox group");
+        }
+    }
+    check(!opened,"Checkbox operations opened a file");
+    for(int i=0;i<4;++i){QFile file(fixture.filePath(QString("file-%1.txt").arg(i)));check(file.open(QIODevice::ReadOnly)&&file.readAll()=="synthetic","Checkbox operation modified a file");}
+    std::cout<<"File checkbox gestures: real Ctrl/Shift selection, repeated press/release, mixed states, double-click, single rows and Space passed\n";
+}
 void verify_source_branding(QApplication& application) {
     QImage artwork(7*72,2*72,QImage::Format_ARGB32_Premultiplied);artwork.fill(Qt::white);QPainter art(&artwork);art.fillRect(0,72,artwork.width(),72,QColor("#20262d"));int column=0;
     for(const auto* root:{"formats","materials","symbols","templates","lib/01-SHEETMETAL","lib/02-NATIVE","lib/03-ENGINEERING-TABLES"}) {
@@ -360,7 +441,8 @@ void verify_reference_themes(QApplication& application,const QString& relative_r
 int main(int argc,char** argv){
     QApplication application(argc,argv);std::cout.setf(std::ios::unitbuf);
     try{
-        if(argc==2&&std::string(argv[1])=="--file-controls") {verify_file_controls(application);return 0;}
+        if(argc==2&&std::string(argv[1])=="--file-controls") {verify_checkbox_gestures(application);verify_file_controls(application);return 0;}
+        if(argc==2&&std::string(argv[1])=="--file-checkboxes") {verify_checkbox_gestures(application);return 0;}
         if(argc==2&&std::string(argv[1])=="--source-branding") {verify_source_branding(application);return 0;}
         if(argc==2&&std::string(argv[1])=="--file-operations-small") {verify_background_file_operations(application);return 0;}
         if(argc==2&&std::string(argv[1])=="--file-operations") {verify_background_file_operations(application);return 0;}

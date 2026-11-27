@@ -131,6 +131,93 @@ void verify_default_attached_profile() {
         }
     }
 }
+
+void verify_converted_flat_corrections() {
+    for(bool reverse:{false,true})for(double skew:{0.,12.,-7.})for(bool triangle:{false,true}) {
+        auto sketch=sketcher::Sketch::create_default();
+        const std::vector<std::array<double,2>> values=triangle?
+            std::vector<std::array<double,2>>{{0,0},{40,0},{20+skew,50}}:
+            std::vector<std::array<double,2>>{{0,0},{40,0},{40+skew,50},{skew,50}};
+        for(std::size_t i=0;i<values.size();++i) {
+            auto point=sketcher::Sketch::create_point(values[i][0],values[i][1]);
+            point.id="p"+std::to_string(i);sketch.points.push_back(point);
+        }
+        for(std::size_t i=0;i<values.size();++i) {
+            auto line=sketcher::Sketch::create_segment("p"+std::to_string(i),"p"+std::to_string((i+1)%values.size()));
+            line.id="s"+std::to_string(i);sketch.segments.push_back(line);
+        }
+        for(std::size_t i=0;i<2;++i) {
+            const auto point="p"+std::to_string(i!=reverse?1:0);
+            sketcher::SketchExternalReference ref;
+            ref.id=sketch.id+(i?":flat-attachment:last":":flat-attachment:first");
+            ref.kind=sketcher::ExternalReferenceKind::Point;ref.source_document_id="source";
+            ref.source_owner_id="bend";ref.source_semantic_key=i?"last":"first";
+            ref.cached_points={{{sketch.find_point(point)->x,0}}};sketch.external_references.push_back(ref);
+            static_cast<void>(sketch.add_point_reference_constraint(point,ref.id));
+        }
+        const auto supports=sketch.external_references;
+        workspace::initialize_converted_flat_corrections(sketch);
+        const auto nominal=sketch;
+        check(sketch.dimensions.size()==2,"Converted Flat lacks two correction dimensions");
+        const auto equations=[&](sketcher::Sketch& actual) {
+            const auto solved=actual.solve();
+            check(solved.status!=sketcher::SolveStatus::Conflicting&&solved.status!=sketcher::SolveStatus::Invalid&&
+                solved.maximum_residual<1e-7,"Flat correction equations failed");
+            check(actual.external_references==supports,"Flat correction changed the read-only Bend");
+            for(const auto& d:actual.dimensions)if(d.driving) {
+                const auto ref=std::ranges::find(actual.external_references,d.first_point_id,&sketcher::SketchExternalReference::id);
+                const auto* point=actual.find_point(d.second_point_id);
+                near(point->x-ref->cached_points.front()[0],d.value);near(point->y,ref->cached_points.front()[1]);
+            }
+            for(const auto& c:actual.constraints)if(c.kind==sketcher::ConstraintKind::Parallel) {
+                const auto line=std::ranges::find(actual.segments,c.geometry_id,&sketcher::SketchSegment::id);
+                const auto guide=std::ranges::find(actual.segments,c.second_geometry_id,&sketcher::SketchSegment::id);
+                const auto a=actual.find_point(line->first_point_id),b=actual.find_point(line->second_point_id);
+                const auto x=actual.find_point(guide->first_point_id),y=actual.find_point(guide->second_point_id);
+                near((b->x-a->x)*(y->y-x->y)-(b->y-a->y)*(y->x-x->x),0.);
+            }
+        };
+        equations(sketch);
+        for(std::size_t i=0;i<values.size();++i) {
+            near(sketch.find_point("p"+std::to_string(i))->x,values[i][0]);
+            near(sketch.find_point("p"+std::to_string(i))->y,values[i][1]);
+        }
+        for(std::size_t end=0;end<2;++end)for(double value:{2.,-3.,.5,0.}) {
+            auto d=sketch.dimensions[end];const auto point=d.second_point_id;
+            const double before=sketch.find_point(point)->x;d.value=value;sketch.apply_dimension(d);
+            equations(sketch);check(std::abs(sketch.find_point(point)->x-before)>1e-4,"Correction did not move its endpoint");
+            sketch=sketcher::Sketch::from_serialized(sketch.serialized());equations(sketch);
+            auto regenerated=nominal;workspace::retain_converted_flat_corrections(regenerated,sketch);equations(regenerated);
+            for(std::size_t i=0;i<values.size();++i) {
+                near(regenerated.find_point("p"+std::to_string(i))->x,sketch.find_point("p"+std::to_string(i))->x);
+                near(regenerated.find_point("p"+std::to_string(i))->y,sketch.find_point("p"+std::to_string(i))->y);
+            }
+        }
+        for(auto& d:sketch.dimensions)d.locked=true;
+        for(std::size_t i=0;i<values.size();++i) {
+            auto moved=sketch;const auto id="p"+std::to_string(i);const auto original=*moved.find_point(id);
+            static_cast<void>(moved.move_point(id,original.x+4,original.y+3));equations(moved);
+            near(moved.find_point(id)->x,original.x);near(moved.find_point(id)->y,original.y);
+        }
+        for(std::size_t end=0;end<2;++end)for(bool reference:{false,true}) {
+            auto free=sketch;auto d=free.dimensions[end];d.locked=false;
+            d.driving=!reference;free.apply_dimension(d);
+            const auto point=d.second_point_id;
+            for(double delta:{1.,-2.,3.}) {
+                const auto old=*free.find_point(point);
+                check(free.move_point(point,old.x+delta,old.y),"Editable Flat correction cannot be dragged");
+                equations(free);near(free.find_point(point)->x,old.x+delta);
+                auto regenerated=nominal;
+                workspace::retain_converted_flat_corrections(regenerated,free);
+                equations(regenerated);
+                near(regenerated.find_point(point)->x,free.find_point(point)->x);
+                check(regenerated.dimensions[end].driving==free.dimensions[end].driving,
+                    "Regeneration changed the correction driving state");
+            }
+        }
+    }
+    std::cout<<"Converted Flat corrections: zero equivalence, both source orders, straight/slanted/triangular sides, repeated signed edits, driving/reference and locked/unlocked drags, serialization and regeneration passed\n";
+}
 void verify_midpoint_profile_dimensions() {
     for(bool flat:{false,true}) {
         auto initial=sketcher::Sketch::create_default();
@@ -676,8 +763,8 @@ void verify_attached_history(std::filesystem::path directory) {
         near(measured_volume(kernel,state->session.calculated_boundaries().back()),expected);
         near(state->session.document().find_container(flat)->flat.thickness,thickness);
     }
-    for(const auto corners:{std::array{true,false},std::array{true,true},
-            std::array{false,true},std::array{false,false}}) {
+    for(const auto corners:{std::array{1.,0.},std::array{1.,1.},
+            std::array{0.,1.},std::array{0.,0.},std::array{.25,.75},std::array{.5,.5}}) {
         run(host,"bend.set",{{"container",bend},{"corner_first",corners[0]},
             {"corner_last",corners[1]},{"corner_gap_mm",.05}});
         const auto& result=state->session.calculated_boundaries().back();
@@ -703,6 +790,7 @@ void verify_attached_history(std::filesystem::path directory) {
     run(host,"undo");run(host,"redo");
     near(measured_volume(kernel,state->session.calculated_boundaries().back()),
         measured_volume(kernel,cached.back()));
+    run(host,"bend.set",{{"container",bend},{"corner_first",0.},{"corner_last",0.}});
     const auto bend_sketch=state->session.document().find_container(bend)->bend.sketch_id;
     check(workspace::mutate_document_sketch(live,id,bend_sketch,[&](auto& s) {
         check(s.set_dimension_value(s.id+":position:last",52.),"Cannot lengthen source Bend");
@@ -1008,9 +1096,25 @@ void verify_ellipse_regions() {
 }
 #include "flat_revolution_attachment.inc"
 
-int main() {
+int main(int argc,char** argv) {
+    if(argc==3&&std::string_view(argv[1])=="--converted-fixture")try {
+        std::vector<kernel::BodyResult> cache;auto part=document::PartDocument::load(argv[2],&cache);
+        part.body_history.activate(part.body_history.order().back());
+        const auto flat=std::ranges::find_if(part.history,[&](const auto& feature){return feature.feature_kind==document::FeatureKind::Flat&&feature.flat.sheet_attachment&&part.body_owner_for_object(feature.id)->scope.id==part.body_history.active_body_id();});
+        check(flat!=part.history.end(),"Converted fixture has no attached Flat");
+        workspace::Workspace live;live.add_part(part,cache);kernel::OcctKernel kernel;
+        for(const auto* suffix:{":first",":last"})for(double value:{.5,-.25}) {
+            auto sketch=*std::ranges::find(part.sketches,flat->flat.sketch_id,&sketcher::Sketch::id);
+            auto dimension=*std::ranges::find(sketch.dimensions,sketch.id+":flat-correction"+suffix,&sketcher::SketchDimension::id);
+            dimension.value=sketcher::dimension_value_from_input(dimension,value,sketch.plane);sketch.apply_dimension(dimension);
+            std::cout<<"Editing "<<suffix<<" to "<<value<<std::endl;
+            check(workspace::commit_flat(live,kernel,part.document_id,*flat,sketch),"Converted fixture correction did not commit");
+            check(live.open_part(part.document_id)->session.undo(),"Converted fixture correction Undo failed");
+        }
+        std::cout<<"User converted Flat corrections passed\n";return 0;
+    }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}
     const auto directory=std::filesystem::temp_directory_path()/("zima-flat-"+std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     std::filesystem::create_directories(directory);
-    try{verify_default_attached_profile();verify_midpoint_profile_dimensions();verify_cut_edge_attachment(directory);verify_cut_edge_attachment(directory,true);verify_flat_to_flat_attachment(directory);verify_revolution_attachment(directory);verify_bend_attachment(directory);verify_attached_history(directory);verify(directory);verify_ellipse_regions();std::filesystem::remove_all(directory);std::cout<<"Flat geometry, directions, defaults, topology and history passed\n";return 0;}
+    try{verify_converted_flat_corrections();if(argc==2&&std::string_view(argv[1])=="--converted-corrections")return 0;verify_default_attached_profile();verify_midpoint_profile_dimensions();verify_cut_edge_attachment(directory);verify_cut_edge_attachment(directory,true);verify_flat_to_flat_attachment(directory);verify_revolution_attachment(directory);verify_bend_attachment(directory);verify_attached_history(directory);verify(directory);verify_ellipse_regions();std::filesystem::remove_all(directory);std::cout<<"Flat geometry, directions, defaults, topology and history passed\n";return 0;}
     catch(const std::exception& e){std::cerr<<e.what()<<"; fixture: "<<directory<<'\n';return 1;}
 }

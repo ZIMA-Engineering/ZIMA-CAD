@@ -55,6 +55,8 @@ struct HistoryDependencyCollector {
     }
     void feature(const document::HistoryContainer& feature) {
         const auto& root=feature.id;
+        if(!feature.mech_keyway_binding.parent_id.empty())
+            use(root,feature.mech_keyway_binding.parent_id);
         for (const auto& ref : feature.placement.references) reference(root,ref);
         const auto targets=[&](document::EndCondition condition,const auto& values) {
             if (condition==document::EndCondition::UpTo)
@@ -62,6 +64,12 @@ struct HistoryDependencyCollector {
         };
         using document::FeatureKind;
         switch(feature.feature_kind) {
+        case FeatureKind::MechKeyway:
+            reference(root,feature.mech_keyway.support);
+            if(feature.mech_keyway.position==document::KeywayPosition::TwoSided)
+                for(const auto& limit:feature.mech_keyway.limits)
+                    if(limit.termination==document::KeywayTermination::UpTo)reference(root,limit.reference);
+            break;
         case FeatureKind::Feature:
             use(root,feature.feature.sketch_id);
               if(feature.feature.type==document::FeatureType::Wrapping) {

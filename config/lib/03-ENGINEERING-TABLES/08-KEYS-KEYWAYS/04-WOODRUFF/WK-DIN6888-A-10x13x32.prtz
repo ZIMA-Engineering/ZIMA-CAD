@@ -1,0 +1,180 @@
+[CachedBodies]
+data={"compression":"zstd-base64","data":"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","format":"zima-shared-cache-v2","uncompressed_bytes":66148}
+definition_fingerprint=5508119d1a3d4a7b81135f571bf0f303185e393ff5e4393da257a68c419d1249
+encoding=zima-final-body-result-v2
+
+[Children.01a21c052d1571ef8ca4b2d818d50083]
+items=01a21c052d1571ef8ca4b2d818d5008f
+
+[Container.01a21c052d1571ef8ca4b2d818d50083]
+TYPE=FEATURE
+combine_mode=+
+id=01a21c052d1571ef8ca4b2d818d50083
+kind=container
+name=Tažení 01
+param.cpp_history={"combine":"add","container_origin":{"children":[{"id":"01a21c052d1571ef8ca4b2d818d50083:origin:point","key":"point","kind":"point","locked":true,"name":"Point 0,0,0","parent_id":"01a21c052d1571ef8ca4b2d818d50083:origin"},{"id":"01a21c052d1571ef8ca4b2d818d50083:origin:axis:x","key":"axis:x","kind":"axis","locked":true,"name":"X Axis","parent_id":"01a21c052d1571ef8ca4b2d818d50083:origin"},{"id":"01a21c052d1571ef8ca4b2d818d50083:origin:axis:y","key":"axis:y","kind":"axis","locked":true,"name":"Y Axis","parent_id":"01a21c052d1571ef8ca4b2d818d50083:origin"},{"id":"01a21c052d1571ef8ca4b2d818d50083:origin:axis:z","key":"axis:z","kind":"axis","locked":true,"name":"Z Axis","parent_id":"01a21c052d1571ef8ca4b2d818d50083:origin"},{"id":"01a21c052d1571ef8ca4b2d818d50083:origin:plane:xy","key":"plane:xy","kind":"plane","locked":true,"name":"XY Plane","parent_id":"01a21c052d1571ef8ca4b2d818d50083:origin"},{"id":"01a21c052d1571ef8ca4b2d818d50083:origin:plane:yz","key":"plane:yz","kind":"plane","locked":true,"name":"YZ Plane","parent_id":"01a21c052d1571ef8ca4b2d818d50083:origin"},{"id":"01a21c052d1571ef8ca4b2d818d50083:origin:plane:xz","key":"plane:xz","kind":"plane","locked":true,"name":"XZ Plane","parent_id":"01a21c052d1571ef8ca4b2d818d50083:origin"}],"id":"01a21c052d1571ef8ca4b2d818d50083:origin","locked":true,"name":"Container Origin","parent_id":"01a21c052d1571ef8ca4b2d818d50083"},"feature":{"automatic_name":"Tažení 01","axis_segment_id":"","centroid_centerline":false,"individual_centroid_centerlines":false,"origin_centerline":false,"profile_plane_offset":0.0,"profile_source":"internal","result_type":"solid","show_point":false,"show_text":false,"sides":[{"angle_degrees":90.0,"draft_angle_degrees":0.0,"extrusion_extent":"length","length":10.0,"operation":"extrusion","rotation_extent":"angle","targets":[]},{"angle_degrees":90.0,"draft_angle_degrees":0.0,"extrusion_extent":"length","length":10.0,"operation":"none","rotation_extent":"angle","targets":[]}],"sketch_id":"01a21c052d1571ef8ca4b2d818d50082","symmetric":false,"thin_mode":"one_side","thin_thickness":1.0,"type":"modeling"},"feature_id":"01a21c052d1571ef8ca4b2d818d5008f","feature_parent_id":"01a21c052d1571ef8ca4b2d818d50083","id":"01a21c052d1571ef8ca4b2d818d50083","name":"Tažení 01","origin_point_visible":false,"origin_text_visible":false,"placement":{"absolute_rotation_x":0.0,"absolute_rotation_y":0.0,"absolute_rotation_z":0.0,"orientation_back":false,"orientation_quarter_turns":0,"reference_valid":true,"references":[],"rotation_offset_x":0.0,"rotation_offset_y":0.0,"rotation_offset_z":0.0,"rotation_x":0.0,"rotation_y":-0.0,"rotation_z":0.0,"value_locks":[],"x":0.0,"y":0.0,"z":0.0},"suppressed":false,"type":"feature","value_locks":[]}
+param.cpp_kind=history
+rx=0.000000
+ry=-0.000000
+rz=0.000000
+show_auxiliary_geometry=false
+suppressed=false
+tree_exposure=public
+user_visible=true
+x=0.000000
+y=0.000000
+z=0.000000
+
+[Containers]
+items=01a21c052d1571ef8ca4b2d818d50083
+
+[Document]
+appearance={"bodies":{},"body":{"color":"#B9C2CC","metallic":0.0,"roughness":0.55},"groups":[],"owners":{}}
+body_color=#B9C2CC
+body_history={"active":"01a21c052d1571ef8ca4b2d818d50081","bodies":[{"cursor":1,"dependencies":[],"derived_copy":null,"entries":[{"id":"01a21c052d1571ef8ca4b2d818d50083","kind":0}],"id":"01a21c052d1571ef8ca4b2d818d50081","link":null,"name":"Těleso 1","placement":{"absolute_rotation_x":0.0,"absolute_rotation_y":0.0,"absolute_rotation_z":0.0,"orientation_back":false,"orientation_quarter_turns":0,"reference_valid":true,"references":[{"branch_sources":[],"flip":false,"instance_path":"","offset":0.0,"offset_locked":false,"orientation_drives_rotation":false,"orientation_only":false,"orientation_role":"none","owner_id":"01a21c052d1571ef8ca4b2d818d50090:origin","semantic_key":"origin:plane:xy","solution_branch":0,"supports_offset":true,"use_angle":false,"use_axis":false},{"branch_sources":[],"flip":false,"instance_path":"","offset":0.0,"offset_locked":false,"orientation_drives_rotation":false,"orientation_only":false,"orientation_role":"none","owner_id":"01a21c052d1571ef8ca4b2d818d50090:origin","semantic_key":"origin:plane:xz","solution_branch":0,"supports_offset":true,"use_angle":false,"use_axis":false},{"branch_sources":[],"flip":false,"instance_path":"","offset":0.0,"offset_locked":false,"orientation_drives_rotation":false,"orientation_only":false,"orientation_role":"none","owner_id":"01a21c052d1571ef8ca4b2d818d50090:origin","semantic_key":"origin:plane:yz","solution_branch":0,"supports_offset":true,"use_angle":false,"use_axis":false},{"branch_sources":[],"flip":false,"instance_path":"","offset":0.0,"offset_locked":false,"orientation_drives_rotation":true,"orientation_only":true,"orientation_role":"front","owner_id":"01a21c052d1571ef8ca4b2d818d50090:origin","semantic_key":"origin:plane:xz","solution_branch":0,"supports_offset":false,"use_angle":false,"use_axis":false},{"branch_sources":[],"flip":false,"instance_path":"","offset":0.0,"offset_locked":false,"orientation_drives_rotation":true,"orientation_only":true,"orientation_role":"top","owner_id":"01a21c052d1571ef8ca4b2d818d50090:origin","semantic_key":"origin:plane:xy","solution_branch":0,"supports_offset":false,"use_angle":false,"use_axis":false}],"rotation_offset_x":0.0,"rotation_offset_y":0.0,"rotation_offset_z":0.0,"rotation_x":0.0,"rotation_y":-0.0,"rotation_z":0.0,"value_locks":[],"x":0.0,"y":0.0,"z":0.0},"scale":null,"suppressed":false,"visible":true}],"booleans":[],"cursor":1,"order":["01a21c052d1571ef8ca4b2d818d50081"]}
+body_properties=[]
+calculated_definition=zima-part-definition-sha256-v1
+dimension_identifiers={"entries":[{"key":"dimension:01a21c052d1571ef8ca4b2d818d5008c","number":8,"owner":"01a21c052d1571ef8ca4b2d818d50082"},{"key":"dimension:01a21c052d1571ef8ca4b2d818d5008d","number":9,"owner":"01a21c052d1571ef8ca4b2d818d50082"},{"key":"parameter:direction","number":17,"owner":"01a21c052d1571ef8ca4b2d818d50083"},{"key":"parameter:placement:rotation_x","number":4,"owner":"01a21c052d1571ef8ca4b2d818d50083"},{"key":"parameter:placement:rotation_y","number":5,"owner":"01a21c052d1571ef8ca4b2d818d50083"},{"key":"parameter:placement:rotation_z","number":6,"owner":"01a21c052d1571ef8ca4b2d818d50083"},{"key":"parameter:placement:x","number":1,"owner":"01a21c052d1571ef8ca4b2d818d50083"},{"key":"parameter:placement:y","number":2,"owner":"01a21c052d1571ef8ca4b2d818d50083"},{"key":"parameter:placement:z","number":3,"owner":"01a21c052d1571ef8ca4b2d818d50083"},{"key":"parameter:profile_offset","number":7,"owner":"01a21c052d1571ef8ca4b2d818d50083"},{"key":"parameter:side0_angle","number":12,"owner":"01a21c052d1571ef8ca4b2d818d50083"},{"key":"parameter:side0_draft_angle","number":15,"owner":"01a21c052d1571ef8ca4b2d818d50083"},{"key":"parameter:side0_length","number":10,"owner":"01a21c052d1571ef8ca4b2d818d50083"},{"key":"parameter:side0_up_to_angle_correction","number":20,"owner":"01a21c052d1571ef8ca4b2d818d50083"},{"key":"parameter:side0_up_to_length_correction","number":18,"owner":"01a21c052d1571ef8ca4b2d818d50083"},{"key":"parameter:side1_angle","number":13,"owner":"01a21c052d1571ef8ca4b2d818d50083"},{"key":"parameter:side1_draft_angle","number":16,"owner":"01a21c052d1571ef8ca4b2d818d50083"},{"key":"parameter:side1_length","number":11,"owner":"01a21c052d1571ef8ca4b2d818d50083"},{"key":"parameter:side1_up_to_angle_correction","number":21,"owner":"01a21c052d1571ef8ca4b2d818d50083"},{"key":"parameter:side1_up_to_length_correction","number":19,"owner":"01a21c052d1571ef8ca4b2d818d50083"},{"key":"parameter:thin_thickness","number":14,"owner":"01a21c052d1571ef8ca4b2d818d50083"}],"next":22}
+dimension_layouts=[]
+document_id=01a21c052d1571ef8ca4b2d818d50090
+family={"evaluated":{},"parent":"","row":""}
+family_table={"bindings":{},"columns":[],"instances":[]}
+form_corner_finish=false
+form_outward=false
+format_version=57
+history_cursor=1
+measurements=[]
+name=WK-DIN6888-A-10x13x32
+named_views=[]
+reference_errors={}
+removed_reference_states={}
+sections=[]
+sketch_views={}
+surface_wire_visibility={}
+symbol_annotations=[]
+symbol_editor_definition=null
+type=part
+
+[DocumentPrecision]
+angular_tolerance=0.001
+decimal_places=6
+linear_tolerance=0.001
+mesh_deflection=0.1
+sheet_cut_tolerance=0.05
+
+[DocumentUnits]
+Angle=deg
+Length=mm
+Mass=kg
+Stress=MPa
+Temperature=C
+Time=s
+
+[Entity.01a21c052d1571ef8ca4b2d818d5008f]
+combine_mode=+
+id=01a21c052d1571ef8ca4b2d818d5008f
+kind=feature
+name=Tažení 01
+param.cpp_feature_id=01a21c052d1571ef8ca4b2d818d5008f
+param.feature={"automatic_name":"Tažení 01","axis_segment_id":"","centroid_centerline":false,"individual_centroid_centerlines":false,"origin_centerline":false,"profile_plane_offset":0.0,"profile_source":"internal","result_type":"solid","show_point":false,"show_text":false,"sides":[{"angle_degrees":90.0,"draft_angle_degrees":0.0,"extrusion_extent":"length","length":10.0,"operation":"extrusion","rotation_extent":"angle","targets":[]},{"angle_degrees":90.0,"draft_angle_degrees":0.0,"extrusion_extent":"length","length":10.0,"operation":"none","rotation_extent":"angle","targets":[]}],"sketch_id":"01a21c052d1571ef8ca4b2d818d50082","symmetric":false,"thin_mode":"one_side","thin_thickness":1.0,"type":"modeling"}
+param.feature_id=01a21c052d1571ef8ca4b2d818d5008f
+param.feature_parent_id=01a21c052d1571ef8ca4b2d818d50083
+param.operation=add
+param.origin_point_visible=false
+param.origin_text_visible=false
+param.unit=mm
+param.value_locks=[]
+rx=0.000000
+ry=0.000000
+rz=0.000000
+show_auxiliary_geometry=false
+suppressed=false
+tree_exposure=internal
+user_visible=true
+x=0.000000
+y=0.000000
+z=0.000000
+
+[Material]
+Name=
+
+[MaterialDescriptions]
+MASS_DENSITY\cs=Hustota
+MASS_DENSITY\de=Dichte
+MASS_DENSITY\en=Mass density
+MASS_DENSITY\fr=Masse volumique
+MASS_DENSITY\ru=Плотность
+
+[MaterialProperties]
+MASS_DENSITY=0.0000078
+
+[MaterialUnits]
+MASS_DENSITY=kg/mm^3
+
+[Relations]
+Data="stock = d10 & \"x\" & (d9 + d8/2) & \"x\" & d8\nmass = model.mass\n"
+
+[Sketch.01a21c052d1571ef8ca4b2d818d50082]
+data={"arcs":[{"center":"01a21c052d1571ef8ca4b2d818d50085","centerline":false,"construction":false,"end":"01a21c052d1571ef8ca4b2d818d50087","end_angle":-0.18861638617540405,"id":"01a21c052d1571ef8ca4b2d818d50088","radius":16.0,"start":"01a21c052d1571ef8ca4b2d818d50086","start_angle":-2.9529762674143893,"visible_in_3d":true}],"bsplines":[],"circles":[],"constraints":[{"first":"01a21c052d1571ef8ca4b2d818d50085","geometry":"","id":"01a21c052d1571ef8ca4b2d818d5008a","kind":"point_reference","second":"sketch_origin","second_geometry":"","suppressed":false,"tangent_internal":false},{"first":"01a21c052d1571ef8ca4b2d818d50086","geometry":"01a21c052d1571ef8ca4b2d818d50089","id":"01a21c052d1571ef8ca4b2d818d5008b","kind":"horizontal","second":"01a21c052d1571ef8ca4b2d818d50087","second_geometry":"","suppressed":false,"tangent_internal":false}],"corner_radii":[],"curve_supports":[],"curve_trims":[],"dimension_layouts":[],"dimensions":[{"angle_presentation_reversed":false,"angle_sector":-1,"annotation_decimals":3,"display_text_override":"","driving":true,"first":"","geometry":"01a21c052d1571ef8ca4b2d818d50088","id":"01a21c052d1571ef8ca4b2d818d5008c","keep_trailing_zeros":false,"kind":"diameter","locked":false,"lower_tolerance":"","prefix":"","second":"","second_geometry":"","single_tolerance":"","solution_side":1,"suffix":"","suppressed":false,"symmetric_tolerance":"","third_geometry":"","tolerance_mode":"","upper_tolerance":"","value":32.0,"value_unit":""},{"angle_presentation_reversed":false,"angle_sector":-1,"annotation_decimals":3,"display_text_override":"","driving":true,"first":"01a21c052d1571ef8ca4b2d818d50086","geometry":"sketch_axis:x","id":"01a21c052d1571ef8ca4b2d818d5008d","keep_trailing_zeros":false,"kind":"distance_y","locked":false,"lower_tolerance":"","prefix":"","second":"","second_geometry":"","single_tolerance":"","solution_side":1,"suffix":"","suppressed":false,"symmetric_tolerance":"","third_geometry":"","tolerance_mode":"","upper_tolerance":"","value":-3.0,"value_unit":""}],"ellipses":[],"elliptical_arcs":[],"external_references":[],"format":"zima-cad-cpp-sketch","id":"01a21c052d1571ef8ca4b2d818d50082","import_blocks":[],"name":"Profile","offsets":[],"owner_container_id":"01a21c052d1571ef8ca4b2d818d50083","plane":"xy","plane_auto":false,"plane_offset":0.0,"plane_reference_owner_id":"","points":[{"centerline":false,"construction":false,"fixed":false,"id":"01a21c052d1571ef8ca4b2d818d50085","visible_in_3d":true,"x":0.0,"y":0.0},{"centerline":false,"construction":false,"fixed":false,"id":"01a21c052d1571ef8ca4b2d818d50086","visible_in_3d":true,"x":-15.716233645501712,"y":-2.999999999999997},{"centerline":false,"construction":false,"fixed":false,"id":"01a21c052d1571ef8ca4b2d818d50087","visible_in_3d":true,"x":15.716233645501712,"y":-2.9999999999999996}],"resolved_normal":[0.0,0.0,1.0],"resolved_origin":[0.0,0.0,0.0],"resolved_x_axis":[1.0,0.0,0.0],"resolved_y_axis":[0.0,1.0,0.0],"segments":[{"centerline":false,"construction":false,"first":"01a21c052d1571ef8ca4b2d818d50086","id":"01a21c052d1571ef8ca4b2d818d50089","second":"01a21c052d1571ef8ca4b2d818d50087","visible_in_3d":true}],"suppressed":false,"symbols":[],"texts":[],"version":36}
+
+[Sketches]
+items=01a21c052d1571ef8ca4b2d818d50082
+
+[UserParameterLabels]
+approved_by\cs=schvalil
+approved_by\de=Genehmigt von
+approved_by\en=Approved
+approved_by\fr=Approuvé par
+approved_by\ru=Утвердил
+date\cs=datum
+date\de=Datum
+date\en=Date
+date\fr=Date
+date\ru=Дата
+drawn_by\cs=kreslil
+drawn_by\de=Gezeichnet von
+drawn_by\en=Drew
+drawn_by\fr=Dessiné par
+drawn_by\ru=Разработал
+mass\cs=Hmotnost [kg]
+mass\de=Masse [kg]
+mass\en=Mass [kg]
+mass\fr=Masse [kg]
+mass\ru=Масса [kg]
+material\cs=material
+material\de=Material
+material\en=Material
+material\fr=Matériau
+material\ru=Материал
+name\cs=nazev
+name\de=Name
+name\en=Name
+name\fr=Nom
+name\ru=Наименование
+quantity\cs=mnozstvi
+quantity\de=Menge
+quantity\en=Quantity
+quantity\fr=Quantité
+quantity\ru=Количество
+revision\cs=verze
+revision\de=Version
+revision\en=Version
+revision\fr=Version
+revision\ru=Версия
+standard\cs=norma
+standard\de=Norm
+standard\en=Standard
+standard\fr=Norme
+standard\ru=Стандарт
+stock\cs=polotovar
+stock\de=Rohteil
+stock\en=Stock
+stock\fr=Ébauche
+stock\ru=Заготовка
+
+[UserParameterValues]
+Data={"approved_by":{"":""},"date":{"":""},"drawn_by":{"":""},"mass":{"":"0.023922"},"material":{"":"C45 (1.0503)"},"name":{"cs":"Pero úsečové","de":"Scheibenfeder","en":"Woodruff key","fr":"Clavette disque","ru":"Сегментная шпонка"},"quantity":{"":"-"},"revision":{"":"00"},"standard":{"":"DIN6888-A"},"stock":{"":"10x13x32"}}
+
+[UserParameters]
+Order=name, standard, stock, material, quantity, drawn_by, approved_by, revision, date, mass
+

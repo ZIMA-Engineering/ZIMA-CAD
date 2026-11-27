@@ -153,6 +153,22 @@ void verify_sweep_commands(const kernel::OcctKernel& kernel, const fs::path& dir
         f.state().session.revision() == revision && f.state().session.calculated_boundaries().data() == cache && !f.host.change(), "Sweep query changed calculated data or lost ownership");
     require(get.at("precision_mm")==definition.sweep_precision.effective()&&!get.at("custom_precision").get<bool>(),
         "Sweep query lost its default precision");
+    if(kind==document::FeatureKind::Sweep2D) {
+        const auto profile=definition.sweep2d.profiles.front().id;
+        const auto start=get.at("stations").front().at("point"),end=get.at("stations").back().at("point");
+        for(unsigned flip=0;flip<4;++flip) {
+            const bool reversed=flip%2==0;
+            const auto changed=f.run("sweep2d.set",{{"container",id},{"path_reversed",reversed},
+                {"profiles",Json::array({{{"profile",profile}}})}});
+            require(changed.at("path_reversed")==reversed&&changed.at("stations").front().at("point")==
+                (reversed?end:start),"Combined direction/profile edit lost its start");
+            near(f.volume(),initial,1e-8);
+            f.run("undo");require(f.run("sweep2d.get",{{"container",id}}).at("path_reversed")!=reversed,
+                "Direction Undo failed");
+            f.run("redo");require(f.run("sweep2d.get",{{"container",id}}).at("path_reversed")==reversed,
+                "Direction Redo failed");
+        }
+    }
     f.reject(prefix+".set",{{"container",id},{"precision_mm",0}},"sweep_rejected");
     const auto precision=f.run(prefix+".set",{{"container",id},{"precision_mm",.05}});
     require(precision.at("precision_mm")==.05&&precision.at("custom_precision").get<bool>(),"Custom sweep precision not committed");
@@ -781,7 +797,16 @@ void verify_profile_management(const kernel::OcctKernel& kernel, const fs::path&
     reject(Json::array({Json{{"profile", first_profile}, {"incoming", 1}}}), "invalid_profile");
     reject(Json::array({Json{{"profile", first_profile}, {"sketch", source_id}}}), "invalid_profile");
     reject(Json::array({Json{{"profile", first_profile}, {"point", "foreign-point"}}}), "invalid_profile");
-    reject(Json::array({Json{{"profile", second_profile}}}), "sweep_rejected");
+    if (planar) {
+        // The retained endpoint profile also defines the leading span, so a
+        // direction change does not require moving or duplicating its Sketch.
+        update(Json::array({Json{{"profile", second_profile}}}));
+        near(f.volume(), 180 * std::numbers::pi, 1e-6);
+        require(query().at("profiles").size() == 1 &&
+            query().at("profiles")[0].at("profile") == second_profile,
+            "Endpoint-only planar Sweep replaced its authored profile");
+        f.run("undo"); near(f.volume(), 380 * std::numbers::pi / 3, 1e-6);
+    } else reject(Json::array({Json{{"profile", second_profile}}}), "sweep_rejected");
     if (!planar) reject(Json::array({keep, Json{{"profile", second_profile}, {"point", details.at("stations")[0].at("point")},
         {"incoming", !details.at("stations")[0].at("incoming").get<bool>()}}}), "invalid_profile");
     update(Json::array({keep})); near(f.volume(), 80 * std::numbers::pi);

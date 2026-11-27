@@ -32,43 +32,22 @@ kernel::ViewerMesh PartDocument::wrapping_preview_mesh(const HistoryContainer& f
     ViewerMesh result;const auto source=sketch->evaluated_profile_sketch().viewer_mesh(false);
     using UV=std::pair<double,double>;
     const auto uv=[&](Vec3 point)->UV {const auto delta=sub(point,origin);return {dot(delta,x),dot(delta,y)};};
-    const auto cross2=[](UV a,UV b){return a.first*b.second-a.second*b.first;};
     const auto sub2=[](UV a,UV b)->UV{return {a.first-b.first,a.second-b.second};};
     for(const auto& chart:charts) {
         const auto& map=chart.map;
-        std::vector<std::array<UV,3>> triangles;
-        for(std::size_t i=0;i<domain->triangle_references.size()&&i*3+2<domain->triangles.size();++i)if(std::ranges::find(chart.coverage,domain->triangle_references[i])!=chart.coverage.end()) {
-            std::array<UV,3> triangle;
-            const auto anchor=map.source_anchor();
-            triangle[0]=map.source_coordinates(local(domain->vertices.at(domain->triangles.at(i*3))),anchor.first,anchor.second);
-            for(std::size_t j=1;j<3;++j)triangle[j]=map.source_coordinates(local(domain->vertices.at(domain->triangles.at(i*3+j))),triangle[0].first,triangle[0].second);
-            if(std::abs(cross2(sub2(triangle[1],triangle[0]),sub2(triangle[2],triangle[0])))>1e-14)triangles.push_back(triangle);
-        }
         const double depth=p.output==WrappingOutput::Relief?(feature.combine_mode==CombineMode::Subtract?-1.:1.)*(chart.surface.reversed?-1.:1.)*p.height:0;
         const auto mapped=[&](Vec3 point,double offset){const auto [u,v]=uv(point);return map.point(u,v,offset);};
         for(const auto& edge:source.edges)if(!edge.construction&&edge.points.size()>1)for(std::size_t segment=1;segment<edge.points.size();++segment) {
             const auto a=edge.points[segment-1],b=edge.points[segment];const auto pa=uv(a),pb=uv(b),direction=sub2(pb,pa);
-            std::vector<std::pair<double,double>> intervals;
-            if(domain->triangles.empty())intervals.emplace_back(0,1);
-            for(const auto& triangle:triangles) {
-                double lo=0,hi=1;const double sign=cross2(sub2(triangle[1],triangle[0]),sub2(triangle[2],triangle[0]))<0?-1.:1.;
-                const auto clip=[&](double start,double slope) {
-                    if(std::abs(slope)<1e-14){if(start< -1e-9)hi=-1;return;}
-                    const double root=-start/slope;if(slope>0)lo=std::max(lo,root);else hi=std::min(hi,root);
-                };
-                for(std::size_t j=0;j<3;++j) {
-                    const auto side=sub2(triangle[(j+1)%3],triangle[j]);
-                    clip(sign*cross2(side,sub2(pa,triangle[j])),sign*cross2(side,direction));
-                }
-                for(const auto& limit:chart.limits)clip(limit.value(pa.first,pa.second),limit.u*direction.first+limit.v*direction.second);
-                if(hi>=lo&&hi>=0&&lo<=1)intervals.emplace_back(std::max(0.,lo),std::min(1.,hi));
+            // Analytic support continues past trims, just like native wrapping.
+            // Only explicit transitions between different charts limit a span.
+            double lo=0,hi=1;
+            for(const auto& limit:chart.limits) {
+                const double start=limit.value(pa.first,pa.second),slope=limit.u*direction.first+limit.v*direction.second;
+                if(std::abs(slope)<1e-14){if(start< -1e-9)hi=-1;continue;}
+                const double root=-start/slope;if(slope>0)lo=std::max(lo,root);else hi=std::min(hi,root);
             }
-            std::ranges::sort(intervals);std::vector<std::pair<double,double>> merged;
-            for(const auto interval:intervals) {
-                if(!merged.empty()&&interval.first<=merged.back().second+1e-9)merged.back().second=std::max(merged.back().second,interval.second);
-                else merged.push_back(interval);
-            }
-            for(const auto [lo,hi]:merged) {
+            {
                 if(hi-lo<1e-12)continue;
                 const auto from=add(a,scale(sub(b,a),lo)),to=add(a,scale(sub(b,a),hi));
                 for(double offset:depth==0?std::vector<double>{0}:std::vector<double>{0,depth}) {

@@ -34,6 +34,69 @@ void valid(const std::vector<kernel::BodyResult>& results) {
 #include "wrapping_chain_document_contract.inc"
 #include "wrapping_downstream_contract.inc"
 int main(int argc,char** argv){try {
+    if(const auto* path=std::getenv("ZIMA_VERIFY_WRAP_PARTIAL_MODEL")) {
+        std::vector<kernel::BodyResult> cache;auto part=document::PartDocument::load(path,&cache);
+        auto wrap=std::ranges::find_if(part.history,[](const auto& feature){return feature.feature.type==document::FeatureType::Wrapping;});
+        auto limit=std::ranges::find_if(part.history,[](const auto& feature){return !feature.feature.sides[0].targets.empty();});
+        require(wrap!=part.history.end()&&limit!=part.history.end(),"Partial target fixture is incomplete");
+        auto pending=*wrap;pending.feature.wrapping.target.emplace();
+        pending.feature.wrapping.target->reference=limit->feature.sides[0].targets.front().reference;
+        const auto target=pending.feature.wrapping.target->reference;
+        workspace::Workspace live;kernel::OcctKernel kernel;live.add_part(part,cache,path);live.activate(part.document_id);
+        auto* state=live.open_part(part.document_id);
+        const auto before=state->session.document().serialized();const auto revision=state->session.revision();
+        const auto rollback_before=state->session.rollback_boundary(pending.id);
+        static_cast<void>(workspace::materialize_part_history_input_boundary(live,kernel,part.document_id,pending.id));
+        const auto rollback_after=state->session.rollback_boundary(pending.id);
+        require(rollback_before&&rollback_after&&rollback_before->input_body&&rollback_after->input_body,
+            "Partial target rollback is missing");
+        require(rollback_after->input_body->kernel_shape==rollback_before->input_body->kernel_shape&&
+            rollback_after->input_body->calculation_errors==rollback_before->input_body->calculation_errors&&
+            state->session.document().serialized()==before&&state->session.revision()==revision,
+            "Preparing target selection changed the retained model or failure state");
+        require(std::ranges::all_of(rollback_after->input_body->mesh.triangle_references,
+            [](const auto& face){return face.valid();}),"Partial target rollback has no selectable identities");
+        require(!workspace::materialize_part_history_input_boundary(live,kernel,part.document_id,pending.id),
+            "Complete target presentation was prepared twice");
+        workspace::commit_profile(live,kernel,part.document_id,pending,workspace::ProfileEditMode::Replace);
+        valid(state->session.calculated_boundaries());
+        pending=*state->session.document().find_container(pending.id);
+        const auto* input=workspace::calculated_operation_input(state->session,pending.id);require(input,"Partial target input missing");
+        const auto face=std::ranges::find_if(input->mesh.triangle_references,[&](const auto& ref){
+            return ref.owner_id==target.owner_id&&ref.semantic_key==target.semantic_key&&ref.surface;
+        });
+        require(face!=input->mesh.triangle_references.end()&&face->surface->kind==kernel::SurfaceGeometry::Kind::Cylinder,
+            "Partial target has no exact cylinder");
+        const auto& cylinder=*face->surface;std::size_t checked{};
+        for(const auto& edge:state->session.calculated_boundaries().back().mesh.original_references.edges)
+            if(edge.reference.owner_id==pending.id)for(const auto point:edge.points) {
+                const auto delta=kernel::wrap_detail::sub(point,cylinder.origin);
+                const auto radial=kernel::wrap_detail::sub(delta,kernel::wrap_detail::scale(cylinder.axis,kernel::wrap_detail::dot(delta,cylinder.axis)));
+                require(std::abs(kernel::wrap_detail::length(radial)-cylinder.radius)<1e-5,"Wrap escaped its selected analytic support");++checked;
+            }
+        require(checked>0,"Partial target Wrap has no output curves");
+        const auto preview=state->session.document().wrapping_preview_mesh(pending,input->mesh,&state->session.document());
+        const auto& markers=state->session.calculated_boundaries().back().mesh.original_references.points;
+        require(!preview.edges.empty(),"Partial target Wrap preview is empty");
+        for(const auto& point:markers)if(point.reference.owner_id==pending.id)
+            require(std::ranges::any_of(preview.edges,[&](const auto& edge){return
+                kernel::wrap_detail::length(kernel::wrap_detail::sub(point.position,edge.points.front()))<1e-5||
+                kernel::wrap_detail::length(kernel::wrap_detail::sub(point.position,edge.points.back()))<1e-5;}),
+                "Partial target preview omitted an exact authored endpoint");
+        for(const auto& edge:preview.edges)for(const auto point:edge.points) {
+            const auto delta=kernel::wrap_detail::sub(point,cylinder.origin);
+            const auto radial=kernel::wrap_detail::sub(delta,kernel::wrap_detail::scale(cylinder.axis,kernel::wrap_detail::dot(delta,cylinder.axis)));
+            require(std::abs(kernel::wrap_detail::length(radial)-cylinder.radius)<1e-7,"Partial target preview misses the exact cylinder");
+        }
+        require(state->session.undo()&&state->session.redo(),"Partial target Wrap Undo/Redo failed");
+        const auto output=std::filesystem::temp_directory_path()/"zima-wrap-partial-verified.prtz";
+        state->session.document().save(output,state->session.calculated_boundaries());
+        std::vector<kernel::BodyResult> saved;auto reopened=document::PartDocument::load(output,&saved);valid(saved);
+        require(reopened.find_container(pending.id)->feature.wrapping.target->reference==target,"Wrap reopen changed the target identity");
+        kernel::OcctKernel cold;valid(workspace::calculate_part_with_resolved_references(cold,reopened));
+        std::cout<<"Partial analytic Wrap: exact cylinder equation, Undo/Redo, save/reopen and cold regeneration passed\n";
+        return 0;
+    }
     if(const auto* path=std::getenv("ZIMA_VERIFY_WRAP_DOWNSTREAM_MODEL")) {
         std::vector<kernel::BodyResult> cache;auto saved=document::PartDocument::load(path,&cache);
         const auto report=[](const char* label,const auto& part,const auto& results) {
@@ -127,7 +190,7 @@ int main(int argc,char** argv){try {
         feature.feature.wrapping.height=1.25;
         if(inward&&output==document::WrappingOutput::Relief)feature.combine_mode=document::CombineMode::Subtract;
         const double angle=-.37,radius=internal?24.:30.;
-        feature.placement.x=radius*std::cos(angle);feature.placement.y=radius*std::sin(angle);feature.placement.z=20;
+        feature.placement.x=radius*std::cos(angle);feature.placement.y=radius*std::sin(angle);feature.placement.z=output==document::WrappingOutput::Curves?60:20;
         feature.placement.rotation_y=90;feature.placement.rotation_z=angle*180/std::numbers::pi;
         feature.placement.absolute_rotation_y=90;
         workspace::commit_profile(live,kernel,id,feature,workspace::ProfileEditMode::Create,sketch);

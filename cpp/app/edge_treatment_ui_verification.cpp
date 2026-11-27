@@ -1331,6 +1331,29 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
         const bool symmetric_fixture=qEnvironmentVariableIsSet("ZIMA_VERIFY_SYMMETRIC_ENDPOINTS");
         const bool creation_only=qEnvironmentVariableIsSet(
             "ZIMA_VERIFY_EDGE_TREATMENT_CREATION_ONLY");
+        if(creation_only)for(const std::string unit:{"mm","in"}) {
+            run("new",{{"type","part"},{"name",stem+"-defaults-"+unit}});
+            static_cast<void>(zima::test::gui_rectangular_profile(window,20,20,20,true));
+            run("document.settings.set",{{"units",{{"Length",unit}}}});
+            const auto revision=run("document.settings.get").at("revision");
+            for(bool fillet:{true,false}) {
+                const auto before=kernel::body_calculation_count.load();
+                window.findChild<QAction*>(fillet?"filletAction":"chamferAction")->trigger();flush();
+                auto* pending=dialog();
+                for(const auto* name:{"edgeTreatmentPrimary","edgeTreatmentSecondary"}) {
+                    auto* value=pending->findChild<QDoubleSpinBox*>(name);
+                    check(value&&std::abs(value->value()-(unit=="in"?1.016:1.))<1e-12,
+                        "New treatment did not choose the document-unit default");
+                    check(value->suffix().trimmed()==QString::fromStdString(unit),
+                        "New treatment default displays the wrong unit");
+                }
+                finish(false);
+                check(kernel::body_calculation_count.load()==before&&
+                    run("document.settings.get").at("revision")==revision,
+                    "Opening/canceling treatment defaults calculated or changed the document");
+            }
+            run("close",{{"discard",true}});
+        }
         if(!creation_only)for(int mode=0;mode<5;++mode) {
             const bool fillet=mode<2;
             const std::string prefix=fillet?"fillet":"chamfer";

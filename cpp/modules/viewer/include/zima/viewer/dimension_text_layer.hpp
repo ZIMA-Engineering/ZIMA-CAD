@@ -19,7 +19,11 @@ inline QString dimension_render_text(const kernel::DimensionTextStyle& style, QS
         || style.tolerance_mode!="deviations" || !style.text_override.empty())return text;
     auto upper=QString::fromStdString(kernel::dimension_decimal_text(style.upper_tolerance));
     auto lower=QString::fromStdString(kernel::dimension_decimal_text(style.lower_tolerance));
-    auto tail=" +"+upper+" /-"+lower;
+    const auto tail_text=[](const QString& upper,const QString& lower){
+        return " "+QString::fromStdString(kernel::dimension_signed_deviation(upper.toStdString(),'+'))+
+            " /"+QString::fromStdString(kernel::dimension_signed_deviation(lower.toStdString(),'-'));
+    };
+    auto tail=tail_text(upper,lower);
     if(style.value_unit=="in"&&!text.endsWith(tail)) {
         const auto inch=[](QString value) {
             value.replace(',','.');
@@ -27,7 +31,7 @@ inline QString dimension_render_text(const kernel::DimensionTextStyle& style, QS
             else if(value.startsWith("+0.")||value.startsWith("-0."))value.remove(1,1);
             return value;
         };
-        upper=inch(upper);lower=inch(lower);tail=" +"+upper+" /-"+lower;
+        upper=inch(upper);lower=inch(lower);tail=tail_text(upper,lower);
     }
     if(!text.endsWith(tail))return text;
     text.chop(tail.size());

@@ -353,15 +353,15 @@ void AssemblyWorkspaceWindow::create_actions() {
     auto* applications = menuBar()->addMenu(t("menu.applications", "Aplikace"));
     application_group_ = new QActionGroup(this);
     application_group_->setExclusive(true);
-    const std::array<QString, 9> application_names{
+    const std::array<QString, 10> application_names{
         t("application.modeling", "Modelování"),
         t("application.assembly", "Sestava"),
         t("application.sheet_metal", "Plechy"),
         t("application.surface", "Plochy"),
         t("application.piping", "Potrubí"),
-        t("application.drawing", "Výkres"),tr("FEM"),tr("Render"),tr("CAM")};
-    const std::array<const char*, 9> application_icons{
-        "part", "assembly", "bend", "surface", "sweep", "drawing", "result-body", "template-image", "result-body"};
+        t("application.drawing", "Výkres"),tr("FEM"),tr("Render"),tr("CAM"),tr("MECH")};
+    const std::array<const char*, 10> application_icons{
+        "part", "assembly", "bend", "surface", "sweep", "drawing", "result-body", "template-image", "result-body", "mech"};
     for (std::size_t index = 0; index < application_actions_.size(); ++index) {
         auto* action = new QAction(application_names[index],this);
         action->setIcon(resource_icon(QString::fromLatin1(application_icons[index])));

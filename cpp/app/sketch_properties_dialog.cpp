@@ -587,17 +587,18 @@ void SketchPropertiesDialog::set_bend_mode(zima::document::BendParameters initia
     };
     override_field(true);override_field(false);
     auto* corners=new QWidget(this);auto* corner_layout=new QHBoxLayout(corners);corner_layout->setContentsMargins(0,0,0,0);
-    auto* corner_first=new QCheckBox(tr("První konec"),corners);auto* corner_last=new QCheckBox(tr("Druhý konec"),corners);
-    corner_first->setObjectName("bendCornerFirst");corner_last->setObjectName("bendCornerLast");
-    corner_first->setChecked(initial.corner[0]);corner_last->setChecked(initial.corner[1]);
-    corner_layout->addWidget(corner_first);corner_layout->addWidget(corner_last);form->addRow(tr("Uzavření rohu"),corners);
-    const auto corner_tip=tr("Zakřivený přechod k prodloužení koncového profilu. Zapněte na obou sousedních profilech; vůle ubírá polovinu hodnoty na každém konci.");
+    auto* corner_first=field("bendCornerFirst",initial.corner[0],0,1,Quantity::Scalar);
+    auto* corner_last=field("bendCornerLast",initial.corner[1],0,1,Quantity::Scalar);
+    corner_first->setSingleStep(.05);corner_last->setSingleStep(.05);
+    corner_layout->addWidget(new QLabel(tr("První konec"),corners));corner_layout->addWidget(corner_first);
+    corner_layout->addWidget(new QLabel(tr("Druhý konec"),corners));corner_layout->addWidget(corner_last);form->addRow(tr("Uzavření rohu"),corners);
+    const auto corner_tip=tr("Corner shape: 0 keeps the linear transition, 1 applies the full curved correction. Intermediate values blend both shapes independently at each end.");
     corners->setToolTip(corner_tip);
     auto* corner_gap=field("bendCornerGap",initial.corner_gap,0,1,Quantity::Length);
     corner_gap->setSingleStep(.01);corner_gap->setEnabled(initial.corner[0]||initial.corner[1]);
     form->addRow(tr("Vůle rohu"),corner_gap);
-    connect(corner_first,&QCheckBox::toggled,this,[pending,publish,corner_gap](bool value){pending->corner[0]=value;corner_gap->setEnabled(value||pending->corner[1]);publish();});
-    connect(corner_last,&QCheckBox::toggled,this,[pending,publish,corner_gap](bool value){pending->corner[1]=value;corner_gap->setEnabled(value||pending->corner[0]);publish();});
+    connect(corner_first,&QDoubleSpinBox::valueChanged,this,[pending,publish,corner_gap](double value){pending->corner[0]=value;corner_gap->setEnabled(value||pending->corner[1]);publish();});
+    connect(corner_last,&QDoubleSpinBox::valueChanged,this,[pending,publish,corner_gap](double value){pending->corner[1]=value;corner_gap->setEnabled(value||pending->corner[0]);publish();});
     connect(corner_gap,&QDoubleSpinBox::valueChanged,this,[pending,publish](double value){pending->corner_gap=value;publish();});
     auto* note=new QLabel(tr("Bez vlastní hodnoty se použije nastavení plechu v dílu."),this);note->setWordWrap(true);form->addRow(note);
     content_layout()->insertLayout(content_layout()->indexOf(sketch_button_),form);edit_pending_sketch_=std::move(edit_sketch);
@@ -614,7 +615,7 @@ void SketchPropertiesDialog::set_bend_mode(zima::document::BendParameters initia
     set_bend_parameters_=[this,pending,changed,custom_radius,refresh_radius,corner_first,corner_last,corner_gap](auto value) {
         *pending=std::move(value);
         const QSignalBlocker first_block(corner_first),last_block(corner_last),gap_block(corner_gap);
-        corner_first->setChecked(pending->corner[0]);corner_last->setChecked(pending->corner[1]);corner_gap->setValue(pending->corner_gap);
+        corner_first->setValue(pending->corner[0]);corner_last->setValue(pending->corner[1]);corner_gap->setValue(pending->corner_gap);
         corner_gap->setEnabled(pending->corner[0]||pending->corner[1]);
         const QSignalBlocker angle(bend_angle_),linked(custom_radius);
         bend_angle_->setValue(pending->angle_degrees);

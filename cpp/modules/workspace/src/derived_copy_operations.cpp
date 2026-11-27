@@ -4,6 +4,7 @@ namespace zima::workspace {
 namespace {
 bool solid_source(const document::HistoryContainer& feature,bool in_body) {
     using Kind=document::FeatureKind;
+    if(!feature.mech_keyway_binding.parent_id.empty())return false;
     switch(feature.feature_kind) {
     case Kind::Sketch:case Kind::Shell:
     case Kind::ShaftThread:case Kind::DrillPoint:return false;
@@ -11,7 +12,7 @@ bool solid_source(const document::HistoryContainer& feature,bool in_body) {
     // positive solids. The in-Body copy evaluator can retain and replay their
     // exact added/removed material phases. A separate Body copy has only one
     // Boolean role, so do not offer a treatment there as an ambiguous source.
-    case Kind::Fillet:case Kind::Chamfer:return in_body&&!feature.suppressed;
+    case Kind::Fillet:case Kind::Chamfer:case Kind::MechKeyway:return in_body&&!feature.suppressed;
     default:return !feature.suppressed;
     }
 }

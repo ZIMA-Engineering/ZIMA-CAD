@@ -50,9 +50,9 @@ int main(){try {
         for(const auto& face:initial.mesh.triangle_references)
             if(face.surface&&face.surface->kind==k::SurfaceGeometry::Kind::Cylinder)target=face;
         require(target.valid(),"Native cylinder target missing");
-        for(double azimuth:{-.37,.61}) {
+        for(double azimuth:{-.37,.61})for(double elevation:{20.,-10.,60.}) {
             k::WrappingRequest request;request.sketch_id="asymmetric";request.target=target;
-            request.origin={30*std::cos(azimuth),30*std::sin(azimuth),20};
+            request.origin={30*std::cos(azimuth),30*std::sin(azimuth),elevation};
             request.x_axis={0,0,-1};request.y_axis={-std::sin(azimuth),std::cos(azimuth),0};
             request.normal={std::cos(azimuth),std::sin(azimuth),0};
             request.height=1;request.tolerance=1e-6;
@@ -67,7 +67,7 @@ int main(){try {
             const auto result=kernel.evaluate_history({base,{"wrap",request}}).back();valid(result);
             for(std::size_t i=0;i<uv.size();++i) {
                 const auto [u,v]=uv[i];const auto angle=azimuth+v/30.;
-                const k::Vec3 expected{30*std::cos(angle),30*std::sin(angle),20-u};
+                const k::Vec3 expected{30*std::cos(angle),30*std::sin(angle),elevation-u};
                 const auto key="wrap:sketch:10:asymmetric:point:1:"+std::string(1,char('a'+i));
                 const auto found=std::ranges::find_if(result.mesh.original_references.points,[&](const auto& p){return p.reference.owner_id=="wrap"&&p.reference.semantic_key==key;});
                 require(found!=result.mesh.original_references.points.end(),"Wrapped endpoint identity missing");

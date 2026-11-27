@@ -751,7 +751,9 @@ void verify_constraint_driven_bend_end() {
     }
     std::cout<<"24 Bend endpoint constraint cells: native/external, both ends, orientations, deleted/reference/suppressed dimensions passed\n";
 }
+#include "bend_corner_direction_contract.inc"
 void verify(std::filesystem::path directory) {
+    verify_corner_direction();
     kernel::OcctKernel kernel;workspace::Workspace live;command_host::Options options;
     options.settings=[] {command_host::Settings s;s.templates={std::filesystem::absolute("config/templates"),"START_PART_mm.prtz","START_ASSEMBLY_mm.asmz","Body"};return s;};
     command_host::Host host(live,kernel,directory,options);run(host,"new",{{"type","part"},{"name","bend-test"}});
@@ -763,11 +765,11 @@ void verify(std::filesystem::path directory) {
     const double pi=std::numbers::pi;
     const double initial_k=created.at("k_factor");
     near(volume(),40*pi/2*(36-25)/2); // Annular sector: width * angle * (Ro²-Ri²)/2.
-    for(const auto angle:{60.,90.,120.}) {
-        run(host,"bend.set",{{"container",owner},{"corner_first",true},{"corner_last",false},{"corner_gap_mm",.05},{"angle_degrees",angle}});
+    for(const auto extension:{-5.,5.,-3.})for(const auto angle:{60.,90.,120.}) for(const double coefficient:{1.,.25,.5,.75}) {
+        run(host,"bend.set",{{"container",owner},{"first_extension_mm",extension},{"corner_first",coefficient},{"corner_last",0.},{"corner_gap_mm",.05},{"angle_degrees",angle}});
         const auto corner_volume=volume();check(corner_volume>0,"Corner command produced an empty body");
         const auto details=run(host,"bend.get",{{"container",owner}}).data;
-        check(details.at("corner_first")==true&&details.at("corner_last")==false,"Corner command lost independent ends");
+        check(details.at("corner_first")==coefficient&&details.at("corner_last")==0.,"Corner command lost independent ends");
         for(const auto& edge:analyzed_body(kernel,state->session.calculated_boundaries().back()).mesh.original_references.edges)
             check(edge.reference.semantic_key.find("transient-corner")==std::string::npos,"Corner sampling leaked into persistent identity");
         run(host,"undo");run(host,"redo");near(volume(),corner_volume);
@@ -775,10 +777,11 @@ void verify(std::filesystem::path directory) {
     const auto before_invalid=state->session.document().serialized();
     check(!host.execute({{"command","bend.set"},{"arguments",{{"container",owner},{"radius_mm",0.}}}}).ok,"Corner closure accepted a zero radius");
     check(!host.execute({{"command","bend.set"},{"arguments",{{"container",owner},{"angle_degrees",180.}}}}).ok,"Corner closure accepted a hem");
+    for(const double value:{-.01,1.01})check(!host.execute({{"command","bend.set"},{"arguments",{{"container",owner},{"corner_first",value}}}}).ok,"Invalid corner coefficient was accepted");
     check(state->session.document().serialized()==before_invalid,"Invalid corner edit modified the document");
     run(host,"save");
     check(document::PartDocument::load(directory/"bend-test.prtz").find_container(owner)->bend.corner[0],"Corner flag did not survive native save");
-    run(host,"bend.set",{{"container",owner},{"corner_first",false},{"corner_last",false},{"angle_degrees",90.}});
+    run(host,"bend.set",{{"container",owner},{"first_extension_mm",0.},{"corner_first",0.},{"corner_last",0.},{"angle_degrees",90.}});
     near(volume(),40*pi/2*(36-25)/2);
     {
         const auto unchanged=*state->session.document().find_container(owner);
@@ -1774,7 +1777,7 @@ int main(int argc,char** argv) {
             for(bool corner:{false,true}) {
                 for(auto& feature:part.history)if(feature.feature_kind==document::FeatureKind::Bend) {
                     const auto ends=document::bend_profile_extensions(feature);
-                    feature.bend.corner={corner&&ends[0]>0,corner&&ends[1]>0};
+                    feature.bend.corner={corner&&ends[0]>0?1.:0.,corner&&ends[1]>0?1.:0.};
                 }
                 kernel::OcctKernel local_kernel;const auto start=std::chrono::steady_clock::now();
                 auto operations=part.kernel_operations();

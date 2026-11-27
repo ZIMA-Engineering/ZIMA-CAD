@@ -1,4 +1,5 @@
 #include <zima/workspace/model_calculation.hpp>
+#include <zima/kernel/calculated_body_shape.hpp>
 #include <zima/workspace/modeling_confirmation.hpp>
 #include <zima/workspace/edge_treatment_operations.hpp>
 #include <zima/kernel/placement_route.hpp>
@@ -16,6 +17,7 @@
 #include <zima/workspace/sketch_reference_operations.hpp>
 #include <zima/workspace/sheet_exchange_operations.hpp>
 #include <zima/workspace/sheet_profile_operations.hpp>
+#include <zima/workspace/mech_keyway_operations.hpp>
 #include <zima/workspace/history_policy.hpp>
 #include <zima/document/viewer_packet_json.hpp>
 #include <zima/document/feature_material_wire.hpp>
@@ -1060,8 +1062,11 @@ calculate_part_reference_state(
         const bool has_sheet_profiles=std::ranges::any_of(document.history,[](const auto& feature){
             return feature.feature_kind==document::FeatureKind::SheetProfile&&!feature.suppressed;
         });
+        const bool has_mech_keyways=std::ranges::any_of(document.history,[](const auto& feature){
+            return feature.feature_kind==document::FeatureKind::MechKeyway&&!feature.suppressed;
+        });
         document::HistoryReferenceViews state_views;
-        if(!reuse_reference_resolution||has_sheet_profiles) {
+        if(!reuse_reference_resolution||has_sheet_profiles||has_mech_keyways) {
             auto reference_geometry=construction_resolution_geometry(document,calculated);
             state_views=calculated.empty()?document::HistoryReferenceViews{}:
                 document::solid_state_reference_views(document,calculated.back(),reference_geometry);
@@ -1133,6 +1138,8 @@ calculate_part_reference_state(
         const bool profile_targets_changed=refresh_profile_end_targets(document,calculated);
         const bool sheet_profiles_changed=has_sheet_profiles&&refresh_sheet_profile_definitions(
             document,construction_resolution_geometry(document,calculated),state_views);
+        const bool mech_keyways_changed=has_mech_keyways&&refresh_mech_keyways(
+            document,construction_resolution_geometry(document,calculated),state_views);
         phase("profile targets");
         const bool opening_targets_changed=refresh_opening_end_targets(document,calculated);
         phase("opening targets");
@@ -1151,7 +1158,7 @@ calculate_part_reference_state(
                 group_solid_state_cached_operations(document,&calculated),
                 calculated.size());
         };
-        if (!external_references_changed && !drill_points_changed && !profile_targets_changed && !opening_targets_changed && !sheet_profiles_changed &&
+        if (!external_references_changed && !drill_points_changed && !profile_targets_changed && !opening_targets_changed && !sheet_profiles_changed && !mech_keyways_changed &&
             attached_flat_profiles()==flat_profiles_before && sketch_frames()==sketch_frames_before &&
             document.history == history_before &&
             document.constructions == constructions_before &&
@@ -1191,6 +1198,20 @@ calculate_part_reference_state(
                 for(auto& condition:body.fem->conditions)if(condition.placement.reference_valid)
                     document::refresh_fem_condition_sketch(condition,document.document_id,mesh);
                 if(body!=original)document.body_history.update_body(std::move(body));
+            }
+            if(has_mech_keyways){
+                if(!calculated.empty())for(const auto& feature:document.history) {
+                    if(feature.feature_kind!=document::FeatureKind::MechKeyway)continue;
+                    auto& errors=calculated.back().calculation_errors;
+                    errors.erase(feature.id);
+                    const auto* body=document.body_owner_for_object(feature.id);
+                    if(!body||body->suppressed||feature.suppressed)continue;
+                    const auto row=std::ranges::find(body->entries,feature.id,&document::PartHistoryEntry::id);
+                    if(row==body->entries.end()||static_cast<std::size_t>(row-body->entries.begin())>=body->cursor)continue;
+                    if(const auto error=document.reference_errors.find(feature.id);error!=document.reference_errors.end())
+                        errors[feature.id]=error->second;
+                }
+                bind_mech_keyway_annotations(kernel,document,calculated);bind_mech_keyway_roughness(document,calculated);
             }
             validate_part_calculation(document,calculated,policy);
             return calculated;
@@ -1654,6 +1675,7 @@ bool complete_part_history_boundary(const kernel::OcctKernel& kernel,
     }
     if(current.size()>=operation_count) {
         if(location.body_id.empty()) {
+            if(kernel::restore_calculated_body_face_mesh(current[operation_count-1],operation.mesh_deflection))return true;
             if(complete_history_geometry(
                     current[operation_count-1],operation))
                 return false;
@@ -1664,6 +1686,16 @@ bool complete_part_history_boundary(const kernel::OcctKernel& kernel,
                     found->second.size()<location.body_index)
                 throw std::runtime_error(
                     "Calculated Body history boundary is missing");
+            const auto& retained=found->second[location.body_index-1];
+            if(!retained.mesh.triangles.empty()&&std::ranges::none_of(retained.mesh.triangle_references,
+                    [](const auto& face){return face.valid();})) {
+                auto restored=retained;
+                if(kernel::restore_calculated_body_face_mesh(restored,operation.mesh_deflection)) {
+                    auto rows=found->second.get();rows[location.body_index-1]=std::move(restored);
+                    current.back().body_boundaries[location.body_id]=std::move(rows);
+                    return true;
+                }
+            }
             if(complete_history_geometry(found->second[
                     location.body_index-1],operation))return false;
         }
@@ -1754,7 +1786,8 @@ bool materialize_part_history_input_boundary(Workspace& workspace,
             if(candidate.kind!=document::PartHistoryKind::Feature)continue;
             const auto* feature=document.find_container(candidate.id);
             if(feature&&feature->feature_kind!=document::FeatureKind::Sketch&&
-               feature->feature_kind!=document::FeatureKind::SheetProfile) {
+               feature->feature_kind!=document::FeatureKind::SheetProfile&&
+               feature->feature_kind!=document::FeatureKind::MechKeyway) {
                 preceding_owner=feature->id;
                 break;
             }
@@ -1765,7 +1798,8 @@ bool materialize_part_history_input_boundary(Workspace& workspace,
         for(std::size_t index=*target;index>0;--index) {
             const auto& feature=document.history[index-1];
             if(feature.feature_kind!=document::FeatureKind::Sketch&&
-               feature.feature_kind!=document::FeatureKind::SheetProfile) {
+               feature.feature_kind!=document::FeatureKind::SheetProfile&&
+               feature.feature_kind!=document::FeatureKind::MechKeyway) {
                 preceding_owner=feature.id;
                 break;
             }
@@ -1782,7 +1816,8 @@ bool materialize_part_history_input_boundary(Workspace& workspace,
             rollback->input_body->calculation_errors.contains(
                 preceding_owner)) {
         const auto& input=*rollback->input_body;
-        if(!input.mesh.triangles.empty()||(!input.has_solid()&&
+        if((!input.mesh.triangles.empty()&&std::ranges::any_of(input.mesh.triangle_references,
+                [](const auto& face){return face.valid();}))||(!input.has_solid()&&
                 input.kernel_shape.empty()&&
                 input.mesh.original_references.triangle_references.empty()))return false;
     }

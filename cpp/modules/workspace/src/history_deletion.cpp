@@ -90,6 +90,11 @@ HistoryDeletionPlan plan_history_deletion(const document::PartDocument& doc,cons
     HistoryDeletionPlan plan;plan.removed.insert(id);
     if(const auto* body=doc.body_history.find(id))for(const auto& entry:body->entries)plan.removed.insert(entry.id);
     if(const auto* selected=doc.find_container(id)) {
+        if(!selected->mech_keyway_binding.parent_id.empty())
+            throw std::invalid_argument("Decompose the MECH feature before editing its children");
+        if(selected->feature_kind==document::FeatureKind::MechKeyway)
+            for(const auto& feature:doc.history)
+                if(feature.mech_keyway_binding.parent_id==selected->id)plan.removed.insert(feature.id);
         if(!selected->sheet_profile_binding.parent_id.empty())
             throw std::invalid_argument(
                 "Edit or delete this generated feature through its parent Profile.");

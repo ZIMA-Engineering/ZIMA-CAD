@@ -463,7 +463,7 @@ void multiple_up_to_targets_and_bend_corrections() {
         calculate(regenerated.document);
 
         auto corner_document=regenerated.document;
-        for(const auto flags:{std::array{true,false},std::array{false,true},std::array{true,true},std::array{false,false}}) {
+        for(const auto flags:{std::array{1.,0.},std::array{0.,1.},std::array{1.,1.},std::array{0.,0.},std::array{.25,.75},std::array{.5,.5}}) {
             auto corner=*corner_document.find_container(corrected->id);
             corner.bend.corner=flags;
             const auto corner_start=*std::ranges::find(corner_document.sketches,corner.bend.sketch_id,&sketcher::Sketch::id);

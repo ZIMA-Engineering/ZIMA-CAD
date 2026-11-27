@@ -41,6 +41,12 @@ unchanged OK creates neither a calculation nor an Undo step; a genuine
 annotation-only edit still commits its intended change. Cancel restores the
 original model and normal full-history presentation.
 
+Preparation failures participate in the shared modeling-confirmation lifecycle:
+first failed OK retains a private draft; a second unchanged OK saves it as
+unresolved without repeating calculation. Changed parameters or source generations
+invalidate that acknowledgement. Preserve last valid frames and verify repair,
+Cancel, persistence and Undo/Redo; see AGENTS.md, Failed modeling confirmation.
+
 The accepted drawing-view rules in AGENTS.md also apply: placement and creation
 properties show the prepared viewer-packet geometry, while interactive views
 must not wait for precise vector hidden-line preparation intended for export.

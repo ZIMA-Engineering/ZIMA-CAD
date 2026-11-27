@@ -153,9 +153,9 @@ int verify_arc_only_bend_ui(QApplication& application,const std::filesystem::pat
             ++outside_offsets;
         }
         check(outside_offsets==4,"Bend inspection must show all four outside offsets");
-        for(const auto flags:{std::array{true,false},std::array{false,true},std::array{false,false}}) {
-            inline_edit("parameter:corner_first",flags[0]?"1":"0");
-            inline_edit("parameter:corner_last",flags[1]?"1":"0");
+        for(const auto flags:{std::array{1.,0.},std::array{0.,1.},std::array{0.,0.},std::array{.25,.75},std::array{.5,.5}}) {
+            inline_edit("parameter:corner_first",QString::number(flags[0]));
+            inline_edit("parameter:corner_last",QString::number(flags[1]));
             window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
             check(document::PartDocument::load(bend_path).history.front().bend.corner==flags,
                 "View CC labels did not persist independent corner closure flags");

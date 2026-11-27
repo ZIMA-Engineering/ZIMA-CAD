@@ -744,20 +744,32 @@ protected:
         if(event->button()==Qt::LeftButton&&index.column()==0&&item){
             QStyleOptionViewItem option;initViewItemOption(&option);option.rect=visualRect(index);option.features|=QStyleOptionViewItem::HasCheckIndicator|QStyleOptionViewItem::HasDecoration|QStyleOptionViewItem::HasDisplay;option.checkState=item->checkState(0);option.icon=item->icon(0);option.decorationSize=iconSize();option.text=item->text(0);
             const auto geometry=file_entry_geometry(option,index,this);
-            if(style()->subElementRect(QStyle::SE_ItemViewItemCheckIndicator,&geometry.content,this).contains(event->position().toPoint())){event->accept();return;}
+            if(style()->subElementRect(QStyle::SE_ItemViewItemCheckIndicator,&geometry.content,this).contains(event->position().toPoint())){consume_checkbox_release_=true;event->accept();return;}
         }
         QTreeWidget::mouseDoubleClickEvent(event);
     }
     void mousePressEvent(QMouseEvent* event)override{
+        if(event->button()==Qt::LeftButton)consume_checkbox_release_=false;
         const auto index=indexAt(event->position().toPoint());auto* item=itemFromIndex(index);
         if(event->button()==Qt::LeftButton&&index.column()==0&&item&&item->isSelected()&&selectedItems().size()>1){
             QStyleOptionViewItem option;initViewItemOption(&option);option.rect=visualRect(index);option.features|=QStyleOptionViewItem::HasCheckIndicator|QStyleOptionViewItem::HasDecoration|QStyleOptionViewItem::HasDisplay;option.checkState=item->checkState(0);option.icon=item->icon(0);option.decorationSize=iconSize();option.text=item->text(0);
-            if(style()->subElementRect(QStyle::SE_ItemViewItemCheckIndicator,&option,this).contains(event->position().toPoint())){
-                const auto checked=item->checkState(0)==Qt::Checked?Qt::Unchecked:Qt::Checked;QSignalBlocker block(this);for(auto* selected:selectedItems())selected->setCheckState(0,checked);event->accept();return;
+            const auto geometry=file_entry_geometry(option,index,this);
+            if(style()->subElementRect(QStyle::SE_ItemViewItemCheckIndicator,&geometry.content,this).contains(event->position().toPoint())){
+                const auto checked=item->checkState(0)==Qt::Checked?Qt::Unchecked:Qt::Checked;QSignalBlocker block(this);for(auto* selected:selectedItems())selected->setCheckState(0,checked);consume_checkbox_release_=true;event->accept();return;
             }
         }
         QTreeWidget::mousePressEvent(event);
     }
+    void mouseReleaseEvent(QMouseEvent* event)override{
+        if(event->button()==Qt::LeftButton&&consume_checkbox_release_){
+            // The group was toggled on press. Qt's delegate would toggle it
+            // again on release using the last selected row's pressed index.
+            consume_checkbox_release_=false;event->accept();return;
+        }
+        QTreeWidget::mouseReleaseEvent(event);
+    }
+private:
+    bool consume_checkbox_release_{};
 };
 
 class ParameterDelegate final : public QStyledItemDelegate {

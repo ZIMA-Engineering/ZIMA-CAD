@@ -1,6 +1,7 @@
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/edge_treatment_operations.hpp>
 #include <zima/document/metadata.hpp>
+#include <zima/document/edge_treatment_defaults.hpp>
 #include <algorithm>
 #include <cctype>
 #include <limits>
@@ -194,6 +195,9 @@ void Host::register_edge_treatment_commands() {
                             throw Error("invalid_arguments","Specify a nonempty object name.");
                     }
                     auto& params=feature.edge_treatment;
+                    if(create)params.primary_size=params.secondary_size=
+                        document::default_edge_treatment_size_mm(
+                            state->session.document().document_units.at("Length"));
                     if(args.contains("routes")){params.routes=selected.routes;params.route_start_vertices=selected.route_start_vertices;params.route_end_faces=selected.route_end_faces;}
                     if(args.contains("mode")) {
                         const auto mode=args.at("mode").get<std::string>();

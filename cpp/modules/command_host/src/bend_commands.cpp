@@ -65,8 +65,8 @@ void Host::register_bend_commands() {
         // The GUI and console use the same atomic workspace operation.
         if(!create)arguments.push_back({"container",true});
         if(create)arguments.push_back({"width_mm",false,Type::Number});
-        for(const auto* key:{"radius_mm","angle_degrees","thickness_mm","k_factor","first_extension_mm","last_extension_mm","corner_gap_mm"})arguments.push_back({key,false,Type::Number});
-        for(const auto* key:{"thickness_override","k_factor_override","radius_follows_thickness","origin_last","origin_midpoint","corner_first","corner_last"})arguments.push_back({key,false,Type::Boolean});
+        for(const auto* key:{"radius_mm","angle_degrees","thickness_mm","k_factor","first_extension_mm","last_extension_mm","corner_gap_mm","corner_first","corner_last"})arguments.push_back({key,false,Type::Number});
+        for(const auto* key:{"thickness_override","k_factor_override","radius_follows_thickness","origin_last","origin_midpoint"})arguments.push_back({key,false,Type::Boolean});
         for(const auto* key:{"name","document","edge_owner","edge_key"})arguments.push_back({key,false});
         dispatcher_.add({create?"bend.create":"bend.set",tr("Create or edit a Bend."),arguments,true},[this,create](const Json& args){
             if(auto result=target(args);!result.ok)return result;

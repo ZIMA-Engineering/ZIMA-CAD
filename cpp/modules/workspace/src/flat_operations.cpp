@@ -9,6 +9,105 @@
 #include <algorithm>
 
 namespace zima::workspace {
+void initialize_converted_flat_corrections(sketcher::Sketch& sketch) {
+    auto draft=sketch;
+    struct End {std::string point,reference,side,remote;};
+    std::array<End,2> ends;
+    for(std::size_t i=0;i<2;++i) {
+        auto& end=ends[i];
+        end.reference=sketch.id+(i?":flat-attachment:last":":flat-attachment:first");
+        const auto contact=std::ranges::find_if(draft.constraints,[&](const auto& c) {
+            return !c.suppressed&&c.kind==sketcher::ConstraintKind::PointReference&&
+                c.second_point_id==end.reference;
+        });
+        if(contact==draft.constraints.end())return;
+        end.point=contact->first_point_id;
+    }
+    for(std::size_t i=0;i<2;++i) {
+        auto& end=ends[i];
+        for(const auto& segment:draft.segments) {
+            if(segment.construction)continue;
+            const auto remote=segment.first_point_id==end.point?segment.second_point_id:
+                segment.second_point_id==end.point?segment.first_point_id:std::string{};
+            if(remote.empty()||remote==ends[1-i].point)continue;
+            end.side=segment.id;end.remote=remote;break;
+        }
+    }
+    for(std::size_t i=0;i<2;++i) {
+        const auto& end=ends[i];const auto suffix=i?":last":":first";
+        const auto prefix=sketch.id+":flat-correction"+suffix;
+        std::erase_if(draft.constraints,[&](const auto& c) {
+            return c.kind==sketcher::ConstraintKind::PointReference&&c.first_point_id==end.point&&
+                c.second_point_id==end.reference;
+        });
+        sketcher::SketchConstraint station;
+        station.id=prefix+":station";station.kind=sketcher::ConstraintKind::Horizontal;
+        station.first_point_id=end.point;station.second_point_id=end.reference;
+        draft.constraints.push_back(std::move(station));
+        auto dimension=draft.create_point_dimension(end.reference,end.point,sketcher::DimensionKind::DistanceX);
+        dimension.id=prefix;dimension.value=0.;
+        dimension.placement=std::array{draft.find_point(end.point)->x,-8.};
+        draft.dimensions.push_back(std::move(dimension));
+        if(end.side.empty())continue;
+        // The finite guide records an exact authored direction, not display
+        // tessellation. It is ordinary native construction geometry.
+        auto first=*draft.find_point(end.point),last=*draft.find_point(end.remote);
+        first.id=prefix+":guide:first";last.id=prefix+":guide:last";
+        first.fixed=last.fixed=true;first.construction=last.construction=true;
+        first.visible_in_3d=last.visible_in_3d=false;
+        draft.points.push_back(first);draft.points.push_back(last);
+        auto guide=sketcher::Sketch::create_segment(first.id,last.id,true);
+        guide.id=prefix+":guide";guide.visible_in_3d=false;
+        draft.segments.push_back(guide);
+        sketcher::SketchConstraint parallel;
+        parallel.id=prefix+":parallel";parallel.kind=sketcher::ConstraintKind::Parallel;
+        parallel.geometry_id=end.side;parallel.second_geometry_id=guide.id;
+        draft.constraints.push_back(std::move(parallel));
+        // A triangular outline shares the far vertex: its two side directions
+        // determine the intersection, so a fixed far station would overconstrain it.
+        if(end.remote!=ends[1-i].remote) {
+            sketcher::SketchConstraint remote_station;
+            remote_station.id=prefix+":far-station";
+            remote_station.kind=sketcher::ConstraintKind::Horizontal;
+            remote_station.first_point_id=end.remote;remote_station.second_point_id=last.id;
+            draft.constraints.push_back(std::move(remote_station));
+        }
+    }
+    const auto status=draft.solve().status;
+    if(status==sketcher::SolveStatus::Conflicting||status==sketcher::SolveStatus::Invalid) {
+        throw std::invalid_argument("Flat profile conflicts with its sheet endpoint references.");
+    }
+    sketch=std::move(draft);
+}
+
+void retain_converted_flat_corrections(sketcher::Sketch& sketch,const sketcher::Sketch& authored) {
+    auto draft=sketch;
+    for(const auto suffix:{":first",":last"}) {
+        const auto id=sketch.id+":flat-correction"+suffix;
+        const auto prior=std::ranges::find(authored.dimensions,id,&sketcher::SketchDimension::id);
+        const auto current=std::ranges::find(draft.dimensions,id,&sketcher::SketchDimension::id);
+        if(prior==authored.dimensions.end()||current==draft.dimensions.end())continue;
+        auto dimension=*current;
+        dimension.value=prior->value;dimension.driving=true;
+        dimension.locked=prior->locked;dimension.solution_side=prior->solution_side;
+        dimension.placement=prior->placement;
+        // Reapply the last authored displacement through the normal coupled
+        // dimension edit. A reference dimension then releases that temporary
+        // equation again; regeneration must retain its last free position.
+        draft.apply_dimension(std::move(dimension));
+    }
+    for(const auto suffix:{":first",":last"}) {
+        const auto id=sketch.id+":flat-correction"+suffix;
+        const auto prior=std::ranges::find(authored.dimensions,id,&sketcher::SketchDimension::id);
+        const auto current=std::ranges::find(draft.dimensions,id,&sketcher::SketchDimension::id);
+        if(prior!=authored.dimensions.end()&&current!=draft.dimensions.end())current->driving=prior->driving;
+    }
+    const auto status=draft.solve().status;
+    if(status==sketcher::SolveStatus::Conflicting||status==sketcher::SolveStatus::Invalid)
+        throw std::invalid_argument("Flat profile conflicts with its sheet endpoint references.");
+    sketch=std::move(draft);
+}
+
 bool initialize_attached_flat_profile(sketcher::Sketch& sketch) {
     if(!sketch.points.empty()||!sketch.segments.empty()||!sketch.circles.empty()||
        !sketch.arcs.empty()||!sketch.ellipses.empty()||!sketch.elliptical_arcs.empty()||

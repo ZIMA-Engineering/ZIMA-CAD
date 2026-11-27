@@ -96,7 +96,16 @@ double end_extension(const BendParameters& p,double authored,std::size_t end,dou
     const double angle=p.angle_degrees*std::numbers::pi/180;
     if(angle<=0||angle>=std::numbers::pi||!std::isfinite(p.corner_gap)||p.corner_gap<0||p.corner_gap>1)
         throw std::invalid_argument("Corner closure requires an angle between 0 and 180 degrees and a gap from 0 to 1 mm.");
-    return (authored-p.corner_gap*.5)*std::sin(angle*fraction)/std::sin(angle);
+    // A narrowing corner is the widening corner traversed from its other
+    // tangent. At 90 degrees its setback follows 1-cos(theta), not sin(theta).
+    // Complementing the reversed parameter preserves both authored end spans
+    // and gives the same physical seam when the bend direction is reversed.
+    const double law=p.corner_reversed[end].value_or(std::signbit(authored))?
+        1-std::sin(angle*(1-fraction))/std::sin(angle):
+        std::sin(angle*fraction)/std::sin(angle);
+    const double corrected=(authored-p.corner_gap*.5)*law;
+    return p.corner[end]==1.?corrected:
+        std::lerp(authored*fraction,corrected,p.corner[end]);
 }
 }
 kernel::ViewerReferenceGeometry sheet_attachment_reference_geometry(
@@ -630,6 +639,8 @@ BendParameters resolved_bend_parameters(const HistoryContainer& feature,const Sh
         throw std::invalid_argument("Bend inner radius must be between 0 and 1000000 mm.");
     if(!std::isfinite(p.angle_degrees)||p.angle_degrees<0||p.angle_degrees>180)
         throw std::invalid_argument("Bend angle must be between 0 and 180 degrees.");
+    for(const double value:p.corner)if(!std::isfinite(value)||value<0||value>1)
+        throw std::invalid_argument("Corner closure must be between 0 and 1.");
     if((p.corner[0]||p.corner[1])&&p.radius<=0)
         throw std::invalid_argument("Corner closure requires a positive inner radius.");
     if(!std::isfinite(p.corner_gap)||p.corner_gap<0||p.corner_gap>1||

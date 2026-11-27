@@ -118,11 +118,10 @@ void AssemblyWorkspaceWindow::show_parameter_dimensions(
         workspace_.active_document_id());
     const auto* active_feature=active_part?
         active_part->session.document().find_container(owner_id):nullptr;
-    const bool bound_sheet_flat=active_feature&&
-        active_feature->feature_kind==document::FeatureKind::Flat&&
-        active_part->session.document().sheet_from_body_child_bound(owner_id);
-    construction_dimension_object_id_ = bound_sheet_flat?
-        std::string{}:owner_id;
+    if(active_feature&&!active_feature->mech_keyway_binding.parent_id.empty()){
+        show_parameter_dimensions(active_feature->mech_keyway_binding.parent_id,component);return;
+    }
+    construction_dimension_object_id_ = owner_id;
     opening_component_edit_={owner_id,component};
     preserve_view_on_refresh_ = true;
     if(!properties_dialog_&&active_sketch_id_.empty()&&
@@ -154,7 +153,6 @@ void AssemblyWorkspaceWindow::show_parameter_dimensions(
     }
     const auto* part=active_part;
     const auto* feature=active_feature;
-    if(bound_sheet_flat)return;
     state_->setText(feature&&feature->feature_kind==document::FeatureKind::SheetForm
         ?tr("Driving FORM dimensions edit only this insertion. Reference dimensions are read-only.")
         :tr("Parametrické kóty jsou zobrazené. Dvojklikem na kótu upravíte hodnotu."));

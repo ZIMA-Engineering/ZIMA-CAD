@@ -47,7 +47,8 @@ inline P spline_at(const std::vector<P>& p,unsigned degree,bool interpolating,do
     }
     return d[degree];
 }
-inline std::vector<Curve> guide_curves(const sketcher::Sketch& source,P start,bool require_origin=true,bool allow_closed=false) {
+inline std::vector<Curve> guide_curves(const sketcher::Sketch& source,P start,bool require_origin=true,bool allow_closed=false,
+        const std::vector<std::string>* open_start_preferences=nullptr) {
     auto s=source.evaluated_profile_sketch(); std::vector<Curve> unordered;
     for(const auto& l:s.segments) if(!l.construction) {
         auto a=point(s,l.first_point_id),b=point(s,l.second_point_id);
@@ -99,6 +100,34 @@ inline std::vector<Curve> guide_curves(const sketcher::Sketch& source,P start,bo
         if(closed && std::ranges::none_of(unordered,[&](const Curve& curve){
             return distance(start,curve.start)<1e-7 || distance(start,curve.end)<1e-7;
         }))start=unordered.front().start;
+    }
+    if(open_start_preferences&&!closed&&!unordered.empty()) {
+        // A planar Sweep may start anywhere in its Sketch. Reuse an authored
+        // outgoing endpoint profile to keep its direction through coordinate
+        // edits; otherwise retain the supplied endpoint or authored curve order.
+        std::vector<std::pair<P,std::string>> ends;
+        for(const auto& curve:unordered)for(const bool last:{false,true}) {
+            const auto p=last?curve.end:curve.start;unsigned degree=0;
+            for(const auto& other:unordered) {
+                degree+=distance(p,other.start)<1e-7;
+                degree+=distance(p,other.end)<1e-7;
+            }
+            if(degree==1)ends.emplace_back(p,last?curve.end_point_id:curve.start_point_id);
+            else if(degree!=2)throw std::runtime_error("Vodicí dráha se větví nebo má neplatné spojení");
+        }
+        if(ends.size()!=2)throw std::runtime_error("Vodicí dráha není souvislá");
+        // Point storage follows native authoring order. Coordinate changes must
+        // never select a different start merely because it reaches (0,0).
+        auto selected=ends.end();
+        for(const auto& point:s.points) {
+            selected=std::ranges::find_if(ends,[&](const auto& end){return end.second==point.id;});
+            if(selected!=ends.end())break;
+        }
+        for(const auto& id:*open_start_preferences) {
+            const auto preferred=std::ranges::find_if(ends,[&](const auto& end){return end.second==id;});
+            if(preferred!=ends.end()){selected=preferred;break;}
+        }
+        start=(selected==ends.end()?ends.front():*selected).first;
     }
     P cursor=start;
     if(require_origin&&!closed&&distance(cursor,{0,0})>1e-7)throw std::runtime_error("Vodicí křivka musí začínat v počátku skici");

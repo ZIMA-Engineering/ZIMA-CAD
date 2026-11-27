@@ -38,10 +38,45 @@ int main(){try {
     k::OcctKernel kernel;
     const k::HistoryOperation base{"base",box()};
     const auto initial=kernel.evaluate_history({base}).back();
+    {
+        auto deferred=initial;deferred.mesh.triangle_references.assign(deferred.mesh.triangle_references.size(),{});
+        deferred.calculation_errors["later-failure"]="Retained failure";
+        require(k::restore_calculated_body_face_mesh(deferred,.1),"Deferred face identities were not restored");
+        require(deferred.kernel_shape==initial.kernel_shape&&deferred.source_fingerprint==initial.source_fingerprint&&
+            deferred.volume==initial.volume&&deferred.calculation_errors.contains("later-failure"),
+            "Restoring face presentation changed material, history or failure state");
+        for(const auto& face:deferred.mesh.triangle_references)
+            require(face.valid()&&std::ranges::find(initial.mesh.triangle_references,face)!=initial.mesh.triangle_references.end(),
+                "Restored face presentation invented an identity");
+        require(!k::restore_calculated_body_face_mesh(deferred,.1),"Complete face presentation was rebuilt twice");
+    }
     k::FaceReference target;
     for(const auto& face:initial.mesh.original_references.triangle_references)
         if(face.owner_id=="base"&&face.semantic_key.starts_with("end:from:"))target=face;
     require(target.valid(),"Missing authored top face");
+    {
+        // A cold prefix first serves an operation with no face dependencies.
+        // A subsequent edit adds a reference to the earlier source; the live
+        // cache must prove that new dependency rather than just its existence.
+        auto beside=box();
+        for(auto& point:std::get<k::ExtrusionRequest::PolygonProfile>(beside.outer_profile).vertices)point.x+=30;
+        const k::HistoryOperation second{"beside",beside};
+        k::OcctKernel cold;
+        const auto prefix=cold.evaluate_history_incremental({base,second},{initial});
+        k::ExtrusionRequest up_to;up_to.outer_profile=k::ExtrusionRequest::CircleProfile{{0,0,0},1};
+        up_to.outer_edge_source_ids={"circle"};up_to.outer_boundary_id="circle";up_to.profile_region_id="disc";
+        up_to.direction={0,0,1};up_to.extent=k::ExtrusionRequest::Extent::UpToPlane;up_to.target_face=target;
+        up_to.target_plane_origin={0,0,11};
+        const auto continued=cold.evaluate_history_incremental({base,second,{"up-to",up_to}},prefix);
+        require(continued.back().calculation_errors.empty(),"Cold continuation lost a newly required original face");
+        require(std::abs(continued.back().volume-(4800+5*std::numbers::pi))<1e-5,"Cold continuation changed the Up-to equation");
+        require(continued.front().kernel_shape.get().data()==prefix.front().kernel_shape.get().data(),
+            "Available exact face unnecessarily replayed the retained prefix");
+        const auto shortened=cold.evaluate_history_incremental({base},continued);
+        require(!shortened.back().mesh.triangle_references.empty()&&
+            std::ranges::all_of(shortened.back().mesh.triangle_references,[](const auto& face){return face.valid();}),
+            "Republishing a shortened history discarded the current face identities");
+    }
     {
         const k::HistoryReferenceIdentity absent{"base","generated:absent-fragment",{}};
         k::HistoryOutputPolicy policy;policy.final_boundary_first=true;
@@ -203,9 +238,17 @@ int main(){try {
     std::get<k::ExtrusionRequest::CircleProfile>(external_projection.profiles[0].outer_profile).radius=3;
     require(kernel.evaluate_history({{"external-projection",external_projection}}).back().calculation_errors.empty(),"Explicit external bounded face failed");
     std::get<k::ExtrusionRequest::CircleProfile>(external_projection.profiles[0].outer_profile).radius=6;
-    rejected=false;try {rejected=!kernel.evaluate_history({{"external-projection",external_projection}}).back().calculation_errors.empty();}catch(const std::exception&) {rejected=true;}
-    require(rejected,"External bounded face incorrectly expanded to its original untrimmed ancestor");
+    const auto extended=kernel.evaluate_history({{"external-projection",external_projection}}).back();
+    require(extended.calculation_errors.empty(),"Partial analytic face did not continue on its selected support");
+    bool found_extension=false;
+    for(const auto& edge:extended.mesh.original_references.edges)if(edge.reference.owner_id=="external-projection")
+        for(const auto& point:edge.points) {
+            require(std::abs(point.z-11)<1e-6&&std::abs(std::hypot(point.x,point.y)-6)<1e-6,
+                "Analytic continuation changed the source curve or selected plane");
+            found_extension=true;
+        }
+    require(found_extension,"Analytic continuation produced no curves");
     std::cout<<"Nested/adjacent regions, lost-region rejection, Surface Thicken, Shell and native direction passed\n";
-    std::cout<<"Explicit external bounded face and rejected untrimmed-ancestor fallback passed\n";
+    std::cout<<"Explicit external face and exact analytic continuation passed\n";
     std::cout<<"Projection native history contracts passed\n";return 0;
 }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}}

@@ -5,6 +5,8 @@
 #include <zima/workspace/family_operations.hpp>
 #include <zima/document/object_annotation_frames.hpp>
 #include <zima/workspace/drawing_sources.hpp>
+#include <zima/workspace/mech_keyway_operations.hpp>
+#include <zima/document/history_reference_view.hpp>
 #include <algorithm>
 #include <cctype>
 #include <zima/document/file_path.hpp>
@@ -321,6 +323,20 @@ drawing_annotation_sources(const Workspace *workspace,
         if(feature.feature_kind==document::FeatureKind::ShaftThread)
           threads[feature.id]={feature.shaft_thread.designation,feature.shaft_thread.nominal_diameter};
         auto packet=document::primitive_parameter_dimensions(feature);
+        if(feature.feature_kind==document::FeatureKind::MechKeyway&&
+            !part.reference_errors.contains(feature.id)&&!calculation_errors.contains(feature.id)) {
+          auto references=calculated.original_references;
+          document::history_reference_detail::append(references,part.origin_viewer_mesh().original_references);
+          document::history_reference_detail::append(references,part.construction_viewer_mesh().original_references);
+          if(const auto* body=part.body_owner_for_object(feature.id))
+            references=part.construction_reference_geometry_for(body->scope.id,std::move(references));
+          try {
+            packet.dimensions=mech_keyway_dimensions(resolve_mech_keyway_draft(feature,feature.id+":preview",references));
+            // The persistent annotation Sketch already supplies the manufacturing
+            // depth and its actual face dependencies, also after decomposition.
+            std::erase_if(packet.dimensions,[](const auto& dimension){return dimension.reference.semantic_key=="parameter:mech_measurement";});
+          }catch(const std::exception&){ /* Unresolved supports do not produce guessed dimensions. */ }
+        }
         if(feature.feature_kind==document::FeatureKind::Feature||feature.feature_kind==document::FeatureKind::Extrusion) {
           const auto sketch=std::ranges::find(part.sketches,
               feature.feature_kind==document::FeatureKind::Feature?feature.feature.sketch_id:feature.extrusion.sketch_id,&sketcher::Sketch::id);

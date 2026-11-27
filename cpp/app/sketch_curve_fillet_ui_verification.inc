@@ -26,6 +26,7 @@ static int verify_sketch_curve_fillet_ui(QApplication& application,const std::fi
             }
             s.constraints.clear();if(reverse)std::swap(curves[0],curves[1]);
             auto authored=part(s);s=authored.sketches[0];const auto file=directory/("fillet-"+std::to_string(cases)+(assembly_mode?".asmz":".prtz"));
+            authored.document_units["Length"]=reverse?"in":"mm";
             if(assembly_mode) {
                 auto context_sketch=Sketch::create_default();static_cast<void>(context_sketch.add_rectangle(-30,-20,65,55));
                 auto context=part(context_sketch);auto feature=document::PartDocument::create_feature_container(context.sketches.front().id);
@@ -37,6 +38,7 @@ static int verify_sketch_curve_fillet_ui(QApplication& application,const std::fi
                 require(!bodies.empty()&&bodies.back().calculation_errors.empty(),"Assembly Fillet context calculation failed");
                 const auto context_file=directory/("fillet-context-"+std::to_string(cases)+".prtz");context.save(context_file,bodies);
                 auto doc=assembly::AssemblyDocument::create_default();
+                doc.document_units["Length"]=reverse?"in":"mm";
                 auto component=assembly::AssemblyDocument::create_part_occurrence("Context",context.document_id,context_file,bodies.back());
                 doc.components.push_back(component);doc.insert_history_entry(assembly::AssemblyDocument::HistoryKind::Component,component.occurrence_id);
                 doc.insert_sketch(s,authored.history.front());doc.save(file);
@@ -103,6 +105,8 @@ static int verify_sketch_curve_fillet_ui(QApplication& application,const std::fi
                     auto* radius=window.findChild<QDoubleSpinBox*>("sketchFilletRadius");
                     auto* fields=window.findChild<QTableWidget*>("sketchFilletCurves");
                     require(radius&&fields&&fields->rowCount()==2,"Fillet reference form is missing");
+                    require(std::abs(radius->value()-(reverse?1.016:1.))<1e-12,
+                        "Sketch Fillet did not choose the document-unit default");
                     auto* dialog=window.findChild<QDialog*>("sketchCurveFilletDialog");
                     require(dialog&&dialog->windowType()==Qt::SubWindow&&dialog->parentWidget()==&window,"Fillet is not an internal properties window");
                     require(dialog->windowTitle()==settings.qt_translations.value("Zaoblení")&&
@@ -195,7 +199,7 @@ static int verify_sketch_curve_fillet_ui(QApplication& application,const std::fi
                     const auto shown=std::ranges::find(view->mesh().dimensions,"dimension:"+size.id,[](const auto& d){return d.reference.semantic_key;});require(shown!=view->mesh().dimensions.end(),"Fillet size label missing");
                     viewer::ViewerCandidate candidate;candidate.kind=viewer::CandidateKind::Dimension;candidate.owner_id=s.id;candidate.semantic_key="dimension:"+size.id;candidate.geometry_index=std::size_t(shown-view->mesh().dimensions.begin());
                     const auto label=view->candidate_dimension_label_position(candidate);require(label.has_value(),"Fillet label position missing");click(*label);mouse(*label,QEvent::MouseButtonDblClick,Qt::LeftButton,Qt::LeftButton);mouse(*label,QEvent::MouseButtonRelease,Qt::LeftButton);
-                    auto* editor=view->findChild<QLineEdit*>("inlineDimensionValueEdit");require(editor&&editor->isVisible(),"Fillet dimension editor missing");editor->setText(QString::number(radius*(reverse?2:1)));
+                    auto* editor=view->findChild<QLineEdit*>("inlineDimensionValueEdit");require(editor&&editor->isVisible(),"Fillet dimension editor missing");editor->setText(QString::number(radius*(reverse?2:1))+" mm");
                     QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);QApplication::sendEvent(editor,&enter);flush();draft=*window.active_sketch_for_test();
                     if(std::abs(*draft.circular_radius(arc_id)-radius)>=1e-7) {
                         std::ofstream(parent/"curve-fillet-dimension-failure.json")<<draft.serialized();

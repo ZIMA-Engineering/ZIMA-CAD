@@ -1,4 +1,5 @@
 #include "sketch_fillet_helpers.hpp"
+#include "../mech_keyway_view_cues.hpp"
 #include "../parameter_value_labels.hpp"
 #include "../tree_expansion_state.hpp"
 #include <zima/document/loft.hpp>
@@ -802,10 +803,10 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                             const auto anchor=sketch.world_point(point->x,point->y);
                             zima::kernel::ViewerDimension corner;
                             corner.witness_first=corner.witness_second=corner.line_first=corner.line_second=anchor;
-                            corner.value=container->bend.corner[side]?1.:0.;
+                            corner.value=container->bend.corner[side];
                             corner.reference={container->id,side?"parameter:corner_last":"parameter:corner_first",{}};
                             corner.label_prefix="CC = ";corner.unit_suffix="";corner.label_only=true;
-                            corner.display_text_override=container->bend.corner[side]?"CC = 1":"CC = 0";
+                            corner.display_text_override="CC = "+QLocale().toString(corner.value,'g',6).toStdString();
                             corner.label_position=sketch.world_point(point->x,point->y+(side?12.:-12.));
                             corner.plane_normal=sketch.resolved_normal;
                             display.dimensions.push_back(std::move(corner));
@@ -986,6 +987,17 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                             *container,thread_reference_geometry);
                         mesh.dimensions.insert(mesh.dimensions.end(),preview.dimensions.begin(),preview.dimensions.end());
                     } catch (const std::exception&) { /* Incomplete reference entry has no dimension. */ }
+                } else if (container->feature_kind == FeatureKind::MechKeyway) {
+                    try {
+                        auto draft=workspace::resolve_mech_keyway_draft(*container,container->id+":preview",placement_reference_geometry);
+                        kernel::ViewerMesh display;display.dimensions=mech_keyway_view_dimensions(draft);
+                        if(const auto* body=document.body_owner_for_object(container->id))display=document.place_body_mesh(std::move(display),body->scope.id);
+                        else if(parameter_dimension_preview_){
+                            const auto& body_id=sketch_properties_body_id_.empty()?document.body_history.active_body_id():sketch_properties_body_id_;
+                            if(!body_id.empty())display=document.place_body_mesh(std::move(display),body_id);
+                        }
+                        mesh.dimensions.insert(mesh.dimensions.end(),display.dimensions.begin(),display.dimensions.end());
+                    }catch(const std::exception&) { /* Incomplete drafts do not publish guessed dimensions. */ }
                 } else if (container->feature_kind == FeatureKind::Feature) {
                     if(!primitive_origin_preview_mesh_) {
                         const auto sketch=std::ranges::find(document.sketches,container->feature.sketch_id,&zima::sketcher::Sketch::id);

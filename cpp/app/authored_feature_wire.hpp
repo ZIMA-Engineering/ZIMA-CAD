@@ -4,6 +4,7 @@
 #include <zima/document/feature_material_wire.hpp>
 #include <zima/document/edge_treatment_selection.hpp>
 #include <zima/document/document_session.hpp>
+#include <zima/document/history_reference_view.hpp>
 #include <zima/document/feature_up_to.hpp>
 #include <zima/document/bend.hpp>
 #include <zima/document/line_bend.hpp>
@@ -14,6 +15,7 @@
 #include <zima/document/sheet_form_definition.hpp>
 #include <zima/kernel/dimension_layout.hpp>
 #include <zima/workspace/operation_input.hpp>
+#include <zima/workspace/mech_keyway_operations.hpp>
 #include <zima/kernel/mirror_geometry.hpp>
 #include <zima/kernel/pattern_geometry.hpp>
 #include <zima/kernel/transition_edge_display.hpp>
@@ -100,6 +102,16 @@ inline std::vector<kernel::ViewerEdge> authored_feature_wire(
     const auto& input_mesh=input?input->mesh:empty;
     using document::FeatureKind;
     switch(feature->feature_kind) {
+    case FeatureKind::MechKeyway:
+        if(!session.calculated_boundaries().empty()) {
+            auto references=session.calculated_boundaries().back().mesh.original_references;
+            document::history_reference_detail::append(references,doc.origin_viewer_mesh().original_references);
+            document::history_reference_detail::append(references,doc.construction_viewer_mesh().original_references);
+            if(const auto* body=doc.body_owner_for_object(feature->id))references=doc.construction_reference_geometry_for(body->scope.id,std::move(references));
+            const auto cut=std::ranges::find_if(doc.history,[&](const auto& child){return child.mech_keyway_binding.parent_id==feature->id&&child.mech_keyway_binding.role=="cut";});
+            if(cut!=doc.history.end())wire.edges=workspace::mech_keyway_preview_edges(workspace::resolve_mech_keyway_draft(*feature,cut->id,references));
+        }
+        return place(std::move(wire));
     case FeatureKind::Feature:
         if(feature->feature.type==document::FeatureType::Wrapping) {
             // Native reopen may keep only the final display packet. Its

@@ -31,9 +31,15 @@ The existing From target surface relief remains a separate, working operation.
 - All Wrap outputs automatically include connected parts of the same supporting
   surface and material side in the active Body. This includes a two-sided
   Extrusion and a second coaxial Extrusion of the same radius. The combined
-  bounded coverage is checked exactly; historical untrimmed faces cannot fill
-  a missing area. Keep redundant authored target rows in the definition, but
+  analytic support may continue beyond its actual trimming boundaries, including
+  areas removed or covered by another feature (approved 2026-11-27). The picked
+  face must still exist and retain its identity and material side. Continue its
+  mathematical support, never substitute another feature or a historical face.
+  Keep redundant authored target rows in the definition, but
   calculate their shared support once, anchored by its first selected row.
+  Preserve map tolerances, cone-apex/sphere-antipode rejection and explicit chart
+  transitions. Arbitrary freeform surfaces are not extrapolated. Split and
+  subsequent material Booleans still operate on the actual input Body.
 - Different supports are selected manually in continuation order. Cylindrical
   and planar parts connected along a straight common boundary use a continuous
   developed map: transfer the tangent frame across the boundary and preserve

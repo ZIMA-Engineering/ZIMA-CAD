@@ -3,12 +3,19 @@
 #include <zima/kernel/occt_kernel.hpp>
 #include <zima/kernel/surface_results.hpp>
 #include <zima/document/helical_geometry.hpp>
+#include <zima/document/document_session.hpp>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <numbers>
 #include <set>
+#include <BRepBndLib.hxx>
+#include <BRepTools.hxx>
+#include <BRep_Builder.hxx>
+#include <Bnd_Box.hxx>
+#include <TopoDS_Shape.hxx>
+#include <sstream>
 using namespace zima;
 static void require(bool ok,const char* message){if(!ok)throw std::runtime_error(message);}
 static void close(double actual,double expected,const char* message){
@@ -31,8 +38,10 @@ static document::HistoryContainer fixture(bool arc=false,bool open=false){
     c.sweep2d.path_sketch=path.serialized();document::PartDocument::reframe_sweep2d_sketches(c);
     profile_at(c,document::PartDocument::sweep2d_route(c).stations.front(),2,open);return c;
 }
+#include "sweep2d_free_path_contract.inc"
 int main(int argc,char** argv){try{
     kernel::OcctKernel kernel;
+    verify_free_planar_paths(kernel);
     if(argc==3&&std::string_view(argv[1])=="--surface") {
         auto native=document::PartDocument::load(std::filesystem::u8path(argv[2]));
         auto& sweep=native.history.back();require(sweep.feature_kind==document::FeatureKind::Sweep2D,"Fixture does not end in 2D Sweep");
@@ -145,6 +154,16 @@ int main(int argc,char** argv){try{
         const auto body=kernel.evaluate_history(native.kernel_operations()).back();
         close(body.volume,(40+20*std::numbers::pi)*std::numbers::pi,"Closed capsule sweep volume");
         require(body.calculation_errors.empty(),"Closed capsule sweep has a calculation error");
+        auto reversed=c;
+        for(unsigned flip=0;flip<4;++flip) {
+            document::PartDocument::reverse_sweep2d_path(reversed);native.history={reversed};
+            const auto reversed_route=document::PartDocument::sweep2d_route(reversed);
+            require(reversed_route.stations.front().point_id==route.stations.front().point_id,
+                "Reversing a closed path moved its seam");
+            const auto checked=kernel.evaluate_history(native.kernel_operations()).back();
+            require(checked.calculation_errors.empty()&&std::abs(checked.volume-body.volume)<1e-6&&
+                std::abs(checked.surface_area-body.surface_area)<1e-6,"Reversed closed path changed material geometry");
+        }
         for(const auto mode:{document::ThinMode::OneSide,document::ThinMode::OtherSide,document::ThinMode::Symmetric}) {
             auto thin=c;thin.sweep2d.result_type=document::ProfileResultType::Thin;
             thin.sweep2d.thickness=.2;thin.sweep2d.thin_mode=mode;native.history={thin};
@@ -210,6 +229,13 @@ int main(int argc,char** argv){try{
         const double removed=9*std::numbers::pi*length/4-18*std::numbers::pi;
         close(bodies.back().volume,bodies.front().volume-(into_stock?removed:0),
             "Closed KAPSA radius lead-in cut volume or authored side");
+        for(unsigned flip=0;flip<4;++flip) {
+            document::PartDocument::reverse_sweep2d_path(cut);native.history={stock,cut};
+            const auto reversed=kernel.evaluate_history(native.kernel_operations()).back();
+            require(reversed.calculation_errors.empty(),"Reversed KAPSA radius lead-in failed");
+            close(reversed.volume,bodies.back().volume,"Reversed KAPSA radius lead-in changed material side");
+            close(reversed.surface_area,bodies.back().surface_area,"Reversed KAPSA radius lead-in changed area");
+        }
     }
     // An offset quarter-circle must retain its planar side at that half-turn.
     for(bool outside:{false,true})for(bool rotated:{false,true}) {
@@ -400,7 +426,7 @@ int main(int argc,char** argv){try{
             require(hidden.triangles.empty(),"Variable Surface cannot be hidden by result type");
         }
         const auto preview=document::PartDocument::sweep2d_preview_mesh(c);
-        require(preview.constraint_markers.size()==8&&preview.constraint_markers.front().label=="1 – začátek",
+        require(preview.constraint_markers.size()==9&&preview.constraint_markers[1].label=="1 – začátek",
             "Numbered profile correspondence preview is missing");
         c.sweep2d.result_type=document::ProfileResultType::Thin;c.sweep2d.thickness=.2;
         require(calculate(c).volume>0,"C/K Thin Loft failed");

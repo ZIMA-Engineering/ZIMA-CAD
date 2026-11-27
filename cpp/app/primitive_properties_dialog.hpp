@@ -36,6 +36,7 @@ namespace zima::app {
 class FeatureParameterPanel;
 class ProjectionParameterPanel;
 class WrappingParameterPanel;
+class MechKeywayParameterPanel;
 class SheetFormPlacementSection;
 
 enum class FeatureUpToTargetDecision {
@@ -55,6 +56,8 @@ class PrimitivePropertiesDialog final : public zima::ui::PropertiesSubWindow,
 public:
     ProjectionParameterPanel* projection_panel()const;
     WrappingParameterPanel* wrapping_panel()const;
+    MechKeywayParameterPanel* mech_keyway_panel()const {return mech_keyway_panel_;}
+    void initialize_mech_keyway_placement(const zima::document::Placement&);
     void set_sheet_default_thickness(double value) { sheet_default_thickness_=value; }
     void set_sheet_reference_geometry(zima::kernel::ViewerReferenceGeometry value) { sheet_reference_geometry_=std::move(value); }
     void set_sheet_form_body_origin(std::string value) { sheet_form_body_origin_=std::move(value); }
@@ -244,6 +247,7 @@ protected:
     bool eventFilter(QObject* watched, QEvent* event) override;
 
 private:
+    MechKeywayParameterPanel* mech_keyway_panel_{};
     std::string sheet_form_body_origin_;
     std::shared_ptr<SheetFormPlacementSection> sheet_form_placement_;
     bool sheet_form_face_entry_{};

@@ -73,13 +73,15 @@ bool owns(const Context& c) { return read(asset_root(c)+"/owner")==owner(c).toUt
 void erase(const QString& path) { if(QFileInfo::exists(path)&&!QFile::remove(path))fail(); }
 QByteArray icon_data(const QString& resource) {
 #ifdef Q_OS_WIN
+    // Use the exact multi-resolution artwork embedded in the Windows EXE.
+    // A separate SVG renderer previously retained an obsolete, padded logo.
+    if(resource.endsWith(QStringLiteral("/branding/app-icon.svg"))) {
+        const auto ico=read(":/zima/branding/windows-app-icon.ico");
+        if(ico.isEmpty())fail("load application icon");
+        return ico;
+    }
     auto svg=read(resource);
     if(svg.isEmpty())fail("load icon");
-    // Windows shell icons are not palette-aware. Use the high-contrast
-    // system variant of the shared logo so the Z remains filled on the dark
-    // taskbar; the in-application icon still follows the live Qt palette.
-    if(resource.endsWith(QStringLiteral("/branding/app-icon.svg")))
-        svg.replace("currentColor","#F3F6F8");
     QByteArray png;QBuffer buffer(&png);buffer.open(QIODevice::WriteOnly);
     QSvgRenderer renderer(svg);if(!renderer.isValid())fail("load icon");
     QImage image(256,256,QImage::Format_ARGB32);image.fill(Qt::transparent);
@@ -132,6 +134,7 @@ struct ShortcutData {
     QString target;
     QString icon;
     QString application_id;
+    int icon_index{};
 };
 struct ComScope {
     HRESULT status=CoInitializeEx(nullptr,COINIT_APARTMENTTHREADED);
@@ -166,9 +169,44 @@ std::optional<ShortcutData> shortcut_data(const QString& path) {
     ShortcutData result;
     result.target=QString::fromWCharArray(target.data());
     result.icon=QString::fromWCharArray(icon.data());
+    result.icon_index=icon_index;
     if(value.vt==VT_LPWSTR&&value.pwszVal)
         result.application_id=QString::fromWCharArray(value.pwszVal);
     return result;
+}
+bool update_shortcut_icon(const Context& c,const QString& path) {
+    const auto existing=shortcut_data(path);
+    if(!existing||QDir::cleanPath(existing->target).compare(owner(c),Qt::CaseInsensitive)!=0||
+        (!existing->application_id.isEmpty()&&existing->application_id!=application_user_model_id(c)))return false;
+    const auto desired=application_icon_asset(c);
+    if(QDir::cleanPath(existing->icon).compare(desired,Qt::CaseInsensitive)==0&&
+        existing->icon_index==0)return false;
+    ComScope com;if(!com.usable())fail("initialize shortcut update");
+    IShellLinkW* link{};
+    if(FAILED(CoCreateInstance(CLSID_ShellLink,nullptr,CLSCTX_INPROC_SERVER,
+            IID_PPV_ARGS(&link))))fail("open shortcut update");
+    const auto release_link=qScopeGuard([&]{link->Release();});
+    IPersistFile* file{};
+    if(FAILED(link->QueryInterface(IID_PPV_ARGS(&file))))fail("open shortcut file");
+    const auto release_file=qScopeGuard([&]{file->Release();});
+    const auto native=QDir::toNativeSeparators(path).toStdWString();
+    const auto icon=QDir::toNativeSeparators(desired).toStdWString();
+    // Load and edit in place: preserve arguments, working directory, name,
+    // AppUserModelID and the user's pin/order. Never create or remove a pin.
+    if(FAILED(file->Load(native.c_str(),STGM_READWRITE))||
+        FAILED(link->SetIconLocation(icon.c_str(),0))||
+        FAILED(file->Save(native.c_str(),TRUE)))fail("update shortcut icon");
+    SHChangeNotify(SHCNE_UPDATEITEM,SHCNF_PATHW|SHCNF_FLUSHNOWAIT,native.c_str(),nullptr);
+    return true;
+}
+bool update_shortcut_icons(const Context& c) {
+    bool changed=update_shortcut_icon(c,shortcut(c));
+    for(const auto& directory:c.shortcut_directories) {
+        const QDir folder(directory);
+        for(const auto& name:folder.entryList({"*.lnk"},QDir::Files))
+            changed=update_shortcut_icon(c,folder.filePath(name))||changed;
+    }
+    return changed;
 }
 void write_shortcut(const Context& c) {
     if(!QDir().mkpath(c.programs))fail("create shortcut directory");
@@ -200,6 +238,7 @@ void write_shortcut(const Context& c) {
     const auto release_file=qScopeGuard([&]{file->Release();});
     const auto path=QDir::toNativeSeparators(shortcut(c)).toStdWString();
     if(FAILED(file->Save(path.c_str(),TRUE)))fail("save shortcut");
+    SHChangeNotify(SHCNE_UPDATEITEM,SHCNF_PATHW|SHCNF_FLUSHNOWAIT,path.c_str(),nullptr);
 }
 QMap<QString,QString> registry_values(const Context& c) {
     const auto base=capabilities(c);QMap<QString,QString> result;
@@ -254,6 +293,16 @@ Context current_context() {
 #ifdef Q_OS_WIN
     PWSTR path=nullptr;
     if(SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Programs,0,nullptr,&path))) { c.programs=QString::fromWCharArray(path);CoTaskMemFree(path); }
+    c.shortcut_directories.append(QStandardPaths::writableLocation(QStandardPaths::DesktopLocation));
+    path=nullptr;
+    if(SUCCEEDED(SHGetKnownFolderPath(FOLDERID_RoamingAppData,0,nullptr,&path))) {
+        const auto quick_launch=QString::fromWCharArray(path)+"/Microsoft/Internet Explorer/Quick Launch";
+        CoTaskMemFree(path);
+        c.shortcut_directories.append(quick_launch+"/User Pinned/TaskBar");
+        const QDir implicit(quick_launch+"/ImplicitAppShortcuts");
+        for(const auto& name:implicit.entryList(QDir::Dirs|QDir::NoDotAndDotDot))
+            c.shortcut_directories.append(implicit.filePath(name));
+    }
 #endif
     return c;
 }
@@ -325,9 +374,33 @@ void install(const Context& c) {
     for(auto it=values.cbegin();it!=values.cend();++it)registry.setValue(it.key(),it.value());
     registry.sync();if(registry.status()!=QSettings::NoError)fail("write registry");
     write_shortcut(c);
+    update_shortcut_icons(c);
 #endif
     refresh(c);
     if(!registered(c))fail("verify registration");
+}
+bool refresh_registered_icons(const Context& c) {
+#ifdef Q_OS_WIN
+    if(!owns(c))return false;
+    QSettings registry(c.registry,c.registry_format);
+    if(registry.value(capabilities(c)+"/Owner").toString()!=owner(c))return false;
+    const auto path=application_icon_asset(c);
+    const auto bytes=icon_data(":/zima/branding/app-icon.svg");
+    bool changed=false;
+    if(read(path)!=bytes) {write(path,bytes);changed=true;}
+    const auto key=capabilities(c)+"/Capabilities/ApplicationIcon";
+    const auto value='"'+QDir::toNativeSeparators(path)+'"';
+    if(registry.value(key).toString()!=value) {
+        registry.setValue(key,value);registry.sync();
+        if(registry.status()!=QSettings::NoError)fail("refresh application icon");
+        changed=true;
+    }
+    changed=update_shortcut_icons(c)||changed;
+    if(changed)refresh(c);
+    return changed;
+#else
+    Q_UNUSED(c);return false;
+#endif
 }
 void remove(const Context& c) {
     if(!owns(c))return;

@@ -1,23 +1,35 @@
 bool Sketch::cache_external_cylinder_support(SketchExternalReference& reference,
         const kernel::ViewerReferenceGeometry& source) const {
+    const bool section=is_analytic_section_key(reference.source_semantic_key);
     if(reference.kind!=ExternalReferenceKind::Face||is_intersection_reference(reference)||
-       is_face_curve_key(reference.source_semantic_key))return false;
-    const kernel::FaceReference wanted{reference.source_owner_id,reference.source_semantic_key,reference.source_instance_path};
+       (is_face_curve_key(reference.source_semantic_key)&&!section))return false;
+    const kernel::FaceReference wanted{reference.source_owner_id,face_curve_source_key(reference.source_semantic_key),reference.source_instance_path};
     const kernel::SurfaceGeometry* cylinder=nullptr;
     for(const auto& face:source.triangle_references)if(face==wanted) {
         const auto* surface=face.surface.get();
-        if(!surface||surface->kind!=kernel::SurfaceGeometry::Kind::Cylinder)return false;
-        if(cylinder&&(cylinder->origin!=surface->origin||cylinder->axis!=surface->axis||cylinder->radius!=surface->radius))return false;
+        if(!surface||(surface->kind!=kernel::SurfaceGeometry::Kind::Cylinder&&
+            !(section&&surface->kind==kernel::SurfaceGeometry::Kind::Cone)))return false;
+        if(cylinder&&(cylinder->origin!=surface->origin||cylinder->axis!=surface->axis||cylinder->radius!=surface->radius||
+            cylinder->kind!=surface->kind||cylinder->semi_angle!=surface->semi_angle))return false;
         cylinder=surface;
     }
-    if(!cylinder||!std::isfinite(cylinder->radius)||cylinder->radius<=1e-12)return false;
+    if(!cylinder||!std::isfinite(cylinder->radius))return false;
     const auto n=normal(),a=cylinder->axis;
     const double length=std::sqrt(a.x*a.x+a.y*a.y+a.z*a.z);
     if(!std::isfinite(length)||length<=1e-12)return false;
     const double parallel=std::abs(n.x*a.x+n.y*a.y+n.z*a.z)/length;
     if(std::abs(parallel-1.)>1e-10)return false;
+    double radius=cylinder->radius;
+    if(cylinder->kind==kernel::SurfaceGeometry::Kind::Cone){
+        if(!std::isfinite(cylinder->semi_angle)||std::abs(cylinder->semi_angle)>=std::numbers::pi/2)return false;
+        const auto origin=world_point(0,0);
+        const double station=((origin.x-cylinder->origin.x)*a.x+(origin.y-cylinder->origin.y)*a.y+
+            (origin.z-cylinder->origin.z)*a.z)/length;
+        radius+=station*std::tan(cylinder->semi_angle);
+    }
+    if(!std::isfinite(radius)||radius<=1e-12)return false;
     const auto center=local_point(cylinder->origin);
-    reference.exact_spline=circular_curve_geometry({center[0],center[1],0},cylinder->radius,0,2*std::numbers::pi);
+    reference.exact_spline=circular_curve_geometry({center[0],center[1],0},radius,0,2*std::numbers::pi);
     reference.cached_points.clear();reference.cached_paths={{}};
     auto& path=reference.cached_paths.front();
     for(unsigned sample=0;sample<=128;++sample) {

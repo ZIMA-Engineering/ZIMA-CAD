@@ -2,6 +2,7 @@
 #include <zima/sketcher/curve_geometry.hpp>
 #include <zima/sketcher/external_curve_center.hpp>
 #include <zima/sketcher/sketch_trim.hpp>
+#include <zima/sketcher/face_curve_reference.hpp>
 #include <zima/kernel/stable_id.hpp>
 #include <algorithm>
 #include <cmath>
@@ -71,18 +72,29 @@ void verify_cylinder_refresh() {
     check(sketch.refresh_external_references("cylinder-document",geometry)&&sketch.external_references.front()==valid,"Restored cylinder source changed reference identity");
 }
 void verify(unsigned& cases) {
-    for(bool cylindrical_face:{false,true})for(unsigned samples:{8u,17u,57u,128u})for(bool reverse:{false,true})
+    for(int analytic_face:{0,1,2})for(unsigned samples:{8u,17u,57u,128u})for(bool reverse:{false,true})
     for(bool arc:{false,true})for(bool fixed:{false,true})for(bool diameter:{false,true})for(bool locked:{false,true})
     for(auto plane:{sketcher::SketchPlane::XY,sketcher::SketchPlane::XZ,sketcher::SketchPlane::YZ}) {
         auto sketch=sketcher::Sketch::create_default();sketch.plane=plane;sketch.refresh_default_frame();
         const double radius=31.331971171734438;
         auto source=reference(173,-81,radius,samples,reverse,arc);
-        if(cylindrical_face) {
+        if(analytic_face) {
             source.kind=sketcher::ExternalReferenceKind::Face;
             auto surface=std::make_shared<kernel::SurfaceGeometry>();surface->kind=kernel::SurfaceGeometry::Kind::Cylinder;
             surface->origin=sketch.world_point(173,-81);surface->axis=sketch.normal();surface->radius=radius;
+            const auto original_key=source.source_semantic_key;
+            if(analytic_face==2) {
+                surface->kind=kernel::SurfaceGeometry::Kind::Cone;surface->semi_angle=.12;
+                constexpr double station=17;
+                surface->radius=radius-station*std::tan(surface->semi_angle);
+                const double sign=reverse?-1.:1.;
+                surface->axis={surface->axis.x*sign,surface->axis.y*sign,surface->axis.z*sign};
+                surface->origin={surface->origin.x-station*surface->axis.x,
+                    surface->origin.y-station*surface->axis.y,surface->origin.z-station*surface->axis.z};
+                source.source_semantic_key=sketcher::analytic_section_key(original_key);
+            }
             kernel::ViewerReferenceGeometry geometry;
-            kernel::FaceReference face{source.source_owner_id,source.source_semantic_key,{}};face.surface=surface;
+            kernel::FaceReference face{source.source_owner_id,original_key,{}};face.surface=surface;
             geometry.triangle_references={face};
             check(sketch.cache_external_cylinder_support(source,geometry),"Analytic cylinder support was not resolved");
             const auto saved=source;

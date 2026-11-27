@@ -69,6 +69,15 @@ are overwritten. Common document MIME icons are retained on removal because
 another installation can still use them. User-authored documents are never
 part of registration or removal.
 
+An already registered Windows installation refreshes its application icon at
+startup when the embedded icon content changes. Registration uses the same
+multi-resolution ICO as the executable. Content-addressed icon filenames avoid
+reusing the old Shell cache entry. Update owned Start menu, Desktop and pinned
+taskbar shortcuts in place, preserving arguments, working directory and
+AppUserModelID; notify the Shell after changing a link. Foreign installations
+and removed registrations are not adopted. An unchanged startup does not rewrite
+icons or shortcuts. See Microsoft's [Shell notification contract](https://learn.microsoft.com/en-us/windows/win32/api/shlobj_core/nf-shlobj_core-shchangenotify).
+
 The six native extensions are `.prtz`, `.asmz`, `.drwz`, `.frmz`, `.tblz` and `.symz`.
 Document icons reuse the application's existing Part, Assembly, Drawing,
 Format, Title Block and Symbol assets. Windows ICO files embed a 256-pixel PNG and

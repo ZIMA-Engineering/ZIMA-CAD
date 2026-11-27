@@ -4,7 +4,8 @@ namespace zima::workspace {
 namespace {
 bool owns_kernel_operation(const document::HistoryContainer* feature) {
     return feature&&feature->feature_kind!=document::FeatureKind::Sketch&&
-        feature->feature_kind!=document::FeatureKind::SheetProfile;
+        feature->feature_kind!=document::FeatureKind::SheetProfile&&
+        feature->feature_kind!=document::FeatureKind::MechKeyway;
 }
 }
 const kernel::BodyResult* calculated_operation_input(const document::DocumentSession& session,

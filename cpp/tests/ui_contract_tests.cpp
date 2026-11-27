@@ -633,6 +633,7 @@ int verify_numeric_value_locks(QApplication&,QWidget&);
 int verify_feature_unit_input(QApplication&,QWidget&);
 int verify_translations(QApplication&,QWidget&);
 int verify_part_dialog_layout(QApplication&,QWidget&);
+int verify_mech_keyway_ui(QApplication&,QWidget&);
 
 void verify_sketch_endpoint_dialog(QWidget& parent) {
     using namespace zima;
@@ -2290,6 +2291,8 @@ static void verify_history_tree_contract(QApplication& application, bool hidden=
     }
 }
 
+#include "sweep2d_first_plane_ui_contract.inc"
+
 int main(int argc, char* argv[]) {
     QApplication application(argc, argv);
     zima::app::apply_application_appearance(application, zima::app::ApplicationSettings{});
@@ -2364,6 +2367,8 @@ int main(int argc, char* argv[]) {
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_CURVE_PRESENTATION_ONLY")){verify_curve_presentation(application,parent);return 0;}
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_ORIGIN_DISPLAY_ONLY")){verify_origin_display_and_pick_seed(parent);return 0;}
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_HOLE_STEP_ONLY")){verify_hole_step(application,parent);return 0;}
+        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_MECH_KEYWAY_ONLY"))return verify_mech_keyway_ui(application,parent);
+        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SWEEP_FIRST_PLANE_ONLY")){verify_sweep2d_first_plane(application,parent);return 0;}
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_CONTAINER_FRAME_ONLY")){verify_container_frame_dialog(parent);return 0;}
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_EDGE_TREATMENT_FRAGMENTS_ONLY")){verify_edge_treatment_fragments(parent);return 0;}
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_FEATURE_UNITS_ONLY"))return verify_feature_unit_input(application,parent);

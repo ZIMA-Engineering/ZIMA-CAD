@@ -65,6 +65,12 @@ static int verify_plane_and_generator_reference_ui(QApplication& application,con
             for(unsigned cycle=0;cycle<64;++cycle){const auto c=view->offered_candidate();if(c&&wanted(*c))break;mouse(QEvent::MouseButtonPress,Qt::RightButton);mouse(QEvent::MouseButtonRelease,Qt::RightButton);}
             const auto offered=view->offered_candidate();check(offered&&wanted(*offered),"Candidate cycling did not retain the plane/generator");
             mouse(QEvent::MouseButtonPress,Qt::LeftButton);mouse(QEvent::MouseButtonRelease,Qt::LeftButton);
+            // The owned Sketch is a transient Properties draft until both
+            // editing levels are confirmed, just as in the ordinary user flow.
+            window.findChild<QAction*>("finishSketchAction")->trigger();flush();
+            for(auto* dialog:window.findChildren<QDialog*>())if(dialog->isVisible())if(auto* buttons=dialog->findChild<QDialogButtonBox*>())
+                if(auto* ok=buttons->button(QDialogButtonBox::Ok);ok&&ok->isEnabled())ok->click();
+            flush();
             const auto snapshot=[&]{window.findChild<QAction*>("saveDocumentAction")->trigger();flush();return document::PartDocument::load(file);};
             const auto saved=snapshot();const auto& result=*std::ranges::find(saved.sketches,target.id,&sketcher::Sketch::id);
             check(result.external_references.size()==((mode==1||mode==2)?4u:1u),
@@ -261,7 +267,10 @@ int verify_external_face_reference_ui(QApplication& application,const std::files
                 }
             }
             app::apply_application_translations(application,original_settings);app::apply_application_appearance(application,original_settings);
-            if(!user.isEmpty()) {
+            const auto entered_points=view->mesh().points;
+            {
+                // Factory fixtures also enter through the owning Properties
+                // dialog; Save alone must not commit that pending draft.
                 window.findChild<QAction*>("finishSketchAction")->trigger();flush();
                 for(auto* dialog:window.findChildren<QDialog*>())if(dialog->isVisible())if(auto* buttons=dialog->findChild<QDialogButtonBox*>())
                     if(auto* ok=buttons->button(QDialogButtonBox::Ok);ok&&ok->isEnabled())ok->click();
@@ -300,7 +309,7 @@ int verify_external_face_reference_ui(QApplication& application,const std::files
                 if(sketcher::is_external_endpoint_kind(reference.kind)&&
                    reference.source_owner_id==source.owner_id&&
                    reference.source_semantic_key==source.semantic_key)
-                    check(std::ranges::any_of(view->mesh().points,[&](const auto& point) {
+                    check(std::ranges::any_of(entered_points,[&](const auto& point) {
                         return point.reference.owner_id==sketch_id&&
                             point.reference.semantic_key=="external_point:"+reference.id;
                     }),"External edge endpoint is not published to View picking");

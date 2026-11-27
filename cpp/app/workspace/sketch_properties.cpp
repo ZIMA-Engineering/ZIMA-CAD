@@ -42,6 +42,11 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
         [&](const auto& sketch) { return sketch.id == sketch_id; });
     const bool edit_mode = found != sketches.end();
     if (!sketch_id.empty() && !edit_mode) return;
+    if(part&&edit_mode)if(const auto* owner=part->session.document().find_container(found->owner_container_id);
+            owner&&!owner->mech_keyway_binding.parent_id.empty()){
+        show_primitive_properties(document::FeatureKind::MechKeyway,owner->mech_keyway_binding.parent_id);
+        return;
+    }
     if(part)if(const auto* parent=document::sheet_from_body_rip_owner(part->session.document(),sketch_id)) {
         const auto row=static_cast<int>(std::ranges::find(parent->sheet_from_body.rip_sketches,sketch_id)-
             parent->sheet_from_body.rip_sketches.begin());

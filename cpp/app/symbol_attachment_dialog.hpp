@@ -25,11 +25,11 @@ public:
         table_->verticalHeader()->show();table_->horizontalHeader()->setSectionResizeMode(1,QHeaderView::Stretch);
         for(int column:{0,2}){table_->horizontalHeader()->setSectionResizeMode(column,QHeaderView::Fixed);table_->setColumnWidth(column,32);}
         table_->setFixedHeight(65);ui::install_reference_cell_delegate(table_);
-        indicator_=ui::build_reference_row_indicator([this]{placement_.reference.reset();placement_.paper_tangent.reset();placement_.paper_extension_start.reset();placement_.unresolved=false;active_=true;inspected_=false;refresh();notify();});
+        indicator_=ui::build_reference_row_indicator([this]{if(!attachment_editable_)return;placement_.reference.reset();placement_.paper_tangent.reset();placement_.paper_extension_start.reset();placement_.unresolved=false;active_=true;inspected_=false;refresh();notify();});
         table_->setCellWidget(0,0,indicator_);field_=new ui::ReferenceCellItem;table_->setItem(0,1,field_);
         eye_=ui::build_reference_inspection_button(false,false,[this](bool on){inspected_=on;refresh();notify();});
         table_->setCellWidget(0,2,ui::centered_cell_widget(eye_));form->addRow(table_);
-        connect(table_,&QTableWidget::cellClicked,this,[this](int,int column){if(column==1){active_=true;refresh();notify();}});
+        connect(table_,&QTableWidget::cellClicked,this,[this](int,int column){if(column==1&&attachment_editable_){active_=true;refresh();notify();}});
         leader_=new QCheckBox(tr("Odkazová čára"),panel);leader_->setObjectName("symbolLeader");leader_->setChecked(placement_.leader);
         form->addRow(leader_);connect(leader_,&QCheckBox::toggled,this,[this](bool on){placement_.leader=on;if(on&&placement_.symbol.x==0&&placement_.symbol.y==0&&placement_.leader_bends.empty())set_anchor(15,5);else notify();});
         auto* ending=new QComboBox(panel);ending->setObjectName("symbolLeaderEnding");
@@ -82,6 +82,7 @@ public:
     void begin_entry(){active_=true;refresh();notify();}
     bool active()const{return active_;}
     bool inspected()const{return inspected_;}
+    void set_attachment_editable(bool editable){attachment_editable_=editable;if(!editable)active_=false;refresh();}
     void end_entry(){active_=inspected_=false;refresh();notify();}
     void set_planar_placement(symbols::Placement value){placement_=std::move(value);active_=false;refresh();notify();}
     void set_surface(const kernel::FaceReference& face,const std::string& document,kernel::Vec3 contact) {
@@ -93,7 +94,7 @@ private:
         if(sheet_&&(!placement_.reference||placement_.unresolved))return false;
         return SymbolDialog::submit();
     }
-    symbols::Placement placement_;bool active_{},inspected_{},sheet_{};
+    symbols::Placement placement_;bool active_{},inspected_{},sheet_{},attachment_editable_{true};
     QTableWidget* table_{};ui::ReferenceCellItem* field_{};QWidget* indicator_{};QToolButton* eye_{};
     QComboBox* shelf_mode_{};QDoubleSpinBox* shelf_length_{};
     QCheckBox* leader_{},*perpendicular_{};QLabel* unresolved_{};std::array<QDoubleSpinBox*,3> origin_{};
@@ -109,6 +110,7 @@ private:
         field_->setText(identity.isEmpty()?tr("Vyberte plochu, hranu nebo bod."):(tr("Reference symbolu")));field_->setToolTip(identity);
         if(identity.isEmpty())field_->clear_reference();else field_->set_reference(identity);
         field_->set_active_input(active_);field_->set_inspected(inspected_);ui::set_reference_row_populated(indicator_,placement_.reference.has_value());
+        indicator_->setVisible(attachment_editable_);
         eye_->setEnabled(placement_.reference.has_value());eye_->setChecked(inspected_);table_->viewport()->update();
         const auto& p=placement_.frame.origin;const std::array values{p.x,p.y,p.z};
         for(std::size_t i=0;i<3;++i){const QSignalBlocker blocked(origin_[i]);origin_[i]->setValue(values[i]);origin_[i]->setEnabled(!placement_.reference);}

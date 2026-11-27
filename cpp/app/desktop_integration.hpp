@@ -1,5 +1,6 @@
 #pragma once
 #include <QString>
+#include <QStringList>
 #include <QMap>
 #include <QByteArray>
 #include <QSettings>
@@ -10,6 +11,7 @@ struct Context {
     QString id;
     QString data;
     QString programs;
+    QStringList shortcut_directories;
     QString registry = "HKEY_CURRENT_USER\\Software";
     QSettings::Format registry_format = QSettings::NativeFormat;
     bool installed = false;
@@ -25,6 +27,9 @@ QByteArray mime_package();
 QByteArray desktop_entry(const Context& context);
 bool registered(const Context& context);
 void install(const Context& context);
+// Refresh only this installation's existing registration and shortcuts.
+// Unregistered/removed installations stay unregistered; unchanged icons do no writes.
+bool refresh_registered_icons(const Context& context);
 void remove(const Context& context);
 void offer_first_launch(QWidget* parent);
 void offer_first_launch(QWidget* parent, const Context& context);

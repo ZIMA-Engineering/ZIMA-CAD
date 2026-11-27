@@ -1,6 +1,7 @@
 #pragma once
 #include <cmath>
 #include <zima/document/sweep_precision.hpp>
+#include <zima/document/mech_keyway.hpp>
 #include <zima/document/family_document.hpp>
 #include <zima/document/profile_parameters.hpp>
 #include <zima/document/feature_parameters.hpp>
@@ -49,7 +50,7 @@ enum class NativeCalculatedCacheReuse {
 };
 
 enum class CombineMode { Add, Subtract };
-enum class FeatureKind { Sketch, Extrusion, Revolution, Sweep3D, ImportedStep, Fillet, Chamfer, Shell, Hole, Thread, DrillPoint, ShaftThread, HelicalSweep, Sweep2D, Holes, Bend, LineBend, Flat, SheetFromBody, SheetProfile, TwistedSheet, Unbend, BendBack, DerivedCopy, SheetTransition, Feature, BoundarySurface, Straighten, RestoreShape, SurfaceSewing, GeneralSurface, SurfaceIntersection, SurfaceTrim, SurfaceThicken, SheetForm, Loft };
+enum class FeatureKind { Sketch, Extrusion, Revolution, Sweep3D, ImportedStep, Fillet, Chamfer, Shell, Hole, Thread, DrillPoint, ShaftThread, HelicalSweep, Sweep2D, Holes, Bend, LineBend, Flat, SheetFromBody, SheetProfile, TwistedSheet, Unbend, BendBack, DerivedCopy, SheetTransition, Feature, BoundarySurface, Straighten, RestoreShape, SurfaceSewing, GeneralSurface, SurfaceIntersection, SurfaceTrim, SurfaceThicken, SheetForm, Loft, MechKeyway };
 [[nodiscard]] inline bool is_solid_state(FeatureKind kind) {
     return kind==FeatureKind::Straighten||kind==FeatureKind::RestoreShape;
 }
@@ -541,6 +542,7 @@ struct HistoryContainer;
 // Sketch points and use the same correspondence contract as 3D Sweep/Loft.
 struct Sweep2DParameters {
     std::string path_sketch;
+    bool path_reversed{};
     std::optional<ConstructionReference> path_plane;
     std::vector<Sweep3DProfile> profiles;
     std::string& sketch_data(std::size_t stage) {
@@ -596,6 +598,9 @@ struct CylindricalAngleFrame {
     zima::kernel::Vec3 axis_origin, axis, zero, radial;
     double radius{};
     const ConstructionReference* cylinder{};
+    // Radius at an axial station t is radius + slope*t. Transient exact
+    // evaluation data; the native reference still names its authored surface.
+    double slope{};
 };
 [[nodiscard]] const ConstructionReference* placement_angle_cylinder(
     const std::vector<ConstructionReference>&, const zima::kernel::ViewerReferenceGeometry&);
@@ -808,7 +813,10 @@ struct TwistedSheetParameters {
     const TwistedSheetParameters& parameters);
 
 struct BendParameters {
-    std::array<bool,2> corner{};
+    std::array<double,2> corner{};
+    // Conversion chooses the tangent from the adjacent analytical cylinders.
+    // Unattached/manual ends retain the ordinary signed-extension convention.
+    std::array<std::optional<bool>,2> corner_reversed{};
     double corner_gap{0.05};
     // Present only while a conversion owns the computed allowance. Native
     // endpoint dimensions then express the user's delta from this basis.
@@ -965,6 +973,8 @@ struct HistoryContainer {
     SheetFromBodyParameters sheet_from_body;
     SheetProfileParameters sheet_profile;
     SheetProfileBinding sheet_profile_binding;
+    MechKeywayParameters mech_keyway;
+    MechKeywayBinding mech_keyway_binding;
     TwistedSheetParameters twisted_sheet;
     SheetStateParameters sheet_state;
     SolidStateParameters solid_state;
@@ -1064,6 +1074,7 @@ public:
     void validate_body_ownership() const;
     void validate_sheet_from_body() const;
     void validate_sheet_profiles() const;
+    void validate_mech_keyways() const;
     [[nodiscard]] zima::kernel::ViewerMesh place_body_mesh(zima::kernel::ViewerMesh mesh, const std::string& body_id) const;
     [[nodiscard]] const BodyHistory* body_owner_for_object(const std::string& id) const;
     // Returns the live associative owner only while the generated Flat/Bend
@@ -1216,6 +1227,7 @@ public:
     // Preserve its physical frame while translating the Sketch-specific ROTATE.
     static void set_sweep2d_owned_path(HistoryContainer&, zima::sketcher::Sketch);
     static void reframe_sweep2d_sketches(HistoryContainer&, unsigned through_stage = 1);
+    static void reverse_sweep2d_path(HistoryContainer&);
     [[nodiscard]] static Curve3DRoute sweep2d_route(const HistoryContainer&, double tolerance = 0.001);
     static std::size_t ensure_sweep2d_profile(HistoryContainer&, const std::string& point_id, bool incoming);
     static void resolve_sweep2d_planes(HistoryContainer&, const zima::kernel::ViewerReferenceGeometry&);

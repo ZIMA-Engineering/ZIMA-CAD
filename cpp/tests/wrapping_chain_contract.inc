@@ -101,12 +101,16 @@ static void wrapping_chain_contract() {
             require(probe.State()==(side<0?TopAbs_IN:TopAbs_OUT),"Chained Wrap filled or removed material inside a Sketch hole");
         }
     }
-    for(const auto continuation:{std::vector<k::FaceReference>{},std::vector<k::FaceReference>{targets[1]},std::vector<k::FaceReference>{targets[2],targets[1]}}) {
+    for(const auto continuation:{std::vector<k::FaceReference>{},std::vector<k::FaceReference>{targets[1]}}) {
+        request.continuations=continuation;request.output=k::WrappingResult::Curves;
+        valid(engine.evaluate_history({base,{"continued-support",request}}).back());
+    }
+    for(const auto continuation:{std::vector<k::FaceReference>{targets[2],targets[1]}}) {
         request.continuations=continuation;request.output=k::WrappingResult::Relief;
         bool rejected=false;
         try {rejected=!engine.evaluate_history({base,{"chain-wrap",request}}).back().calculation_errors.empty();}
         catch(const std::exception&){rejected=true;}
-        require(rejected,"Unselected or disconnected continuation silently changed the Wrap domain");
+        require(rejected,"Disconnected continuation silently changed the Wrap domain");
     }
     std::filesystem::remove(file);std::filesystem::remove(directory);
 }

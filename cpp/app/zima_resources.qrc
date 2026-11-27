@@ -1,5 +1,7 @@
 <RCC>
   <qresource prefix="/zima">
+    <file alias="icons/mech.svg">../../resources/icons/mech.svg</file>
+    <file alias="icons/keyway.svg">../../resources/icons/keyway.svg</file>
     <file alias="icons/media-play.svg">../../resources/icons/media-play.svg</file>
     <file alias="icons/media-pause.svg">../../resources/icons/media-pause.svg</file>
     <file alias="icons/media-stop.svg">../../resources/icons/media-stop.svg</file>
@@ -68,6 +70,7 @@
     <file alias="icons/show-erase.svg">../../resources/icons/show-erase.svg</file>
     <file alias="icons/appearance.svg">../../resources/icons/appearance.svg</file>
     <file alias="branding/app-icon.svg">../../resources/branding/app-icon.svg</file>
+    <file alias="branding/windows-app-icon.ico">windows/app-icon.ico</file>
     <file alias="branding/zc-dark.svg">../../resources/branding/zc-dark.svg</file>
     <file alias="branding/zc-light.svg">../../resources/branding/zc-light.svg</file>
     <file alias="branding/zc-title.svg">../../resources/branding/zc-title.svg</file>

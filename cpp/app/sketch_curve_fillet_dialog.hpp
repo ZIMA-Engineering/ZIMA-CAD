@@ -3,6 +3,7 @@
 #include <zima/ui/properties_subwindow.hpp>
 #include <zima/ui/reference_cell.hpp>
 #include <zima/ui/unit_spin_box.hpp>
+#include <zima/document/edge_treatment_defaults.hpp>
 #include <QDialogButtonBox>
 #include <QFormLayout>
 #include <QHeaderView>
@@ -30,7 +31,9 @@ public:
         auto* fields=new QWidget(this);auto* form=new QFormLayout(fields);
         form->setContentsMargins(0,0,0,0);form->setFormAlignment(Qt::AlignTop);
         radius_=new ui::UnitDoubleSpinBox(ui::InputQuantity::Length,this);
-        radius_->setObjectName("sketchFilletRadius");radius_->setRange(.000001,1000000);radius_->setValue(1);
+        radius_->setObjectName("sketchFilletRadius");radius_->setRange(.000001,1000000);
+        radius_->setValue(document::default_edge_treatment_size_mm(
+            ui::document_unit(this,"Length","mm").toStdString()));
         form->addRow(tr("Poloměr R"),radius_);
         table_=new QTableWidget(2,3,this);table_->setObjectName("sketchFilletCurves");
         table_->setHorizontalHeaderLabels({QString{},tr("Křivky"),QString{}});

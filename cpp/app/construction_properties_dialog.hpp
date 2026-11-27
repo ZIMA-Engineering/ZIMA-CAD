@@ -93,6 +93,8 @@ public:
     bool set_reference(std::size_t index,
         zima::document::ConstructionReference reference,
         const QString& label);
+    [[nodiscard]] zima::document::ConstructionReference prepare_reference_candidate(
+        std::size_t index, zima::document::ConstructionReference reference) const override;
     [[nodiscard]] zima::document::ConstructionDefinition current_definition() const;
     [[nodiscard]] zima::document::ConstructionKind construction_kind() const;
     [[nodiscard]] const std::string& construction_id() const;

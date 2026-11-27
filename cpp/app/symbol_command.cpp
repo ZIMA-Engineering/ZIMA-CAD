@@ -5,6 +5,7 @@
 #include "file_dialog.hpp"
 #include <zima/symbols/definition.hpp>
 #include <zima/workspace/symbol_operations.hpp>
+#include <zima/workspace/mech_keyway_operations.hpp>
 #include <zima/workspace/measurement_operations.hpp>
 #include <zima/document/file_path.hpp>
 #include <zima/kernel/stable_id.hpp>
@@ -115,6 +116,10 @@ void AssemblyWorkspaceWindow::show_symbol_properties(const std::string& id,std::
 void AssemblyWorkspaceWindow::remove_symbol(const std::string& id) {
     if(properties_dialog_)return;
     if(!active_sketch()) {
+        if(const auto* part=workspace_.open_part(workspace_.active_document_id());part&&
+                workspace::mech_keyway_symbol_owner(part->session.document(),id)){
+            state_->setText(tr("Decompose the MECH feature before editing its children"));return;
+        }
         workspace::remove_symbol_annotation(workspace_,workspace_.active_document_id(),id);
         selected_symbol_.clear();viewer_->clear_selection();preserve_view_on_refresh_=true;refresh_tabs();refresh_scene();return;
     }
@@ -135,7 +140,13 @@ void AssemblyWorkspaceWindow::append_model_symbols_to_tree() {
         while(*it){auto* item=*it++;if(item->data(0,Qt::UserRole+1).toString().toStdString()==path&&
             item->data(0,Qt::UserRole).toString().toStdString()==decoded.occurrence_ids.back()){parent=item;break;}}
     }
-    for(const auto& value:values){auto* item=new QTreeWidgetItem(parent,{QString::fromStdString(symbols::Definition::from_serialized(value.symbol.definition).name)});
+    for(const auto& value:values){
+        auto* symbol_parent=parent;
+        if(const auto* part=workspace_.open_part(id))if(const auto* owner=workspace::mech_keyway_symbol_owner(part->session.document(),value.symbol.id)){
+            for(QTreeWidgetItemIterator rows(parent);*rows;++rows)if((*rows)->data(0,Qt::UserRole+3)=="part-container"&&
+                (*rows)->data(0,Qt::UserRole).toString().toStdString()==owner->id){symbol_parent=*rows;break;}
+        }
+        auto* item=new QTreeWidgetItem(symbol_parent,{QString::fromStdString(symbols::Definition::from_serialized(value.symbol.definition).name)});
         item->setIcon(0,symbol_action_->icon());item->setData(0,Qt::UserRole,QString::fromStdString(value.symbol.id));
         item->setData(0,Qt::UserRole+1,QString::fromStdString(path));item->setData(0,Qt::UserRole+3,"model-symbol");
         if(value.unresolved)item->setToolTip(0,tr("Reference není dostupná. Symbol zachovává poslední polohu."));}
@@ -169,6 +180,8 @@ void AssemblyWorkspaceWindow::show_model_symbol_properties(const std::string& id
         if(workspace_.active_document_id()!=owner||workspace_.active_occurrence_path()!=path)throw std::runtime_error(tr("Dokument již není aktivní.").toStdString());
         workspace::store_symbol_annotation(workspace_,owner,value);
     },this);
+    if(const auto* part=workspace_.open_part(owner);part&&workspace::mech_keyway_symbol_owner(part->session.document(),id))
+        dialog->set_attachment_editable(false);
     properties_dialog_=dialog;properties_dialog_instance_path_=path;
     dialog->changed=[this,dialog,owner,path,source]{
         const auto& value=dialog->pending_placement();

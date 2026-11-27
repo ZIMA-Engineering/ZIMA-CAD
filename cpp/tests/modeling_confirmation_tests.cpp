@@ -141,8 +141,6 @@ void verify_assembly_profile(bool edit,bool shared_feature,bool revolve) {
     for(int i=0;i<2;++i)owner.components.push_back(assembly::AssemblyDocument::create_part_occurrence(
         "Target",part.document_id,source_path,cache.back()));
     owner.synchronize_history();
-    workspace::Workspace live;live.add_part(part,cache,source_path);live.add_assembly(owner);live.activate(owner.document_id);
-    auto* state=live.open_assembly(owner.document_id);
     auto sketch=sketcher::Sketch::create_default();static_cast<void>(sketch.add_rectangle(2,2,4,5));
     auto feature=shared_feature?document::PartDocument::create_feature_container(sketch.id):
         revolve?document::PartDocument::create_revolution_container(sketch.id):
@@ -158,12 +156,28 @@ void verify_assembly_profile(bool edit,bool shared_feature,bool revolve) {
         feature.revolution.axis_segment_id=axis;feature.revolution.angle_degrees=360;
     }
     std::vector<std::string> targets;for(const auto& component:owner.components)targets.push_back(component.occurrence_id);
-    if(edit)workspace::commit_assembly_profile(live,kernel,owner.document_id,feature,targets,workspace::ProfileEditMode::Create,sketch);
+    // Existing authored Assembly cuts remain editable; creating new material
+    // operations in an Assembly is forbidden by the current ownership contract.
+    if(edit){owner.cuts.push_back({feature,targets});owner.sketches.push_back(sketch);owner.synchronize_history();}
+    workspace::Workspace live;live.add_part(part,cache,source_path);live.add_assembly(owner);live.activate(owner.document_id);
+    auto* state=live.open_assembly(owner.document_id);
+    if(edit)workspace::regenerate_assembly(live,kernel,owner.document_id);
     const auto before=state->session.document().serialized();const auto revision=state->session.revision();
     const auto source_before=live.open_part(part.document_id)->session.document().serialized();
     sketch.segments.erase(sketch.segments.begin()); // Valid authored open Sketch; invalid solid cutter.
     workspace::ModelingConfirmation confirmation;
     int calculations{};workspace::CalculationExecutionScope counted([&](auto task){++calculations;task();});
+    if(!edit){
+        for(int retry=0;retry<2;++retry){
+            workspace::ModelingConfirmationAttempt attempt(confirmation,live,owner.document_id);
+            bool rejected=false;
+            try{workspace::commit_assembly_profile(live,kernel,owner.document_id,feature,targets,workspace::ProfileEditMode::Create,sketch);}
+            catch(const workspace::ProfileOperationError&){rejected=true;}
+            check(rejected&&!attempt.failed()&&calculations==0&&state->session.revision()==revision&&
+                state->session.document().serialized()==before,"Second OK bypassed Assembly material ownership");
+        }
+        return;
+    }
     const auto submit=[&](bool failure) {
         bool rejected{};workspace::ModelingConfirmationAttempt attempt(confirmation,live,owner.document_id);
         try {workspace::commit_assembly_profile(live,kernel,owner.document_id,feature,targets,

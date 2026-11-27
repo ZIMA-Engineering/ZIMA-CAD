@@ -2,6 +2,8 @@
 #include <zima/workspace/imported_feature_operations.hpp>
 #include <zima/document/solid_state_reference_views.hpp>
 #include <zima/workspace/hole_operations.hpp>
+#include <zima/workspace/mech_keyway_operations.hpp>
+#include "../mech_keyway_parameter_panel.hpp"
 #include "../feature_naming.hpp"
 #include "workspace_internal.hpp"
 #include <zima/document/sketch_placement.hpp>
@@ -39,6 +41,10 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         if(profile_command)std::fprintf(stderr,"Profile command %s: %.3f ms\n",phase,profile_timer.nsecsElapsed()/1e6);
         profile_timer.restart();
     };
+    if(const auto* part=workspace_.open_part(workspace_.active_document_id()))
+        if(const auto* child=part->session.document().find_container(container_id);child&&!child->mech_keyway_binding.parent_id.empty()) {
+            show_primitive_properties(document::FeatureKind::MechKeyway,child->mech_keyway_binding.parent_id);return;
+        }
     if(feature_kind==zima::document::FeatureKind::Loft){show_loft_properties(container_id);return;}
     if(feature_kind==zima::document::FeatureKind::BoundarySurface){show_boundary_surface_properties(container_id);return;}
     if(feature_kind==zima::document::FeatureKind::SurfaceThicken){show_surface_thicken_properties(container_id);return;}
@@ -288,6 +294,8 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
     auto initial = (resuming_profile || pending_profile_edit)
         ? *pending_profile_feature_
         : edit_mode ? *edited
+        : feature_kind == zima::document::FeatureKind::MechKeyway
+            ? zima::workspace::create_mech_keyway()
         : feature_kind == zima::document::FeatureKind::SheetForm
             ? zima::document::create_sheet_form()
         : feature_kind == zima::document::FeatureKind::Hole
@@ -304,6 +312,8 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         : feature_kind == zima::document::FeatureKind::Extrusion
             ? zima::document::PartDocument::create_extrusion_container(source_sketch_id)
         : zima::document::PartDocument::create_revolution_container(source_sketch_id);
+    if(feature_kind==zima::document::FeatureKind::MechKeyway&&!edit_mode)
+        initial.mech_keyway.table_id="din6885-1-maedler";
     if(feature_kind==zima::document::FeatureKind::SheetForm&&!edit_mode) {
         initial.name=tr("Form").toStdString();
         const auto* body=part->session.document().body_history.find(part->session.document().body_history.active_body_id());
@@ -572,6 +582,15 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                     pending_profile_feature_->id == committed_cut_id) {
                     pending_profile_feature_.reset();
                 }
+                return;
+            }
+            if (committed.feature_kind == zima::document::FeatureKind::MechKeyway) {
+                try {
+                    auto* dialog=dynamic_cast<PrimitivePropertiesDialog*>(properties_dialog_);
+                    const auto symbols=dialog&&dialog->mech_keyway_panel()?std::optional(dialog->mech_keyway_panel()->pending_annotations()):std::nullopt;
+                    static_cast<void>(zima::workspace::commit_mech_keyway(workspace_,kernel_,owner_id,std::move(committed),symbols));
+                }
+                catch(const std::exception& error){throw std::runtime_error(tr(error.what()).toStdString());}
                 return;
             }
             if (committed.feature_kind == zima::document::FeatureKind::Hole) {
@@ -1280,8 +1299,8 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         if(part)dialog->set_sheet_default_thickness(zima::document::sheet_metal_defaults(part->session.document()).thickness_mm.value_or(1));
         dialog->set_reference_request_callback(
             [this,dialog](std::size_t index) {
-                if((dialog->pending_value().feature.type==zima::document::FeatureType::Projection||dialog->pending_value().feature.type==zima::document::FeatureType::Wrapping)&&feature_reference_end_){auto finish=feature_reference_end_;finish();}
-                start_primitive_reference_selection(index);
+                if((dialog->mech_keyway_panel()||dialog->pending_value().feature.type==zima::document::FeatureType::Projection||dialog->pending_value().feature.type==zima::document::FeatureType::Wrapping)&&feature_reference_end_){auto finish=feature_reference_end_;finish();}
+                start_primitive_reference_selection(index,dialog->mech_keyway_panel()!=nullptr);
             });
         dialog->set_reference_highlights_changed_callback([this, dialog] {
             viewer_->set_constraint_reference_highlights(
@@ -1291,6 +1310,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         profile_phase("reference setup");
         // Opening edits (including View dimensions) keep the user's camera.
         const bool fit_new_basic_preview = !edit_mode &&
+            feature_kind != zima::document::FeatureKind::MechKeyway &&
             feature_kind != zima::document::FeatureKind::TwistedSheet &&
             feature_kind != zima::document::FeatureKind::SheetForm &&
             feature_kind != zima::document::FeatureKind::Thread &&
@@ -1407,6 +1427,18 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                 }
                 viewer_->set_transient_edges(
                     preview_geometry.thread_edges(resolved_preview, body, &opening_preview_axis));
+            } else if (resolved_preview.feature_kind == zima::document::FeatureKind::MechKeyway) {
+                try {
+                    auto draft=workspace::resolve_mech_keyway_draft(resolved_preview,resolved_preview.id+":preview",primitive_reference_geometry_);
+                    resolved_preview=draft.parent;
+                    const auto face=std::ranges::find(primitive_reference_geometry_.triangle_references,resolved_preview.mech_keyway.support);
+                    dialog->mech_keyway_panel()->update_derived(resolved_preview.mech_keyway,
+                        face!=primitive_reference_geometry_.triangle_references.end()&&face->surface&&face->surface->kind==kernel::SurfaceGeometry::Kind::Cone,2*draft.frame.radius);
+                    viewer_->set_transient_edges(workspace::mech_keyway_preview_edges(draft));
+                }catch(const std::exception& error){
+                    viewer_->set_transient_edges({});state_->setText(tr(error.what()));
+                    dialog->mech_keyway_panel()->set_draft_error(error.what());
+                }
             } else if (resolved_preview.feature_kind == zima::document::FeatureKind::SheetForm) {
                 auto edges=dialog->sheet_form_preview();
                 const auto frame=container_dimension_frame(placement);
@@ -1432,7 +1464,8 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             origin_preview.id = resolved_preview.id;
             origin_preview.entity_id = resolved_preview.feature_id;
             origin_preview.container_origin = resolved_preview.container_origin;
-            origin_preview.kind = defer_profile_scene_refresh
+            origin_preview.kind = (defer_profile_scene_refresh ||
+                resolved_preview.feature_kind == zima::document::FeatureKind::MechKeyway)
                 ? zima::document::ConstructionKind::Point
                 : zima::document::ConstructionKind::Axis;
             origin_preview.origin = {placement.x, placement.y, placement.z};
@@ -1512,6 +1545,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         // Extrusion/Revolution below merge
         // this with their own transient-edge preview into one callback.
         if (feature_kind != zima::document::FeatureKind::Extrusion &&
+            feature_kind != zima::document::FeatureKind::MechKeyway &&
             feature_kind != zima::document::FeatureKind::Revolution &&
             feature_kind != zima::document::FeatureKind::Feature) {
             dialog->set_preview_callback(placement_preview);
@@ -1669,6 +1703,8 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         });
     }
     std::function<void(const zima::document::HistoryContainer&)> deferred_profile_preview;
+    if(feature_kind==zima::document::FeatureKind::MechKeyway)
+        deferred_profile_preview=placement_preview;
     const auto install_profile_preview = [&](std::function<void(const zima::document::HistoryContainer&)> callback) {
         auto batched_callback = [this, dialog, callback=std::move(callback)](
                 const zima::document::HistoryContainer& pending) {
@@ -2570,11 +2606,14 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
     dialog->show();
     if(feature_kind==zima::document::FeatureKind::Feature)install_projection_properties(dialog,owner_id);
     if(feature_kind==zima::document::FeatureKind::Feature)install_wrapping_properties(dialog,owner_id);
+    if(feature_kind==zima::document::FeatureKind::MechKeyway)install_mech_keyway_properties(dialog,owner_id);
     // Properties is not a picking command by itself. Keep all model hover
     // disabled until the user explicitly requests one placement/Up-to
     // reference field; that command installs its own exact selection
     // contract and returns here after one confirmed pick.
-    if (drill_point_dialog_ != nullptr) {
+    if(dialog->mech_keyway_panel()&&!edit_mode) {
+        dialog->mech_keyway_panel()->begin_entry(0);
+    } else if (drill_point_dialog_ != nullptr) {
         refresh_drill_point_selection_ui();
     } else if (shell_dialog_ != nullptr) {
         refresh_shell_selection_ui();

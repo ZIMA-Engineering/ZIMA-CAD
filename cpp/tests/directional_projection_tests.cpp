@@ -15,6 +15,9 @@
 #include <BRepPrimAPI_MakeSphere.hxx>
 #include <BRep_Tool.hxx>
 #include <Geom_BezierSurface.hxx>
+#include <Geom_CylindricalSurface.hxx>
+#include <Geom_ConicalSurface.hxx>
+#include <Precision.hxx>
 #include <Geom_BSplineSurface.hxx>
 #include <Geom_BezierCurve.hxx>
 #include <GeomAPI_ProjectPointOnCurve.hxx>
@@ -109,6 +112,40 @@ int main() {
         const auto run=[&](const char* name,const auto& test){test();++passed;std::cout<<"PASS "<<name<<'\n';};
         const auto source=line({-6,2,0},{6,2,0});
         const gp_Pln source_plane(gp_Pnt(0,0,0),gp_Dir(0,0,1));
+        run("analytic continuation keeps exact support and forward branch",[&] {
+            const auto support=new Geom_CylindricalSurface(gp_Ax3(gp_Pnt(0,0,0),gp_Dir(0,0,1)),10);
+            p::ProjectionTarget cylinder{BRepBuilderAPI_MakeFace(support,tolerance).Face(),"partial-cylinder",{},true};
+            const gp_Pln sketch(gp_Pnt(20,0,0),gp_Dir(1,0,0));
+            const auto result=project(line({20,2,100},{20,2,110}),{cylinder},sketch,gp_Dir(-1,0,0));
+            check(result,[](const auto& point){return std::abs(point.X()-std::sqrt(96.))<tolerance*8&&
+                std::abs(point.Y()-2)<tolerance*8&&point.Z()>=100-tolerance&&point.Z()<=110+tolerance;});
+            p::ProjectionTarget infinite_plane{BRepBuilderAPI_MakeFace(gp_Pln(gp_Pnt(0,0,7),gp_Dir(0,0,1))).Face(),"partial-plane",{},true};
+            check(project(source,{infinite_plane}),[](const auto& point){return std::abs(point.Z()-7)<tolerance;});
+            auto other=infinite_plane;other.target_key="another-part-of-the-same-support";
+            const auto coincident=project(source,{infinite_plane,other});
+            check(coincident,[](const auto& point){return std::abs(point.Z()-7)<tolerance;});
+            for(const auto& curve:coincident.curves)require(curve.target_keys.size()==2,"Equivalent selected supports lost an authored parent");
+            require(project(source,{infinite_plane},source_plane,gp_Dir(0,0,-1)).curves.empty(),
+                "Analytic continuation silently reversed the selected direction");
+        });
+        run("extended cone retains its nappe and sphere its nearest root",[&] {
+            const gp_Pln sketch(gp_Pnt(100,0,0),gp_Dir(1,0,0));
+            for(double slope:{.2,-.2}) {
+                const double angle=std::atan(slope),apex=-10/std::sin(angle),sign=slope>0?1.:-1.;
+                const auto support=new Geom_ConicalSurface(gp_Ax3(gp_Pnt(0,0,0),gp_Dir(0,0,1)),angle,10);
+                p::ProjectionTarget cone{BRepBuilderAPI_MakeFace(support,0,2*std::acos(-1.),
+                    slope>0?apex:-Precision::Infinite(),slope>0?Precision::Infinite():apex,tolerance).Face(),"partial-cone",{},true};
+                check(project(line({100,2,sign*100},{100,2,sign*110}),{cone},sketch,gp_Dir(-1,0,0)),[&](const auto& point){
+                    const double radius=10+slope*point.Z();return radius>0&&std::abs(point.X()-std::sqrt(radius*radius-4))<tolerance*20;
+                });
+                require(project(line({100,2,-sign*100},{100,2,-sign*110}),{cone},sketch,gp_Dir(-1,0,0)).curves.empty(),
+                    "Extended cone jumped through its apex to the other nappe");
+            }
+            p::ProjectionTarget sphere{analytical_face(BRepPrimAPI_MakeSphere(10).Shape(),GeomAbs_Sphere),"partial-sphere",{},true};
+            check(project(line({100,2,1},{100,2,3}),{sphere},sketch,gp_Dir(-1,0,0)),[](const auto& point){
+                return std::abs(point.X()-std::sqrt(96-point.Z()*point.Z()))<tolerance*20;
+            });
+        });
         run("automatic normal chooses either side and ignores target order",[&] {
             for(double nearest:{-3.,3.,0.})for(double orientation:{-1.,1.}) {
                 std::vector<p::ProjectionTarget> targets{{plane(8),"far-front"},{plane(-9),"far-back"},{plane(nearest),"nearest"}};

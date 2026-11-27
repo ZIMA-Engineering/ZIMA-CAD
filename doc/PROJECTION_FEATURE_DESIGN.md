@@ -28,6 +28,14 @@ produce spatial output curves, which must not be put into the input Sketch's
 two-dimensional solver or edited as a second independent Sketch. Editing the
 source dimensions drives the feature and its dependents.
 
+For Sketch output, a selected partial plane, cylinder, cone or sphere continues
+on its exact analytic support beyond trimming boundaries (approved 2026-11-27).
+Holes or portions covered by another feature do not interrupt that mathematical
+projection. Keep the selected source identity and the ordinary ray direction,
+nearest-hit and ambiguity rules. Freeform targets retain their actual domain;
+no sampled extrapolation is introduced. Split, retained Surface regions and
+Relief continue to partition the actual target faces and material.
+
 The default projection direction is the oriented input Sketch normal. Reverse
 changes its direction. An explicit direction reference uses the established
 reference resolver for an axis or directed straight edge, including its retained

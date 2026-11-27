@@ -1,10 +1,12 @@
 #include "directional_projection.hpp"
 
 #include <BRepAlgoAPI_Common.hxx>
+#include <BRepAdaptor_Surface.hxx>
 #include <BRepAlgoAPI_Section.hxx>
 #include <BRepAlgoAPI_Splitter.hxx>
 #include <BRepBndLib.hxx>
 #include <BRepBuilderAPI_MakeEdge.hxx>
+#include <BRepBuilderAPI_MakeFace.hxx>
 #include <BRepBuilderAPI_MakeVertex.hxx>
 #include <BRepBuilderAPI_MakeWire.hxx>
 #include <BRepBuilderAPI_Transform.hxx>
@@ -200,6 +202,8 @@ std::vector<Candidate> split_source_seam(const std::vector<Candidate>& candidate
 
 double forward_extent(const std::vector<ProjectionTarget>& targets,
         const gp_Pln& plane, const gp_Dir& direction, double tolerance) {
+    if(std::ranges::any_of(targets,[](const auto& target){return target.extended_support;}))
+        return Precision::Infinite();
     Bnd_Box box;
     for (const auto& target : targets) BRepBndLib::Add(target.face, box);
     if (box.IsVoid() || box.IsOpen()) throw std::runtime_error("Projection requires bounded target faces.");
@@ -216,6 +220,8 @@ double forward_extent(const std::vector<ProjectionTarget>& targets,
 
 } // namespace
 std::optional<gp_Pln> exact_planar_support(const TopoDS_Face& face,double tolerance) {
+    const BRepAdaptor_Surface native(face);
+    if(native.GetType()==GeomAbs_Plane)return native.Plane();
     const auto surface=BRep_Tool::Surface(face);
     const auto spline=Handle(Geom_BSplineSurface)::DownCast(surface);
     const auto bezier=Handle(Geom_BezierSurface)::DownCast(surface);
@@ -239,7 +245,11 @@ namespace {
 std::vector<Candidate> candidates_for(const ProjectionCurve& source,
         const std::vector<ProjectionTarget>& targets, const gp_Dir& direction,
         double extent, double tolerance) {
-    const auto curtain = BRepPrimAPI_MakePrism(source.edge, extent * gp_Vec(direction), true).Shape();
+    // An infinite exact curtain avoids an arbitrary extrapolation distance.
+    // The ray classifier below retains the authored forward/nearest branch.
+    const auto curtain = Precision::IsInfinite(extent)?
+        BRepPrimAPI_MakePrism(source.edge,direction,true,true).Shape():
+        BRepPrimAPI_MakePrism(source.edge,extent*gp_Vec(direction),true).Shape();
     std::vector<Candidate> candidates;
     const auto append = [&](const TopoDS_Shape& shape, std::size_t target) {
         for (TopExp_Explorer it(shape,TopAbs_EDGE);it.More();it.Next()) {
@@ -248,6 +258,8 @@ std::vector<Candidate> candidates_for(const ProjectionCurve& source,
         }
     };
     for (std::size_t target = 0; target < targets.size(); ++target) {
+        if(targets[target].extended_support&&std::ranges::any_of(targets.begin(),targets.begin()+target,
+            [&](const auto& previous){return previous.extended_support&&previous.face.IsSame(targets[target].face);}))continue;
         // Preserve the exact source basis for planar targets, including planes
         // stored as spline surfaces. A generic curtain section needlessly fits
         // such circles/splines and can move them off their supporting plane.
@@ -266,7 +278,14 @@ std::vector<Candidate> candidates_for(const ProjectionCurve& source,
             append(bounded.Shape(),target);
             continue;
         }
-        BRepAlgoAPI_Section section(targets[target].face,curtain,false);
+        auto section_face=targets[target].face;
+        if(targets[target].extended_support&&BRepAdaptor_Surface(section_face).GetType()==GeomAbs_Cone) {
+            // OCCT may omit the section of a half-infinite conical face at its
+            // apex boundary. Intersect its full exact support; the original
+            // target remains authoritative for ray hits and the selected nappe.
+            section_face=BRepBuilderAPI_MakeFace(BRep_Tool::Surface(section_face),tolerance).Face();
+        }
+        BRepAlgoAPI_Section section(section_face,curtain,false);
         section.SetNonDestructive(true); section.SetFuzzyValue(tolerance);
         section.ComputePCurveOn1(true); section.ComputePCurveOn2(true);
         section.Approximation(true); section.Build();
@@ -411,7 +430,10 @@ DirectionalProjection project_directionally(const std::vector<ProjectionCurve>& 
             }
             std::erase_if(hits,[&](const auto& hit){return hit.distance > nearest+tolerance;});
             if (hits.empty()) { result.gaps.push_back({source.source_key,first,last}); continue; }
-            if (hits.size()>1 && std::ranges::any_of(hits,[&](const auto& hit){return hit.state!=TopAbs_ON||std::abs(hit.depth-hits.front().depth)>tolerance;})) {
+            if (hits.size()>1 && std::ranges::any_of(hits,[&](const auto& hit){
+                const auto& face=targets[hit.target];const auto& first=targets[hits.front().target];
+                const bool same_analytic=face.extended_support&&first.extended_support&&face.face.IsSame(first.face);
+                return (!same_analytic&&hit.state!=TopAbs_ON)||std::abs(hit.depth-hits.front().depth)>tolerance;})) {
                 result.ambiguous=true; continue;
             }
             const auto point=origin.Translated(hits.front().depth*gp_Vec(direction));

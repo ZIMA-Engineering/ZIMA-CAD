@@ -13,7 +13,8 @@ namespace zima::document {
 namespace {
 bool publishes_body_operation(const HistoryContainer* feature) {
     return feature&&feature->feature_kind!=FeatureKind::Sketch&&
-        feature->feature_kind!=FeatureKind::SheetProfile;
+        feature->feature_kind!=FeatureKind::SheetProfile&&
+        feature->feature_kind!=FeatureKind::MechKeyway;
 }
 void publish_profile_axes(zima::kernel::ViewerMesh& mesh) {
     // Calculated intermediate boundaries may retain these axes only in the

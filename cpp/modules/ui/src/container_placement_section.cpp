@@ -1324,7 +1324,7 @@ void ContainerPlacementSection::refresh_reference_table() {
             if(surface && zima::document::placement_surface_has_axis(*surface))type->addItem(tr("Osa"),1);
             if(angle_available || angle)type->addItem(tr("Úhel"),2);
             type->setCurrentIndex(type->findData(angle?2:(populated&&references_[index].use_axis?1:0)));
-            if (angle_available || angle) type->setToolTip(tr("Úhel od normály vybrané roviny kolem osy válce. Kladný směr určuje pravidlo pravé ruky."));
+            if (angle_available || angle) type->setToolTip(tr("Úhel od normály vybrané roviny kolem osy válce nebo kužele. Kladný směr určuje pravidlo pravé ruky."));
         } else if(populated && references_[index].orientation_drives_rotation) {
             type->addItem(tr("Směr"));
         }

@@ -8,6 +8,27 @@
     "ru"
   ],
   "labels": {
+    "keyway_original_drawing": [
+      "Původní výkres ze starších tabulek ZIMA: kótování drážky hřídele a náboje. Číselná doporučení zachovávají historický stav zdroje.",
+      "Original drawing from the older ZIMA tables: shaft and hub keyway dimensions. Numerical recommendations retain the historical source status.",
+      "Originalzeichnung aus den älteren ZIMA-Tabellen: Bemaßung der Wellen- und Nabennut. Zahlenempfehlungen behalten den historischen Quellenstand.",
+      "Dessin original des anciennes tables ZIMA : cotation des rainures d’arbre et de moyeu. Les valeurs recommandées conservent le statut historique de la source.",
+      "Исходный чертёж из прежних таблиц ZIMA: размеры шпоночных пазов вала и ступицы. Числовые рекомендации сохраняют исторический статус источника."
+    ],
+    "parallel_key_original_drawing": [
+      "Původní výkres ze starších tabulek ZIMA: pera se dvěma zaoblenými konci, volitelnými přídržnými šrouby a závity v hřídeli. Otevření drážky přes čelo hřídele nemění tvar konců pera.",
+      "Original drawing from the older ZIMA tables: keys with two rounded ends, optional retaining screws and shaft threads. Opening the keyway through the shaft end does not change the key's ends.",
+      "Originalzeichnung aus den älteren ZIMA-Tabellen: Passfedern mit zwei runden Enden, optionalen Halteschrauben und Gewinden in der Welle. Eine zum Wellenende offene Nut ändert die Endform der Passfeder nicht.",
+      "Dessin original des anciennes tables ZIMA : clavettes à deux bouts arrondis, vis de retenue facultatives et taraudages dans l’arbre. Une rainure débouchant en bout d’arbre ne modifie pas les extrémités de la clavette.",
+      "Исходный чертёж из прежних таблиц ZIMA: шпонки с двумя закруглёнными торцами, необязательными крепёжными винтами и резьбой в валу. Выход паза на торец вала не меняет форму торцов шпонки."
+    ],
+    "woodruff_original_drawing": [
+      "Původní výkres ze starších tabulek ZIMA: kruhové lůžko úsečového pera a kótování vůči protější straně hřídele a otvoru.",
+      "Original drawing from the older ZIMA tables: circular Woodruff-key seat and dimensions to the opposite side of the shaft and bore.",
+      "Originalzeichnung aus den älteren ZIMA-Tabellen: kreisförmiger Scheibenfedersitz und Bemaßung zur gegenüberliegenden Seite von Welle und Bohrung.",
+      "Dessin original des anciennes tables ZIMA : logement circulaire de clavette disque et cotes jusqu’au côté opposé de l’arbre et de l’alésage.",
+      "Исходный чертёж из прежних таблиц ZIMA: круговое гнездо сегментной шпонки и размеры до противоположной стороны вала и отверстия."
+    ],
     "directory_": [
       "Strojnické tabulky",
       "Engineering tables",
@@ -2466,11 +2487,11 @@
       "Подбор шпонок для валов · 1 · Паз | Во втулке | t _1 – Паз | R"
     ],
     "table_08-KEYS-KEYWAYS/01-KEY-SIZES": [
-      "Přiřazení per k hřídelům",
-      "Key selection for shafts",
-      "Zuordnung von Passfedern zu Wellen",
-      "Choix des clavettes pour les arbres",
-      "Подбор шпонок для валов"
+      "Přiřazení per k hřídelům — ČSN 02 2507",
+      "Key selection for shafts — ČSN 02 2507",
+      "Zuordnung von Passfedern zu Wellen — ČSN 02 2507",
+      "Choix des clavettes pour les arbres — ČSN 02 2507",
+      "Подбор шпонок для валов — ČSN 02 2507"
     ],
     "head_a044fc019218": [
       "Pero",
@@ -2522,11 +2543,11 @@
       "Призматические шпонки и шпонки с крепёжными винтами · 1 · Резьба | d – G _1^*) | [g.mm^-1]"
     ],
     "table_08-KEYS-KEYWAYS/02-PARALLEL": [
-      "Pera těsná a pera s přídržnými šrouby",
-      "Parallel keys and keys with retaining screws",
-      "Passfedern und Passfedern mit Halteschrauben",
-      "Clavettes parallèles et clavettes avec vis de retenue",
-      "Призматические шпонки и шпонки с крепёжными винтами"
+      "Pera těsná a pera s přídržnými šrouby — ČSN 02 2562 / 02 2570 / 02 2575",
+      "Parallel keys and keys with retaining screws — ČSN 02 2562 / 02 2570 / 02 2575",
+      "Passfedern und Passfedern mit Halteschrauben — ČSN 02 2562 / 02 2570 / 02 2575",
+      "Clavettes parallèles et clavettes avec vis de retenue — ČSN 02 2562 / 02 2570 / 02 2575",
+      "Призматические шпонки и шпонки с крепёжными винтами — ČSN 02 2562 / 02 2570 / 02 2575"
     ],
     "cell_f9108e931ac7": [
       "Průměr hřídele D",
@@ -4249,6 +4270,76 @@
       "A2 ≠ 8.8",
       "A2 ≠ 8.8",
       "A2 ≠ 8.8"
+    ],
+    "parallel_native_model": [
+      "Nativní model pera DIN 6885-1, tvar A, 10 × 8 × 45 mm. Oba konce jsou zaoblené; otevření drážky tvar pera nemění.",
+      "Native DIN 6885-1 form A key model, 10 × 8 × 45 mm. Both ends are rounded; an open keyway does not change the key shape.",
+      "Natives Modell einer Passfeder DIN 6885-1, Form A, 10 × 8 × 45 mm. Beide Enden sind rund; eine offene Nut ändert die Federform nicht.",
+      "Modèle natif de clavette DIN 6885-1, forme A, 10 × 8 × 45 mm. Les deux extrémités sont arrondies ; une rainure ouverte ne modifie pas la clavette.",
+      "Нативная модель шпонки DIN 6885-1, форма A, 10 × 8 × 45 мм. Оба конца закруглены; открытый паз не меняет форму шпонки."
+    ],
+    "woodruff_native_model": [
+      "Nativní model úsečového pera DIN 6888, tvar A, 6 × 9 × 22 mm (šířka × výška × průměr).",
+      "Native DIN 6888 form A Woodruff key model, 6 × 9 × 22 mm (width × height × diameter).",
+      "Natives Modell einer Scheibenfeder DIN 6888, Form A, 6 × 9 × 22 mm (Breite × Höhe × Durchmesser).",
+      "Modèle natif de clavette disque DIN 6888, forme A, 6 × 9 × 22 mm (largeur × hauteur × diamètre).",
+      "Нативная модель сегментной шпонки DIN 6888, форма A, 6 × 9 × 22 мм (ширина × высота × диаметр)."
+    ],
+    "key_passage_section": [
+      "Příčný řez hřídelem s vloženým perem. Kružnice převlečného průměru D má střed v ose hřídele a prochází vnějšími rohy pera. Schéma bez měřítka.",
+      "Transverse section of a shaft with an inserted key. The passage-diameter circle D is centred on the shaft axis and passes through the outer key corners. Schematic, not to scale.",
+      "Querschnitt einer Welle mit eingesetzter Passfeder. Der Kreis des Überstreifdurchmessers D liegt konzentrisch zur Welle und verläuft durch die äußeren Federecken. Schema, nicht maßstäblich.",
+      "Coupe transversale d’un arbre avec clavette insérée. Le cercle du diamètre de passage D est centré sur l’axe de l’arbre et passe par les coins extérieurs de la clavette. Schéma sans échelle.",
+      "Поперечное сечение вала со вставленной шпонкой. Окружность проходного диаметра D имеет центр на оси вала и проходит через наружные углы шпонки. Схема без масштаба."
+    ],
+    "key_shaft_d": [
+      "Průměr hřídele d",
+      "Shaft diameter d",
+      "Wellendurchmesser d",
+      "Diamètre d’arbre d",
+      "Диаметр вала d"
+    ],
+    "key_passage_D": [
+      "Minimální převlečný průměr D",
+      "Minimum passage diameter D",
+      "Minimaler Überstreifdurchmesser D",
+      "Diamètre minimal de passage D",
+      "Минимальный проходной диаметр D"
+    ],
+    "key_section_bh": [
+      "Pero b×h",
+      "Key b×h",
+      "Passfeder b×h",
+      "Clavette b×h",
+      "Шпонка b×h"
+    ],
+    "parallel_retaining_one_model": [
+      "Nativní pero s jedním přídržným šroubem podle historické tabulky ČSN 02 2575: průchozí otvor a zahloubení z horní strany.",
+      "Native key with one retaining screw from the historical CSN 02 2575 table: through hole and top counterbore.",
+      "Natives Modell einer Passfeder mit einer Halteschraube nach der historischen Tabelle ČSN 02 2575: Durchgangsbohrung und Senkung von oben.",
+      "Clavette native avec une vis de fixation selon le tableau historique ČSN 02 2575 : trou débouchant et lamage supérieur.",
+      "Нативная шпонка с одним крепёжным винтом по исторической таблице ČSN 02 2575: сквозное отверстие и цековка сверху."
+    ],
+    "parallel_retaining_two_model": [
+      "Nativní pero se dvěma přídržnými šrouby podle historické tabulky ČSN 02 2570. Rozteč otvorů se mění s celkovou délkou pera.",
+      "Native key with two retaining screws from the historical CSN 02 2570 table. Hole spacing follows the overall key length.",
+      "Natives Modell einer Passfeder mit zwei Halteschrauben nach der historischen Tabelle ČSN 02 2570. Der Lochabstand folgt der Gesamtlänge der Passfeder.",
+      "Clavette native avec deux vis de fixation selon le tableau historique ČSN 02 2570. L’entraxe des trous suit la longueur totale de la clavette.",
+      "Нативная шпонка с двумя крепёжными винтами по исторической таблице ČSN 02 2570. Межосевое расстояние отверстий следует полной длине шпонки."
+    ],
+    "csn_keyway_identity": [
+      "ČSN 02 2507 — přiřazení per a drážek k hřídelům; ČSN 02 2562 — těsná pera. Zachované historické rozměry: 26 velikostí, pro průměry nad 6 do 500 mm. Úplná shoda čísel s vydáním 2003 dosud nebyla ověřena.",
+      "ČSN 02 2507 — shaft assignment of keys and keyways; ČSN 02 2562 — parallel keys. Retained historical dimensions: 26 sizes, for diameters over 6 through 500 mm. Full numerical agreement with the 2003 editions has not yet been verified.",
+      "ČSN 02 2507 — Zuordnung von Passfedern und Nuten zu Wellen; ČSN 02 2562 — Passfedern. Übernommene historische Maße: 26 Größen für Durchmesser über 6 bis 500 mm. Die vollständige zahlenmäßige Übereinstimmung mit den Ausgaben 2003 ist noch nicht geprüft.",
+      "ČSN 02 2507 — affectation des clavettes et rainures aux arbres ; ČSN 02 2562 — clavettes parallèles. Dimensions historiques conservées : 26 tailles, pour des diamètres supérieurs à 6 et jusqu’à 500 mm. La concordance numérique complète avec les éditions 2003 reste à vérifier.",
+      "ČSN 02 2507 — подбор шпонок и пазов к валам; ČSN 02 2562 — призматические шпонки. Сохранены исторические размеры: 26 типоразмеров для диаметров свыше 6 до 500 мм. Полное соответствие чисел изданиям 2003 года пока не проверено."
+    ],
+    "csn_retaining_identity": [
+      "ČSN 02 2562 — těsná pera; ČSN 02 2575 — výměnná pera s jedním přídržným šroubem; ČSN 02 2570 — výměnná pera se dvěma přídržnými šrouby. Drážky a přiřazení k hřídelům: ČSN 02 2507. Tabulka zachovává historické údaje.",
+      "ČSN 02 2562 — parallel keys; ČSN 02 2575 — interchangeable keys with one retaining screw; ČSN 02 2570 — interchangeable keys with two retaining screws. Keyways and shaft assignment: ČSN 02 2507. This table retains historical data.",
+      "ČSN 02 2562 — Passfedern; ČSN 02 2575 — auswechselbare Passfedern mit einer Halteschraube; ČSN 02 2570 — auswechselbare Passfedern mit zwei Halteschrauben. Nuten und Wellenzuordnung: ČSN 02 2507. Die Tabelle enthält historische Daten.",
+      "ČSN 02 2562 — clavettes parallèles ; ČSN 02 2575 — clavettes interchangeables avec une vis de retenue ; ČSN 02 2570 — clavettes interchangeables avec deux vis de retenue. Rainures et affectation aux arbres : ČSN 02 2507. La table conserve les données historiques.",
+      "ČSN 02 2562 — призматические шпонки; ČSN 02 2575 — сменные шпонки с одним крепёжным винтом; ČSN 02 2570 — сменные шпонки с двумя крепёжными винтами. Пазы и подбор к валам: ČSN 02 2507. Таблица сохраняет исторические данные."
     ]
   },
   "sources": {
@@ -4359,6 +4450,14 @@
     "iso3912": {
       "label": "ISO 3912:1977",
       "url": "https://www.iso.org/standard/9534.html"
+    },
+    "csn_key_assignment": {
+      "url": "https://csnonline.agentura-cas.cz/Detailnormy.aspx?k=68475",
+      "label": "ČSN 02 2507 — Czech standards catalogue"
+    },
+    "csn_keys_bulletin": {
+      "url": "https://www.unmz.gov.cz/wp-content/uploads/Vestnik_2003_10.pdf",
+      "label": "ÚNMZ 10/2003 — ČSN 02 2562, 02 2570, 02 2575"
     }
   },
   "pages": [
@@ -17357,10 +17456,13 @@
         ]
       ],
       "notes": [
+        "csn_keyway_identity",
         "context_note",
         "old_notes"
       ],
-      "sources": [],
+      "sources": [
+        "csn_key_assignment"
+      ],
       "review": "source_data",
       "source_table": "08-KEYS-KEYWAYS/01-KEY-SIZES#0",
       "source_rows": [
@@ -17384,8 +17486,8 @@
       "heading": "table_08-KEYS-KEYWAYS/01-KEY-SIZES",
       "figures": [
         {
-          "path": "../../../0000-index/diagrams/keyway.svg",
-          "caption": "own_schematic"
+          "path": "keyway-dimensions-source.png",
+          "caption": "keyway_original_drawing"
         }
       ],
       "source_path": "08-KEYS-KEYWAYS/01-KEY-SIZES/00-TABLES",
@@ -17709,10 +17811,13 @@
         ]
       ],
       "notes": [
+        "csn_retaining_identity",
         "context_note",
         "old_notes"
       ],
-      "sources": [],
+      "sources": [
+        "csn_keys_bulletin"
+      ],
       "review": "source_data",
       "source_table": "08-KEYS-KEYWAYS/02-PARALLEL#0",
       "source_rows": [
@@ -17736,22 +17841,49 @@
       "heading": "table_08-KEYS-KEYWAYS/02-PARALLEL",
       "figures": [
         {
-          "path": "../../../0000-index/diagrams/key.svg",
-          "caption": "own_schematic"
+          "path": "parallel-key-retaining-source.png",
+          "caption": "parallel_key_original_drawing",
+          "aspect_ratio": [856, 817]
+        },
+        {
+          "path": "thumbnails/PK-DIN6885-1-A-10x8x45.png",
+          "caption": "parallel_native_model",
+          "aspect_ratio": [
+            640,
+            480
+          ]
+        },
+        {
+          "path": "thumbnails/PK-CSN022575-8x7x20.png",
+          "caption": "parallel_retaining_one_model",
+          "aspect_ratio": [
+            320,
+            240
+          ]
+        },
+        {
+          "path": "thumbnails/PK-CSN022570-10x8x50.png",
+          "caption": "parallel_retaining_two_model",
+          "aspect_ratio": [
+            320,
+            240
+          ]
         }
       ],
       "source_path": "08-KEYS-KEYWAYS/02-PARALLEL/00-TABLES",
       "id": "f1bc2afd-4494-5404-bb48-a9c784338609",
       "sections": [],
-      "freeze_header": true
+      "freeze_header": true,
+      "figures_side_by_side": true,
+      "figures_wrap": false
     },
     {
       "path": "08-KEYS-KEYWAYS/03-PASSAGE",
       "title": "directory_08-KEYS-KEYWAYS/03-PASSAGE",
       "headers": [
-        "cell_f9108e931ac7",
-        "head_7c301386d613",
-        "cell_9febda39a7e5"
+        "key_shaft_d",
+        "key_section_bh",
+        "key_passage_D"
       ],
       "rows": [
         [
@@ -18019,8 +18151,12 @@
       "heading": "table_08-KEYS-KEYWAYS/03-PASSAGE",
       "figures": [
         {
-          "path": "../../../0000-index/diagrams/key.svg",
-          "caption": "own_schematic"
+          "path": "passage-section.svg",
+          "caption": "key_passage_section",
+          "aspect_ratio": [
+            620,
+            480
+          ]
         }
       ],
       "source_path": "08-KEYS-KEYWAYS/03-PASSAGE/00-TABLES",
@@ -18346,8 +18482,17 @@
       "heading": "table_08-KEYS-KEYWAYS/04-WOODRUFF",
       "figures": [
         {
-          "path": "../../../0000-index/diagrams/woodruff.svg",
-          "caption": "own_schematic"
+          "path": "woodruff-seat-source.png",
+          "caption": "woodruff_original_drawing",
+          "aspect_ratio": [697, 285]
+        },
+        {
+          "path": "thumbnails/WK-DIN6888-A-6x9x22.png",
+          "caption": "woodruff_native_model",
+          "aspect_ratio": [
+            640,
+            480
+          ]
         }
       ],
       "source_path": "08-KEYS-KEYWAYS/04-WOODRUFF/00-TABLES",
@@ -18585,7 +18730,9 @@
           "source_path": "08-KEYS-KEYWAYS/04-WOODRUFF/00-TABLES"
         }
       ],
-      "freeze_header": true
+      "freeze_header": true,
+      "figures_side_by_side": true,
+      "figures_wrap": true
     },
     {
       "path": "09-BEARINGS",

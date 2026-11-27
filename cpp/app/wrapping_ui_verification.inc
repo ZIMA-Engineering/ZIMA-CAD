@@ -8,6 +8,56 @@ int verify_wrapping_ui(QApplication& application,AssemblyWorkspaceWindow& window
         }
     };
     try {
+        if(const auto fixture=qEnvironmentVariable("ZIMA_VERIFY_WRAP_TARGET_MODEL");!fixture.isEmpty()) {
+            const auto path=directory/"wrap-target-model.prtz";
+            std::filesystem::copy_file(std::filesystem::path(fixture.toStdWString()),path,std::filesystem::copy_options::overwrite_existing);
+            const auto model=document::PartDocument::load(path);
+            const auto feature=std::ranges::find_if(model.history,[](const auto& item){return item.feature.type==document::FeatureType::Wrapping;});
+            check(feature!=model.history.end(),"Source model has no Wrap feature");
+            const auto limit=std::ranges::find_if(model.history,[](const auto& item){return !item.feature.sides[0].targets.empty();});
+            check(limit!=model.history.end(),"Source model has no original target reference");
+            const auto expected_target=limit->feature.sides[0].targets.front().reference;
+            window.resize(1440,1000);window.show();
+            check(window.open_document_path(QString::fromStdWString(path.wstring())),"Cannot open Wrap target copy");flush();
+            auto* tree=window.findChild<QTreeWidget*>("documentTree");QTreeWidgetItem* row{};
+            for(QTreeWidgetItemIterator it(tree);*it;++it)if((*it)->data(0,Qt::UserRole).toString().toStdString()==feature->id&&
+                (*it)->data(0,Qt::UserRole+3)=="part-container")row=*it;
+            check(row,"Wrap model Tree row missing");
+            const auto before=window.execute_console_command("documents").data;
+            window.show_tree_item_properties(row);flush();
+            auto* dialog=dynamic_cast<PrimitivePropertiesDialog*>(window.findChild<QWidget*>("featurePropertiesDialog"));
+            check(dialog,"Wrap model Properties missing");
+            auto* panel=dialog->wrapping_panel();auto* table=dialog->findChild<QTableWidget*>("wrappingTarget");
+            check(panel&&table,"Wrap model target field missing");
+            for(auto* ancestor=table->parentWidget();ancestor;ancestor=ancestor->parentWidget())if(auto* scroll=qobject_cast<QScrollArea*>(ancestor))scroll->ensureWidgetVisible(table);
+            click(table->viewport(),table->visualItemRect(table->item(0,2)).center());
+            auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QWidget*>("modelWorkspace"));check(view,"Wrap model View missing");
+            view->fit_all();flush();const auto calls=kernel::body_calculation_count.load();
+            window.grab().save(QString::fromStdWString((directory/"wrap-target-before-selection.png").wstring()));
+            std::set<std::string> offered;
+            std::optional<QPointF> point;std::optional<viewer::ViewerCandidate> selected;
+            for(int y=20;y<view->height()-20&&!point;y+=7)for(int x=20;x<view->width()-20&&!point;x+=7)
+                for(const auto& candidate:view->selection_candidates_at({double(x),double(y)})) {
+                    if(candidate.kind==viewer::CandidateKind::Face)offered.insert(candidate.owner_id+":"+candidate.semantic_key);
+                    if(candidate.kind!=viewer::CandidateKind::Face||candidate.owner_id!=expected_target.owner_id||candidate.semantic_key!=expected_target.semantic_key)continue;
+                    bool cylindrical=false;
+                    for(const auto* faces:{&view->mesh().triangle_references,&view->mesh().original_references.triangle_references})
+                        for(const auto& face:*faces)if(kernel::wrapped_image_face_matches(face,{candidate.owner_id,candidate.semantic_key,candidate.instance_path})) {
+                            const auto surface=face.surface?face.surface:face.contour_surface;
+                            cylindrical|=surface&&surface->kind==kernel::SurfaceGeometry::Kind::Cylinder;
+                        }
+                    if(cylindrical){point=QPointF(x,y);selected=candidate;break;}
+                }
+            if(!point)std::cerr<<"Wrap offered "<<offered.size()<<" faces, mesh references="<<view->mesh().triangle_references.size()<<", original="<<view->mesh().original_references.triangle_references.size()<<'\n';
+            check(point.has_value(),"No remaining cylindrical target is selectable after downstream extrusion");
+            click(view,*point);check(panel->parameters().target.has_value(),"Cylindrical target click was not accepted");
+            const auto reference=panel->parameters().target->reference;
+            check(reference.owner_id==selected->owner_id&&reference.semantic_key==selected->semantic_key,"Wrap click changed offered target identity");
+            check(kernel::body_calculation_count.load()==calls,"Wrap picking calculated a body");
+            window.grab().save(QString::fromStdWString((directory/"wrap-target-selection.png").wstring()));
+            dialog->reject();flush();check(window.execute_console_command("documents").data==before,"Wrap selection Cancel changed the model");
+            std::cout<<"Wrap remaining-cylinder mouse selection, identity, no calculation and Cancel passed\n";return 0;
+        }
         if(const auto fixture=qEnvironmentVariable("ZIMA_VERIFY_WRAP_DOWNSTREAM_MODEL");!fixture.isEmpty()) {
             const auto path=directory/"downstream-wrap.prtz";
             std::filesystem::copy_file(std::filesystem::path(fixture.toStdWString()),path,std::filesystem::copy_options::overwrite_existing);

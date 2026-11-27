@@ -218,6 +218,7 @@ private:
         Fem,
         Render,
         Cam,
+        Mech,
     };
 
     void create_command_console();
@@ -287,6 +288,7 @@ private:
     QToolButton* assembly_mode_button_{};
     QToolButton* sheet_metal_mode_button_{};
     QToolButton* surface_mode_button_{};
+    QToolButton* mech_mode_button_{};
     QToolButton* fem_mode_button_{};
     QToolButton* render_mode_button_{};
     QToolButton* cam_mode_button_{};
@@ -330,7 +332,7 @@ private:
     QActionGroup* display_mode_group_{};
     QActionGroup* camera_projection_group_{};
     QActionGroup* application_group_{};
-    std::array<QAction*, 9> application_actions_{};
+    std::array<QAction*, 10> application_actions_{};
     ApplicationMode active_application_{ApplicationMode::Modeling};
     std::map<std::string,ApplicationMode> document_application_modes_;
     QMenu* command_insert_menu_{};
@@ -1030,6 +1032,7 @@ private:
         std::optional<zima::document::FeatureType> feature_preset = {}, bool rotation_preset = false, bool twist_preset = false, bool wrap_relief_preset = false, bool projection_relief_preset = false, bool planar_surface_preset = false);
     void install_projection_properties(PrimitivePropertiesDialog*,const std::string& document_id);
     void install_wrapping_properties(PrimitivePropertiesDialog*,const std::string& document_id);
+    void install_mech_keyway_properties(PrimitivePropertiesDialog*,const std::string& document_id);
     void show_sweep_properties(zima::document::FeatureKind kind, const std::string& container_id,
         bool rectangular=false, bool helical_curve=false);
     void show_sweep2d_properties(const std::string& container_id = {});

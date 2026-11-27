@@ -1,4 +1,5 @@
 #include <zima/workspace/symbol_operations.hpp>
+#include <zima/workspace/mech_keyway_operations.hpp>
 #include <zima/symbols/native_document.hpp>
 #include <zima/workspace/document_operations.hpp>
 #include <zima/document/engineering_metadata.hpp>
@@ -155,10 +156,15 @@ bool commit_annotations(Workspace& live,const std::string& id,const std::string&
 bool store_symbol_annotation(Workspace& live,const std::string& id,const symbols::Placement& value,const std::string& sheet) {
     value.validate();auto values=symbol_annotations(live,id,sheet);
     const auto found=std::ranges::find_if(values,[&](const auto& item){return item.symbol.id==value.symbol.id;});
+    if(const auto* part=live.open_part(id);part&&mech_keyway_symbol_owner(part->session.document(),value.symbol.id))
+        if(found==values.end()||value.reference!=found->reference)
+            throw std::invalid_argument("Decompose the MECH feature before editing its children");
     if(found==values.end())values.push_back(value);else *found=value;
     return commit_annotations(live,id,sheet,std::move(values));
 }
 bool remove_symbol_annotation(Workspace& live,const std::string& id,const std::string& symbol,const std::string& sheet) {
+    if(const auto* part=live.open_part(id);part&&mech_keyway_symbol_owner(part->session.document(),symbol))
+        throw std::invalid_argument("Decompose the MECH feature before editing its children");
     auto values=symbol_annotations(live,id,sheet);
     std::erase_if(values,[&](const auto& item){return item.symbol.id==symbol;});
     return commit_annotations(live,id,sheet,std::move(values));
