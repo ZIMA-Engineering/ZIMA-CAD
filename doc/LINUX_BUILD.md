@@ -167,6 +167,14 @@ and validates a new package. Existing archives are never overwritten.
 The candidate builder also accepts `--qt-sdk /path/to/6.11.0/gcc_64`.
 CMake and runtime deployment select the same kit.
 
+For FEM meshing and solving, build Gmsh 4.15.2 against the same patched OCCT
+SDK by following the [native mesher recipe](../tools/verification/fem_gmsh/README.md).
+Use a short dependency directory with `gmsh-4.15.2-source.tgz` at its root,
+`source/gmsh-4.15.2-source` as the prepared source, and `build` as the CMake
+build directory. Pass that directory as `--gmsh-root`. The candidate includes
+the Gmsh runtime and corresponding source and runs the FEM desktop contract on
+the extracted package, including export and playback through Qt Multimedia.
+
 The builder bundles Qt, the pinned OCCT, OpenSSL, image/TLS/Wayland/X11 plugins
 and their recursively resolved dependencies. Debian's libc and graphics
 dispatchers/drivers remain host supplied. ELF RPATHs point at the version-local

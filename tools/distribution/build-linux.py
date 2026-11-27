@@ -36,7 +36,7 @@ def dependencies(binary, env):
     return [Path(p) for p in re.findall(r'=>\s+(/\S+)', output)]
 
 
-def deploy(runtime, sdk, qt_sdk):
+def deploy(runtime, sdk, qt_sdk, gmsh_library=None):
     qmake = qt_sdk / 'bin/qmake'
     library_paths = [qt_sdk / 'lib', sdk / 'lib']
     env = dict(os.environ, LD_LIBRARY_PATH=os.pathsep.join(map(str, library_paths)))
@@ -73,6 +73,11 @@ def deploy(runtime, sdk, qt_sdk):
     pending = list((runtime / 'bin').iterdir()) + list((runtime / 'plugins').rglob('*.so'))
     origins = {p: plugins / p.relative_to(runtime / 'plugins') for p in (runtime / 'plugins').rglob('*.so')}
     origins[packaged_helper] = helper
+    if gmsh_library:
+        gmsh_dependencies = dependencies(gmsh_library, env)
+        kernel_dependencies = [path for path in gmsh_dependencies if path.name.startswith('libTK')]
+        if not kernel_dependencies or any(not path.resolve().is_relative_to(sdk) for path in kernel_dependencies):
+            raise ValueError('Gmsh must use the selected OCCT SDK')
     host, inspected = set(), set()
     while pending:
         binary = pending.pop()
@@ -95,7 +100,7 @@ def deploy(runtime, sdk, qt_sdk):
                 pending.append(path)
     packages = {}
     for path in origins.values():
-        if sdk in path.resolve().parents: continue
+        if sdk in path.resolve().parents or path.resolve() == gmsh_library: continue
         if path.resolve().is_relative_to(qt_sdk): continue
         # Debian's merged /usr layout reports canonical package-owned paths.
         ownership = shared.run(['dpkg-query', '-S', str(path.resolve())], stdout=subprocess.PIPE).stdout.decode().splitlines()[0]
@@ -139,6 +144,7 @@ def main():
                         default=os.environ.get('ZIMA_QT_SDK_ROOT') or shared.ROOT / 'build/native-sdk/qt-6.11.0',
                         help='Override the complete Qt 6.11.0 Linux SDK')
     parser.add_argument('--jobs', type=int, default=12)
+    parser.add_argument('--gmsh-root', type=Path, help='Gmsh 4.15.2 prepared source, archive and native build')
     parser.add_argument('--release', action='store_true')
     parser.add_argument('--reuse-build', action='store_true')
     args = parser.parse_args()
@@ -163,11 +169,24 @@ def main():
         stage.mkdir(parents=True, exist_ok=False)
         shared.export_source(repo, commit, source)
     shared.write_json(stage / 'source.json', dict(commit=commit))
+    gmsh_options = ['-DZIMA_ENABLE_FEM_MESHER=OFF']
+    gmsh_library = None
+    if args.gmsh_root:
+        gmsh_root = args.gmsh_root.resolve()
+        gmsh_archive = gmsh_root / 'gmsh-4.15.2-source.tgz'
+        gmsh_source = gmsh_root / 'source/gmsh-4.15.2-source'
+        gmsh_library = (gmsh_root / 'build/libgmsh.so').resolve(strict=True)
+        gmsh_record = json.loads((source / 'doc/verification/20261120-fem-mesher.json').read_text())
+        if shared.sha(gmsh_archive) != gmsh_record['source_sha256']:
+            raise ValueError('Gmsh archive does not match the pinned corresponding source')
+        gmsh_options = ['-DZIMA_ENABLE_FEM_MESHER=ON',
+                        '-DZIMA_GMSH_LIBRARY=' + str(gmsh_library),
+                        '-DZIMA_GMSH_INCLUDE_DIR=' + str(gmsh_source / 'api')]
     shared.run(['cmake', '-S', source / 'cpp', '-B', build, '-G', 'Ninja', '-U', 'Qt6*_DIR',
                 '-DCMAKE_BUILD_TYPE=Release',
                 '-DZIMA_BUILD_TESTS=ON', '-DZIMA_SOURCE_COMMIT=' + commit, '-DCMAKE_PREFIX_PATH=' + str(sdk),
                 '-DZIMA_QT_SDK_ROOT=' + str(qt_sdk),
-                '-DOpenCASCADE_DIR=' + str(sdk / 'lib/cmake/opencascade')])
+                '-DOpenCASCADE_DIR=' + str(sdk / 'lib/cmake/opencascade'), *gmsh_options])
     shared.run(['cmake', '--build', build, '--target', 'zima-cad-cpp', 'zima-cad-cli', 'zima-cad-update',
                 'zima_cpp_sheet_branch_tests', 'zima_cpp_sheet_exchange_tests',
                 'zima_cpp_sheet_transition_command_tests', 'zima_cpp_bend_command_tests',
@@ -181,14 +200,24 @@ def main():
     for name in ('config', 'resources'):
         shutil.copytree(source / name, runtime / name, ignore=shutil.ignore_patterns('.gitkeep', '*.ini.[0-9]*', '*.frmz.[0-9]*', '*.tblz.[0-9]*'))
     shared.prepare_factory_config(runtime)
-    metadata.update(deploy(runtime, sdk, qt_sdk))
+    metadata.update(deploy(runtime, sdk, qt_sdk, gmsh_library))
     metadata['occt_sdk'] = json.loads((sdk / 'sdk.json').read_text())
     shutil.copy2(source / 'LICENSE', root / 'LICENSE')
     shutil.copy2(source / 'LICENSE', runtime / 'licenses/ZIMA-CAD.txt')
     shutil.copy2(source / 'cpp/third_party/qtkeychain/COPYING', runtime / 'licenses/qtkeychain.txt')
+    if gmsh_library:
+        licenses = runtime / 'licenses'
+        shutil.copy2(gmsh_source / 'LICENSE.txt', licenses / 'Gmsh.txt')
+        corresponding_source = licenses / 'gmsh-source'
+        corresponding_source.mkdir()
+        shutil.copy2(gmsh_archive, corresponding_source)
+        for name in ('gmsh-occt8.patch', 'gmsh-probe.cmake', 'prepare-gmsh.py'):
+            shutil.copy2(source / 'tools/dependencies' / name, corresponding_source)
+        metadata['gmsh_sdk'] = dict(version='4.15.2', source_sha256=shared.sha(gmsh_archive),
+                                    library_sha256=shared.sha(gmsh_library))
     shutil.copy2(source / 'tools/distribution/launcher-linux.sh', root / 'ZIMA-CAD.sh')
     (root / 'ZIMA-CAD.sh').chmod(0o755)
-    shutil.copytree(source, root / 'source' / version)
+    shared.export_source(repo, commit, root / 'source' / version)
     identity = json.loads(shared.run([runtime / 'bin/zima-cad-cli', '--build-info'], env=shared.clean_environment(runtime), stdout=subprocess.PIPE).stdout)
     if identity['version'] != version or identity['commit'] != commit or identity['source_modified']:
         raise ValueError('Executable/source identity mismatch')
@@ -210,6 +239,12 @@ def main():
     extracted = assembly / 'ověření balíku'
     digest = shared.validate_archive(candidate, extracted)
     smoke_result = shared.smoke(extracted / 'ZIMA-CAD', version)
+    if gmsh_library:
+        installed = extracted / 'ZIMA-CAD/linux' / version
+        fem_env = dict(shared.clean_environment(installed), ZIMA_VERIFY_FEM_BODY_ONLY='1')
+        shared.run([installed / 'bin/zima-cad-cpp', '--verify-startup'],
+                   cwd=installed, env=fem_env, timeout=240)
+        smoke_result['fem_ui'] = 'passed'
     with archive.open('xb') as target, candidate.open('rb') as data: shutil.copyfileobj(data, target)
     if shared.sha(archive) != digest: raise ValueError('Archive copy differs')
     shared.write_json(output / (archive.stem + '.validation.json'), dict(archive=archive.name, sha256=digest,
