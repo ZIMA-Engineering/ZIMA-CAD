@@ -42,6 +42,9 @@ the retained historical table. Its numeric rows were not changed or relabeled
 as certified agreement with the 2003 editions. All five localization catalogs
 and parameter-panel contracts pass. The engineering tables identify the same
 standards and provenance.
+All twenty pages in the four key/keyway chapters pass the light/dark layout
+checks. Figure sizes retain their native aspect ratios and quarter-window
+height limit, including the wrapping Woodruff illustration row.
 
 ## Remaining limits
 
