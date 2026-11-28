@@ -181,7 +181,8 @@ int verify_drawing_source_picker() {
         verify_drawing_origin();
         const auto original_palette=QApplication::palette();
         const auto tree_icon=zima::app::resource_tree_icon("drawing-sheet");
-        for(const bool dark:{false,true}) {
+        const auto projected_icon=zima::app::resource_icon("drawing-projected-view");
+        for(const bool dark:{false,true,false}) {
             auto palette=original_palette;palette.setColor(QPalette::WindowText,dark?Qt::white:Qt::black);
             QApplication::setPalette(palette);
             for(const auto* name:{"drawing","drawing-sheet","drawing-view","drawing-dimension","text","axis"}) {
@@ -195,6 +196,15 @@ int verify_drawing_source_picker() {
                 ++opaque;require((image.pixelColor(x,y).lightness()>128)==dark,"Existing tree icon did not follow the palette");
             }
             require(opaque>10,"Drawing tree icon is blank");
+            const auto projected=projected_icon.pixmap(24,24).toImage();int neutral=0,accent=0;
+            for(int y=0;y<projected.height();++y)for(int x=0;x<projected.width();++x) {
+                const auto color=projected.pixelColor(x,y);if(color.alpha()<200)continue;
+                if(color.saturation()<20) {
+                    ++neutral;require((color.lightness()>128)==dark,
+                        "Existing projected-view icon did not follow the palette");
+                } else if(color.green()>150&&color.blue()>200)++accent;
+            }
+            require(neutral>10&&accent>5,"Projected-view icon lost its outline or projection arrow");
         }
         QApplication::setPalette(original_palette);
         QTemporaryDir temporary;require(temporary.isValid(),"Cannot create drawing source fixtures");
@@ -778,6 +788,8 @@ int verify_drawing_ui() {
         QApplication::sendEvent(canvas,&context);
         auto* menu=canvas->findChild<QMenu*>("drawingViewContextMenu");
         require(menu && menu->actions().contains(action("projectDrawingViewAction")),"View context menu lacks projected view");
+        require(!action("projectDrawingViewAction")->icon().isNull(),"Projected view context action has no icon");
+        menu->grab().save("build/drawing-projected-view-menu.png");
         menu->close(); flush();
         const auto projection_revision=workspace.open_drawing(drawing.document_id)->revision();
         action("projectDrawingViewAction")->trigger();

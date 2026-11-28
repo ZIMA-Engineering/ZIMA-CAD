@@ -1397,6 +1397,11 @@ protected:
         if(align_mode_){if(!offered_annotations_.empty()){offered_annotation_index_=(offered_annotation_index_+1)%offered_annotations_.size();hovered_annotation_=offered_annotations_[offered_annotation_index_].key;}update();event->accept();return;}
         if(witness_tool_){if(witness_owner_.empty()&&*witness_tool_==drawing::WitnessEditKind::Break){if(!offered_annotations_.empty()){offered_annotation_index_=(offered_annotation_index_+1)%offered_annotations_.size();hovered_annotation_=offered_annotations_[offered_annotation_index_].key;}}else if(!witness_offered_.empty())witness_offer_index_=(witness_offer_index_+1)%witness_offered_.size();update();event->accept();return;}
         if(crop_edit_){event->accept();return;}
+        if(dimension_command_&&dimension_command_->placing()) {
+            if(!placement_navigation_context_)dimension_command_->cycle_placement_presentation();
+            placement_navigation_context_=false;
+            update();event->accept();return;
+        }
         if(ordinary_selection()&&!entity_selection_.empty()) {
             const auto field=field_at(event->pos());offer_annotations(event->pos());
             const bool on_selection=entity_selected({AnnotationKind::Text,{},field,0})||
@@ -1696,6 +1701,8 @@ protected:
         }
     }
     void mousePressEvent(QMouseEvent* event) override {
+        if(event->button()==Qt::RightButton)
+            placement_navigation_context_=event->buttons().testFlag(Qt::MiddleButton);
         if(align_mode_&&event->button()==Qt::LeftButton){
             if(!offered_annotations_.empty()) {
                 const auto key=offered_annotations_[offered_annotation_index_].key;
@@ -2268,6 +2275,7 @@ private:
     double view_zoom_{1.0};
     QPointF view_pan_;
     bool view_panning_{};
+    bool placement_navigation_context_{};
     QPointF view_pan_start_;
     QPointF view_pan_pointer_;
 };
@@ -2329,7 +2337,7 @@ void DrawingWindow::create_actions() {
     insert_detail_action_=drawing->addAction(resource_icon("drawing-detail"),tr("Vložit detail…"),this,[this]{insert_detail();});
     insert_detail_action_->setObjectName("insertDrawingDetailAction");
     projected_view_action_ = drawing->addAction(
-        tr("Projekční pohled"), this,
+        resource_icon("drawing-projected-view"), tr("Projekční pohled"), this,
         [this] { create_projected_view(); });
     projected_view_action_->setObjectName("projectDrawingViewAction");
     edit_view_action_ = drawing->addAction(tr("Vlastnosti pohledu…"), this,
@@ -3448,6 +3456,8 @@ void DrawingWindow::show_dimension_properties(const std::string& id,int extend,
     if(extend==4)dialog->findChild<QComboBox*>("drawingDimensionType")->setCurrentIndex(int(drawing::DrawingDimensionKind::Linear));
     else if(extend==2)dialog->findChild<QComboBox*>("drawingDimensionType")->setCurrentIndex(int(drawing::DrawingDimensionKind::Chain));
     else if(extend){dialog->enable_chain_command();if(extend!=3)dialog->extend(extend<0);}
+    else if(id.empty()&&!creation_kind)
+        dialog->findChild<QComboBox*>("drawingDimensionType")->setCurrentIndex(5);
     connect(dialog,&QDialog::finished,this,[this,dialog,id,extend,view=value.view_id,document_id=document_.document_id,sheet_id=sheet->id](int result){
         const bool repeat=id.empty()&&(extend==0||extend==2||extend==3)&&result==QDialog::Accepted&&!dialog->finishing_command();
         const auto kind=dialog->value().kind;
@@ -3462,7 +3472,7 @@ void DrawingWindow::show_dimension_properties(const std::string& id,int extend,
     });
     if(properties_handler_)properties_handler_(dialog);dialog->show();update_action_states();
     set_status_message(dialog->placement_commits()
-        ?tr("Lineární kóta: kliknutím na umístění uložíte kótu a zadáte další. OK ukončí příkaz.")
+        ?tr("Dimension: click to place and save it, then enter the next one. OK ends the command.")
         :id.empty()&&(extend==0||extend==2||extend==3)
         ?tr("Kóta: OK uloží kótu a připraví další. Dvojklik prostředním tlačítkem příkaz ukončí.")
         :tr("Kóta: vyberte vazby a umístění. OK potvrdí měřenou kótu."));

@@ -161,6 +161,7 @@
     <file alias="icons/drawing-chain-dimension.svg">../../resources/icons/drawing-chain-dimension.svg</file>
     <file alias="icons/drawing-sheet.svg">../../resources/icons/drawing-sheet.svg</file>
     <file alias="icons/drawing-view.svg">../../resources/icons/drawing-view.svg</file>
+    <file alias="icons/drawing-projected-view.svg">../../resources/icons/drawing-projected-view.svg</file>
     <file alias="icons/protrusion.svg">../../resources/icons/protrusion.svg</file>
     <file alias="icons/revolve.svg">../../resources/icons/revolve.svg</file>
     <file alias="icons/sweep2d.svg">../../resources/icons/sweep2d.svg</file>

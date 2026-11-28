@@ -200,6 +200,16 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
     const drawing::DrawingDimension &value() const { return value_; }
     bool entering() const { return active_ >= 0; }
     bool placing() const { return placing_; }
+    void cycle_placement_presentation() {
+        if(!placing_||segment_<0||segment_>=int(value_.segments.size()))return;
+        read_fields();
+        const auto kind=value_.kind==drawing::DrawingDimensionKind::Radius
+            ?kernel::ViewerDimensionKind::Radius:kernel::ViewerDimensionKind::Linear;
+        auto& layout=value_.segments[segment_].layout;
+        kernel::cycle_dimension_presentation(layout,kind);
+        if(placement_)placement_->set_value(layout);
+        publish();
+    }
     int active_reference() const { return active_; }
     drawing::MeasurementPickRequest pick_request() const {
         drawing::MeasurementPickRequest request;
@@ -620,6 +630,7 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
         }
         if (placing_)
             message += placement_commits()?tr(" — LMB uloží kótu a připraví další. OK ukončí příkaz."):tr(" — LMB umístí kótu.");
+        if(placing_)message+=tr(" — RMB cycles arrow and leader layouts.");
         if(automatic_type_)message=tr("Automaticky")+" → "+type_->itemText(int(value_.kind))+" · "+message;
         status_->setText(message);
         refresh_states();

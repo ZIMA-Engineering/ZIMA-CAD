@@ -34,6 +34,47 @@ int verify_repeated_drawing_dimensions() {
         return QPointF(box.right()-view.x*ratio+p.x*view.scale*ratio,box.bottom()-view.y*ratio-p.y*view.scale*ratio);
     };
     unsigned committed{};
+    const auto cycle_preview=[&](app::DrawingDimensionDialog* pending,int view,int cycles) {
+        const auto pointer=screen(view,{86,30});
+        mouse(canvas,QEvent::MouseMove,pointer,Qt::NoButton,Qt::NoButton);
+        const auto initial=pending->value();
+        const auto revision=live.open_drawing(document_id)->revision();
+        const auto before=evaluate_drawing_dimension(*window.document_for_test().find_view(initial.view_id),initial);
+        for(int step=1;step<=cycles;++step) {
+            mouse(canvas,QEvent::MouseButtonPress,pointer,Qt::RightButton,Qt::RightButton);
+            mouse(canvas,QEvent::MouseButtonRelease,pointer,Qt::RightButton,Qt::NoButton);
+            QContextMenuEvent context(QContextMenuEvent::Mouse,pointer.toPoint(),canvas->mapToGlobal(pointer.toPoint()));
+            QApplication::sendEvent(canvas,&context);flush();
+            const auto& value=pending->value();const auto& layout=value.segments.front().layout;
+            const bool radius=initial.kind==DrawingDimensionKind::Radius;
+            require(layout.arrows_reversed==(radius?step%3!=0:step%2!=0)&&
+                    layout.radius_center_line_hidden==(radius&&step%3==2),
+                "Placement right-click did not cycle the shared arrow/leader presentation");
+            require(value.attachments==initial.attachments&&value.kind==initial.kind&&pending->placing()&&
+                    live.open_drawing(document_id)->revision()==revision,
+                "Placement right-click changed references, kind, transaction or command stage");
+            const auto measured=evaluate_drawing_dimension(*window.document_for_test().find_view(value.view_id),value);
+            require(measured.state==MeasurementState::Resolved&&before.presentations.front().value==measured.presentations.front().value,
+                "Presentation cycling changed the dimension's measurement");
+        }
+        const auto layout=pending->value().segments.front().layout;
+        mouse(canvas,QEvent::MouseMove,pointer+QPointF(12,6),Qt::NoButton,Qt::NoButton);
+        require(pending->value().segments.front().layout.arrows_reversed==layout.arrows_reversed&&
+                pending->value().segments.front().layout.radius_center_line_hidden==layout.radius_center_line_hidden,
+            "Moving the pending dimension discarded its arrow/leader layout");
+        mouse(canvas,QEvent::MouseButtonPress,pointer,Qt::MiddleButton,Qt::MiddleButton);
+        mouse(canvas,QEvent::MouseButtonPress,pointer,Qt::RightButton,Qt::MiddleButton|Qt::RightButton);
+        mouse(canvas,QEvent::MouseMove,pointer+QPointF(10,5),Qt::NoButton,Qt::MiddleButton|Qt::RightButton);
+        mouse(canvas,QEvent::MouseButtonRelease,pointer+QPointF(10,5),Qt::RightButton,Qt::MiddleButton);
+        QContextMenuEvent navigation_context(QContextMenuEvent::Mouse,pointer.toPoint(),canvas->mapToGlobal(pointer.toPoint()));
+        QApplication::sendEvent(canvas,&navigation_context);
+        mouse(canvas,QEvent::MouseButtonRelease,pointer+QPointF(10,5),Qt::MiddleButton,Qt::NoButton);
+        require(pending->placing()&&pending->value().segments.front().layout.arrows_reversed==layout.arrows_reversed&&
+                pending->value().segments.front().layout.radius_center_line_hidden==layout.radius_center_line_hidden&&
+                live.open_drawing(document_id)->revision()==revision,
+            "View navigation cycled or committed the pending dimension");
+        return layout;
+    };
     for(auto kind:{DrawingDimensionKind::Linear,DrawingDimensionKind::Radius,DrawingDimensionKind::Diameter,DrawingDimensionKind::Angular,DrawingDimensionKind::Chain}) {
         const auto initial_revision=live.open_drawing(document_id)->revision();
         window.findChild<QAction*>("drawingDimensionAction")->trigger();flush();
@@ -50,6 +91,9 @@ int verify_repeated_drawing_dimensions() {
                 pick(canvas,screen(view,kind==DrawingDimensionKind::Angular?Point2{40,6.3}:Point2{12.3,20}));
             }
             require(pending->placing(),"Repeated dimension did not accept its actual mouse references");
+            const auto cycled=cycle_preview(pending,view,iteration+1);
+            if(kind==DrawingDimensionKind::Radius)
+                window.grab().save(QString("build/drawing-radius-placement-%1.png").arg(iteration+1));
             const auto revision=live.open_drawing(document_id)->revision();
             auto* ok=pending->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok);require(ok->isEnabled(),"Repeated dimension cannot commit");
             pick(canvas,screen(view,{86,30}));
@@ -58,6 +102,9 @@ int verify_repeated_drawing_dimensions() {
             ++committed;
             require(window.document_for_test().sheets.front().dimensions.size()==committed&&live.open_drawing(document_id)->revision()==revision+1,"Dimension placement/confirmation did not create exactly one transaction");
             const auto& accepted=window.document_for_test().sheets.front().dimensions.back();
+            require(accepted.segments.front().layout.arrows_reversed==cycled.arrows_reversed&&
+                    accepted.segments.front().layout.radius_center_line_hidden==cycled.radius_center_line_hidden,
+                "Confirmation lost the pending arrow/leader layout");
             const auto& accepted_view=*window.document_for_test().find_view(accepted.view_id);
             const auto measured=evaluate_drawing_dimension(accepted_view,accepted);
             const double expected=kind==DrawingDimensionKind::Radius?8:kind==DrawingDimensionKind::Diameter?16:kind==DrawingDimensionKind::Angular?90:20;
@@ -72,35 +119,49 @@ int verify_repeated_drawing_dimensions() {
         else mouse(canvas,QEvent::MouseButtonDblClick,{5,5},Qt::MiddleButton,Qt::MiddleButton);
         flush();
         require(!dialog()&&live.open_drawing(document_id)->revision()==revision,"Empty MMB double-click failed to end the command without a transaction");
+        const auto before_undo=window.document_for_test().sheets.front().dimensions;
         auto* state=live.open_drawing(document_id);require(state->undo(),"Repeated dimension has no Undo");window.edit_workspace_document(document_id);flush();
         require(window.document_for_test().sheets.front().dimensions.size()==committed-1,"Repeated Undo removed more than one dimension");
         require(state->redo(),"Repeated dimension has no Redo");window.edit_workspace_document(document_id);flush();
+        require(window.document_for_test().sheets.front().dimensions==before_undo,
+            "Redo changed the placed arrow/leader layouts or references");
     }
     struct AutoCase {Point2 first;std::optional<Point2> second;DrawingDimensionKind kind;double expected;};
     const std::vector<AutoCase> auto_cases={{{75.65685424949238,15.65685424949238},{},DrawingDimensionKind::Diameter,16},
         {{100,18},{},DrawingDimensionKind::Radius,8},{{12.3,0},Point2{40,6.3},DrawingDimensionKind::Angular,90},
         {{12.3,0},Point2{12.3,20},DrawingDimensionKind::Linear,20},{{-25,7},Point2{-15,13},DrawingDimensionKind::Linear,10}};
     window.findChild<QAction*>("drawingDimensionAction")->trigger();flush();
-    dialog()->findChild<QComboBox*>("drawingDimensionType")->setCurrentIndex(5);flush();
+    require(dialog()->findChild<QComboBox*>("drawingDimensionType")->currentIndex()==5,
+        "Ordinary dimension command does not start in automatic mode");
     for(const auto& item:auto_cases) {
         auto* pending=dialog();const auto revision=live.open_drawing(document_id)->revision();
         pick(canvas,screen(0,item.first));if(item.second)pick(canvas,screen(0,*item.second));
         if(pending->value().kind!=item.kind||!pending->placing())throw std::runtime_error("Automatic mouse kind="+std::to_string(int(pending->value().kind))+" expected="+std::to_string(int(item.kind))+" placing="+std::to_string(pending->placing())+" active="+std::to_string(pending->active_reference()));
         require(pending->findChild<QLabel*>("drawingDimensionStatus")->text().contains(QString::fromUtf8("→")),"Automatic inferred type is not visible");
+        const auto cycled=cycle_preview(pending,0,item.kind==DrawingDimensionKind::Radius?2:1);
         pick(canvas,screen(0,{85,35}));++committed;
         require(dialog()==pending&&pending->entering()&&pending->findChild<QComboBox*>("drawingDimensionType")->currentIndex()==5,"Automatic placement lost the active mode");
         const auto& accepted=window.document_for_test().sheets.front().dimensions.back();
+        require(accepted.segments.front().layout.arrows_reversed==cycled.arrows_reversed&&
+                accepted.segments.front().layout.radius_center_line_hidden==cycled.radius_center_line_hidden,
+            "Automatic placement lost the pending arrow/leader layout");
         const auto result=evaluate_drawing_dimension(*window.document_for_test().find_view(accepted.view_id),accepted);
         require(result.state==MeasurementState::Resolved&&std::abs(result.presentations.front().value-item.expected)<1e-7,"Automatic committed measurement is incorrect");
         require(live.open_drawing(document_id)->revision()==revision+1,"Automatic placement created multiple undo transactions");
     }
     // Manual override of the inferred diameter retains the picked curve.
     pick(canvas,screen(0,auto_cases.front().first));auto* override_dialog=dialog();
+    const auto before_cancel=window.document_for_test().sheets.front().dimensions;
+    const auto cancel_revision=live.open_drawing(document_id)->revision();
+    static_cast<void>(cycle_preview(override_dialog,0,1));
     const auto binding=override_dialog->value().attachments.front();
     override_dialog->findChild<QComboBox*>("drawingDimensionType")->setCurrentIndex(int(DrawingDimensionKind::Radius));flush();
     require(override_dialog->value().kind==DrawingDimensionKind::Radius&&override_dialog->value().attachments.front()==binding,"Manual override lost the automatic circle binding");
     override_dialog->reject();flush();
     require(window.document_for_test().sheets.front().dimensions.size()==committed,"Cancel removed already placed automatic dimensions");
+    require(window.document_for_test().sheets.front().dimensions==before_cancel&&
+            live.open_drawing(document_id)->revision()==cancel_revision,
+        "Cancel saved the draft arrow/leader layout");
     // Both real silhouette references must also work with explicit angular entry.
     window.findChild<QAction*>("drawingDimensionAction")->trigger();flush();
     dialog()->findChild<QComboBox*>("drawingDimensionType")->setCurrentIndex(int(DrawingDimensionKind::Angular));flush();

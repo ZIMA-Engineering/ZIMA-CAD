@@ -51,6 +51,18 @@ separately; shared source alone is not evidence of execution on both platforms.
 
 ## Current evidence
 
+The boundary-first conversion candidate adds
+`zima_cpp_sheet_boundary_skeleton_contract` as the thirteenth required gate.
+It creates rectangular, trapezoidal, chamfered-corner, drafted,
+drafted-chamfer and drafted-asymmetric sources and compares automatic boundary
+preparation against materialized preparation. Required checks include actual
+use of the optimized path, fewer history evaluations, both Bend Sketches,
+native save/reopen, cold identities, Undo/Redo, ordinary attachments after
+Explode, allowance equations and nominal/corrected unfolded branch overlap.
+Both packagers reject an absent or failed gate. Its acceptance status and the
+limits of the geometry comparison are recorded in the
+[boundary-first investigation](performance/20261128-skeleton-first-conversion.md).
+
 Build 2026111903 is withheld: the saved 18.prtz case still contains invalid
 Tabule 03 and Ohyb 03 placements after touching branches. Earlier local-face
 attachment tests did not establish this independent-branch contract. The broader

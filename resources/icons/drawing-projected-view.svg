@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+  <title>Projected drawing view</title>
+  <path d="M2.5 9h8v11h-8zM16.5 9h5v11h-5z"/>
+  <circle cx="6.5" cy="14.5" r="2"/>
+  <path d="M6.5 6V3h12v3m-2-2 2 2 2-2" stroke="#00D1FF"/>
+</svg>

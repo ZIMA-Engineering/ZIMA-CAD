@@ -981,6 +981,14 @@ int verify_measurement_dimension_ui() {
                 app::DrawingDimensionDialog cross_dialog(cross_value,false,[&](const auto&){return &view;},[](auto){},&window);
                 const auto* cross_table=cross_dialog.findChild<QTableWidget*>("drawingDimensionReferences");
                 const auto settings=app::ApplicationSettings::load(language_directory.path());
+                auto placement_value=make_drawing_dimension(view.id,DrawingDimensionKind::Linear);
+                app::DrawingDimensionDialog placement_dialog(placement_value,true,[&](const auto&){return &view;},[](auto){},&window);
+                MeasurementCandidate first_binding,second_binding;
+                first_binding.attachment=localized_value.attachments[0];second_binding.attachment=localized_value.attachments[1];
+                placement_dialog.accept_candidate(view.id,first_binding);placement_dialog.accept_candidate(view.id,second_binding);
+                require(placement_dialog.placing()&&placement_dialog.findChild<QLabel*>("drawingDimensionStatus")->text().contains(
+                        settings.qt_translations.value(" — RMB cycles arrow and leader layouts.")),
+                    "Pending arrow/leader cycling hint is not localized after switching language");
                 require(cross_table->item(0,2)->text()==settings.qt_translations.value("Osový kříž (vodorovná osa)")&&
                     cross_table->item(1,2)->text()==settings.qt_translations.value("Osový kříž (svislá osa)"),
                     "Axis-cross reference label did not follow the selected language");

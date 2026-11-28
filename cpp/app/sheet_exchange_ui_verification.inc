@@ -61,6 +61,15 @@ int verify_sheet_exchange_ui(QApplication& application,const std::filesystem::pa
         const auto path=directory/"sheet-exchange.prtz";part.save(path,cache);const auto original=part.history.size();
         app::AssemblyWorkspaceWindow window(QString::fromStdString(directory.string()));window.resize(1400,1000);window.show();
         check(window.open_document_path(QString::fromStdString(path.string())),"Sheet exchange fixture did not open");flush();
+        const auto check_source_references=[&](const char* stage) {
+            auto* source_tree=window.findChild<QTreeWidget*>("documentTree");
+            check(source_tree,"Sheet source Tree is missing");
+            for(QTreeWidgetItemIterator it(source_tree);*it;++it)
+                if(part.find_container((*it)->data(0,Qt::UserRole).toString().toStdString())&&
+                        (*it)->data(0,app::missing_reference_role).toBool())
+                    throw std::runtime_error(std::string("Sheet source reference lost at ")+stage+": "+(*it)->text(0).toStdString());
+        };
+        check_source_references("open");
         check(activate_test_body(application,window,target_id),"Empty target Body could not activate");
         window.findChild<QAction*>("applicationModeAction2")->trigger();flush();
         auto* action=window.findChild<QAction*>("sheetFromBodyAction");auto* dxf=window.findChild<QAction*>("sheetDxfAction");
@@ -194,9 +203,11 @@ int verify_sheet_exchange_ui(QApplication& application,const std::filesystem::pa
             current->set_reference(seed,3);flush();check(remove->isVisible(),"Assigned reference has no remove action");
             remove->click();flush();check(!current->selected()&&current->active()&&arrow->isVisible(),"Removing reference did not restore entry");
             current->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
+            check_source_references("reference Cancel");
             action->trigger();flush();current=dialog();
             check(!current->selected(),"Empty conversion silently selected a source face");
             current->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+            check_source_references("empty boundary OK");
             check(!window.findChild<QDialog*>("sheetFromBodyDialog"),"Empty conversion OK did not close");
             window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
             const auto boundary_document=document::PartDocument::load(path);
@@ -207,8 +218,10 @@ int verify_sheet_exchange_ui(QApplication& application,const std::filesystem::pa
                 "Empty conversion did not persist only a replacement boundary");
             if(same_body)check(view->mesh().triangles.empty(),"Empty conversion left source material visible");
             window.findChild<QAction*>("undoAction")->trigger();flush();
+            check_source_references("empty boundary Undo");
             check(!view->mesh().triangles.empty(),"Empty conversion Undo did not restore the model");
             window.findChild<QAction*>("redoAction")->trigger();flush();
+            check_source_references("empty boundary Redo");
             if(same_body)check(view->mesh().triangles.empty(),"Empty conversion Redo displayed the source solid");
             window.findChild<QAction*>("undoAction")->trigger();flush();
         }
@@ -330,13 +343,17 @@ int verify_sheet_exchange_ui(QApplication& application,const std::filesystem::pa
         check(document::PartDocument::load(path).history.size()==original,"Conversion Cancel modified history");
         action->trigger();flush();pick();window.grab().save(QString::fromStdString((directory/"sheet-conversion-properties.png").string()));
         QMouseEvent middle(QEvent::MouseButtonDblClick,QPointF(20,20),QPointF(20,20),QPointF(20,20),Qt::MiddleButton,Qt::MiddleButton,Qt::NoModifier);
+        const auto confirmation_started=std::chrono::steady_clock::now();
         QApplication::sendEvent(view,&middle);flush();
+        std::cout<<"sheet_conversion_gui_confirmation_seconds="<<
+            std::chrono::duration<double>(std::chrono::steady_clock::now()-confirmation_started).count()<<std::endl;
         if(window.findChild<QDialog*>("sheetFromBodyDialog"))window.grab().save(QString::fromStdString((directory/"sheet-conversion-failure.png").string()));
         check(!window.findChild<QDialog*>("sheetFromBodyDialog"),"Conversion OK failed");
         check(!view->mesh().triangles.empty(),
             "Sheet from Body history boundary hid the complete model View");
         const auto save=[&]{window.findChild<QAction*>("saveDocumentAction")->trigger();flush();return document::PartDocument::load(path);};
         const auto saved=save();check(saved.history.size()>original,"Conversion created no native sheet features");
+        check_source_references("material conversion OK");
         const auto conversion=std::find_if(saved.history.begin()+original,saved.history.end(),[](const auto& feature){return feature.feature_kind==document::FeatureKind::SheetFromBody;});
         auto* tree=window.findChild<QTreeWidget*>("documentTree");
         if(same_body) {

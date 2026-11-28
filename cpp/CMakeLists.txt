@@ -3310,6 +3310,8 @@ if(ZIMA_BUILD_TESTS)
     endif()
     add_test(NAME zima_cpp_sheet_exchange_tests COMMAND zima_cpp_sheet_exchange_tests)
     set_tests_properties(zima_cpp_sheet_exchange_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." LABELS "sheet-branch;mandatory")
+    add_test(NAME zima_cpp_sheet_boundary_skeleton_contract COMMAND zima_cpp_sheet_exchange_tests --boundary-skeleton)
+    set_tests_properties(zima_cpp_sheet_boundary_skeleton_contract PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." LABELS "sheet-branch;mandatory")
     file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/sheet-exchange-ui-contract")
     add_test(NAME zima_cpp_sheet_exchange_ui_contract COMMAND zima-cad-cpp --verify-startup
         --working-directory "${CMAKE_BINARY_DIR}/sheet-exchange-ui-contract")

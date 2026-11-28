@@ -60,7 +60,7 @@ def sheet_branch_gate(ctest, build, stage, env):
     required = {'zima_cpp_sheet_branch_' + case for case in (
         'separated', 'point-contact', 'edge-contact', 'face-contact', 'overlap', 'contained', 'common-parent', 'line-bend', 'gui')}
     required.update(('zima_cpp_sheet_exchange_tests', 'zima_cpp_sheet_transition_command_tests',
-                     'zima_cpp_bend_end_constraints_contract'))
+                     'zima_cpp_bend_end_constraints_contract', 'zima_cpp_sheet_boundary_skeleton_contract'))
     missing = required - names
     if missing:
         raise ValueError('Mandatory sheet branch tests are missing: ' + ', '.join(sorted(missing)))

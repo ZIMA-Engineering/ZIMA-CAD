@@ -193,7 +193,6 @@ static kernel::HistoryOutputPolicy history_output_policy(
     const std::vector<kernel::HistoryOperation>& operations) {
     kernel::HistoryOutputPolicy result;
     result.final_boundary_first=final_boundary_first;
-    if(!result.final_boundary_first)return result;
     for(const auto& [consumer,demand]:
             history_boundary_reference_demands(document,operations)) {
         static_cast<void>(consumer);
@@ -203,6 +202,10 @@ static kernel::HistoryOutputPolicy history_output_policy(
             requested.emplace(reference.owner_id,
                 reference.semantic_key,reference.instance_path);
     }
+    // Complete display packets still require the exact authored identities
+    // requested at their history boundaries. Publication size does not replace
+    // reference demand, including when reusing a compact source-body cache.
+    if(!result.final_boundary_first)return result;
     const auto graph=part_history_dependency_graph(document);
     visit_document_sketches(document,[&](const auto& sketch) {
         const bool needs_input=std::ranges::any_of(
@@ -990,6 +993,7 @@ calculate_part_reference_state(
         };
         PartCalculationPolicy calculation_policy;
         calculation_policy.refresh_physical_properties=policy.refresh_physical_properties;
+        calculation_policy.publish_complete_history=policy.publish_complete_history;
         // Editing prioritizes the final visible result. Intermediate packets
         // without a real calculation dependency are completed only when a
         // later history editor explicitly requests that rollback boundary.

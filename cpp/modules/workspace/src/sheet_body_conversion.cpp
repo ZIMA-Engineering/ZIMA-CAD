@@ -2082,6 +2082,10 @@ bool apply_remaining_bend_corner_corrections(document::PartDocument& part,
     return !residual.empty();
 }
 }
+namespace {
+#include "sheet_boundary_skeleton.inc"
+}
+
 double suggest_sheet_thickness(const kernel::ViewerMesh& mesh,const Face& selected) {
     const auto available=faces(mesh);const auto it=available.find(key(selected));
     return it==available.end()?0:planar_pair_distance(available,it->second);
@@ -2124,11 +2128,11 @@ SheetBodyConversion prepare_sheet_from_body_boundary(
     return result;
 }
 
-SheetBodyConversion prepare_sheet_from_body(const document::PartDocument& source,
+static SheetBodyConversion prepare_sheet_from_body_impl(const document::PartDocument& source,
         const std::vector<kernel::BodyResult>& cache,const Face& selected,
         double thickness,const kernel::OcctKernel& kernel,
         bool thickness_override,std::vector<Face> included_faces,
-        std::vector<std::string> rip_sketches) {
+        std::vector<std::string> rip_sketches,SheetBodyPreparation preparation) {
     SheetConversionAuthoringScope authoring_scope;
     const auto* target=source.body_history.find(source.body_history.active_body_id());
     if(!target||target->derived_copy)throw std::invalid_argument("Sheet from Body requires an editable active Body.");
@@ -2498,6 +2502,13 @@ SheetBodyConversion prepare_sheet_from_body(const document::PartDocument& source
                 result.push_back(continuations[index].edges[1]);
         return result;
     };
+    const bool skeleton_supported=!imported_step_source&&continuations.empty()&&
+        target->scope.translation()==V{}&&target->scope.rotation_degrees()==V{};
+    const bool use_skeleton=preparation!=SheetBodyPreparation::Materialized&&skeleton_supported;
+    if(preparation==SheetBodyPreparation::BoundarySkeleton&&!skeleton_supported)
+        throw std::runtime_error("Authored boundary preparation is unavailable for this source");
+    const auto skeleton_source_geometry=use_skeleton?
+        construction_reference_source_geometry(cache):kernel::ViewerReferenceGeometry{};
     SheetBodyConversion result;result.document=source;result.calculated=cache;
     // Imported STEP sheet reconstruction remains an ordinary editable Flat /
     // Bend sequence.  It needs the non-geometric replacement boundary only
@@ -2576,7 +2587,7 @@ SheetBodyConversion prepare_sheet_from_body(const document::PartDocument& source
         result.document.find_container(result.container_id)->
             sheet_from_body.generated_features=result.created;
     result.document.resolve_constructions(construction_reference_source_geometry(cache));
-    try {
+    if(!use_skeleton)try {
         result.calculated=kernel.evaluate_history_incremental(
             result.document.kernel_operations(),cache);
     } catch(const std::exception& error) {
@@ -2877,8 +2888,8 @@ SheetBodyConversion prepare_sheet_from_body(const document::PartDocument& source
     bool imported_corner_fallback_used{};
     for(std::size_t current_depth=1;current_depth<=maximum_depth;
             ++current_depth) {
-        const auto wave_geometry=construction_reference_source_geometry(
-            result.calculated);
+        const auto wave_geometry=use_skeleton?skeleton_reference_geometry(result.document,result.created,skeleton_source_geometry):
+            construction_reference_source_geometry(result.calculated);
         const auto local_geometry=source.sketch_reference_geometry_for(
             local_context,wave_geometry);
         auto wave_document=result.document;
@@ -2888,7 +2899,8 @@ SheetBodyConversion prepare_sheet_from_body(const document::PartDocument& source
     for(std::size_t i=1;i<nodes.size();++i) {
         if(depth[i]!=current_depth)continue;
         const auto& node=nodes[i];
-        const auto skip=[&](const char*) {
+        const auto skip=[&](const char* reason) {
+            if(use_skeleton)throw std::runtime_error("Skeleton node "+std::to_string(i)+" depth "+std::to_string(current_depth)+": "+reason);
             ++result.skipped;
         };
         if(!node.parent||*node.parent>=authored.size()||
@@ -2930,7 +2942,13 @@ SheetBodyConversion prepare_sheet_from_body(const document::PartDocument& source
         }
         // Reuse the native parent's exact joining edge within the agreed
         // 0.05 mm sheet conversion tolerance; never widen general CAD snapping.
-        if(!attachment||best>join_tolerance){skip("attachment");continue;}
+        if(!attachment||best>join_tolerance){
+            if(use_skeleton)throw std::runtime_error("Skeleton node "+std::to_string(i)+" depth "+std::to_string(current_depth)+
+                " attachment mismatch="+std::to_string(best)+" source="+nlohmann::json{{a.x,a.y,a.z},{b.x,b.y,b.z}}.dump()+
+                (attachment?" nearest="+nlohmann::json{{attachment->points.front().x,attachment->points.front().y,attachment->points.front().z},
+                    {attachment->points.back().x,attachment->points.back().y,attachment->points.back().z}}.dump():" no candidate"));
+            skip("attachment");continue;
+        }
         auto next=wave_document;auto profile=sketcher::Sketch::create_default();
         auto added=document::PartDocument::create_sketch_container();profile.owner_container_id=added.id;
         added.feature_kind=bend?document::FeatureKind::Bend:document::FeatureKind::Flat;
@@ -3062,6 +3080,10 @@ SheetBodyConversion prepare_sheet_from_body(const document::PartDocument& source
         result.created.push_back(added.id);authored[i]=added.id;
     }
         if(wave_changed) {
+            if(use_skeleton) {
+                result.document=std::move(wave_document);
+                continue;
+            }
             PartCalculationPolicy policy;policy.reject_errors=true;
             try {
                 auto calculated=calculate_part_with_resolved_references(
@@ -3331,7 +3353,8 @@ SheetBodyConversion prepare_sheet_from_body(const document::PartDocument& source
     if(!imported_step_source&&apply_measured_bend_corner_corrections(
             result.document,nodes,authored)) {
         PartCalculationPolicy policy;policy.reject_errors=true;
-        result.calculated=calculate_part_with_resolved_references(
+        if(use_skeleton)settle_skeleton(result.document,result.created,skeleton_source_geometry);
+        else result.calculated=calculate_part_with_resolved_references(
             kernel,result.document,&result.calculated,policy);
     }
     if(!imported_step_source) {
@@ -3343,24 +3366,54 @@ SheetBodyConversion prepare_sheet_from_body(const document::PartDocument& source
             if(pass>=result.created.size())throw std::invalid_argument(
                 "Sheet conversion cannot close the measured Bend corner.");
             PartCalculationPolicy policy;policy.reject_errors=true;
-            result.calculated=calculate_part_with_resolved_references(
+            if(use_skeleton)settle_skeleton(result.document,result.created,skeleton_source_geometry);
+            else result.calculated=calculate_part_with_resolved_references(
                 kernel,result.document,&result.calculated,policy);
         }
     }
     if(!imported_step_source&&resolve_bend_corner_directions(result.document,result.created)) {
         PartCalculationPolicy policy;policy.reject_errors=true;
-        result.calculated=calculate_part_with_resolved_references(
+        if(use_skeleton)settle_skeleton(result.document,result.created,skeleton_source_geometry);
+        else result.calculated=calculate_part_with_resolved_references(
             kernel,result.document,&result.calculated,policy);
     }
     capture_conversion_allowances(result);
-    prepare_sheet_boundary_graph(result.document,result.calculated,result.container_id);
+    if(use_skeleton)freeze_skeleton(result);
+    else prepare_sheet_boundary_graph(result.document,result.calculated,result.container_id);
     {
         PartCalculationPolicy policy;policy.reject_errors=true;
+        policy.publish_complete_history=use_skeleton;
         result.calculated=calculate_part_with_resolved_references(
             kernel,result.document,&result.calculated,policy);
     }
+    if(use_skeleton)reconcile_skeleton(result);
+    result.boundary_prepared_before_material=use_skeleton;
     result.document.validate_sheet_from_body();
     return result;
+}
+
+
+SheetBodyConversion prepare_sheet_from_body(const document::PartDocument& source,
+        const std::vector<kernel::BodyResult>& cache,const Face& selected,
+        double thickness,const kernel::OcctKernel& kernel,bool thickness_override,
+        std::vector<Face> included_faces,std::vector<std::string> rip_sketches,
+        SheetBodyPreparation preparation) {
+    if(preparation!=SheetBodyPreparation::Automatic)
+        return prepare_sheet_from_body_impl(source,cache,selected,thickness,kernel,
+            thickness_override,std::move(included_faces),std::move(rip_sketches),preparation);
+    // Both preparations own private drafts and use the same authoring algorithm.
+    // If an exact lightweight boundary cannot be obtained or reconciled, retain
+    // the established materialized path. Its existing errors remain authoritative;
+    // no unsupported optimization diagnostic is exposed in the user interface.
+    try {
+        return prepare_sheet_from_body_impl(source,cache,selected,thickness,kernel,
+            thickness_override,included_faces,rip_sketches,preparation);
+    } catch(const std::runtime_error&) {
+    } catch(const std::invalid_argument&) {
+    }
+    return prepare_sheet_from_body_impl(source,cache,selected,thickness,kernel,
+        thickness_override,std::move(included_faces),std::move(rip_sketches),
+        SheetBodyPreparation::Materialized);
 }
 
 namespace {

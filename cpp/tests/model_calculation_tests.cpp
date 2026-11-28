@@ -191,6 +191,24 @@ void verify_axis_endpoint_history_reference(const kernel::OcctKernel& kernel) {
             near(measured_volume(kernel,calculated.back()),8000-9*std::acos(-1.)*std::min(length,10.)+(length<10?0.:1.),"Axis endpoint chain changed its independently calculated volume");
             part=document::PartDocument::from_serialized(part.serialized());
         }
+        workspace::PartCalculationPolicy complete;
+        complete.publish_complete_history=true;
+        for(bool settled:{false,true})for(bool reuse:{false,true}) {
+            auto candidate=part;
+            const auto full=settled?workspace::calculate_part_with_resolved_references(
+                kernel,candidate,reuse?&calculated:nullptr,complete):
+                workspace::calculate_part(kernel,candidate,reuse?&calculated:nullptr,complete);
+            const auto& input=in_body?full.back().body_boundaries.begin()->second[1]:full[1];
+            require(input.history_reference_coverage.contains(
+                    {reference.owner_id,reference.semantic_key,reference.instance_path}),
+                "Complete history publication omitted exact authored reference demand");
+            const auto statuses=workspace::cached_history_placement_reference_status(candidate,full);
+            require(statuses.at(datum.id).available.contains(
+                    reference.owner_id,reference.semantic_key,reference.instance_path),
+                "Complete history publication lost the source endpoint in cached Tree validation");
+            if(!reuse)require(!input.mesh.triangles.empty(),
+                "Reference settling discarded the requested complete history publication policy");
+        }
     }
 }
 void verify_native_feature_datums_through_history(const kernel::OcctKernel& kernel) {

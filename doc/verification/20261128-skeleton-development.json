@@ -1,0 +1,247 @@
+{
+  "version": "2026112803",
+  "stage": "development verification before committed candidate packaging",
+  "paired_preparation_samples": [
+    {
+      "repeat": 1,
+      "mode": "baseline",
+      "conversion_seconds": 33.0598,
+      "body_calculations": 210
+    },
+    {
+      "repeat": 1,
+      "mode": "skeleton",
+      "conversion_seconds": 9.88302,
+      "body_calculations": 51
+    },
+    {
+      "repeat": 2,
+      "mode": "baseline",
+      "conversion_seconds": 27.9511,
+      "body_calculations": 210
+    },
+    {
+      "repeat": 2,
+      "mode": "skeleton",
+      "conversion_seconds": 9.51569,
+      "body_calculations": 51
+    },
+    {
+      "repeat": 3,
+      "mode": "baseline",
+      "conversion_seconds": 30.8599,
+      "body_calculations": 210
+    },
+    {
+      "repeat": 3,
+      "mode": "skeleton",
+      "conversion_seconds": 11.8988,
+      "body_calculations": 51
+    }
+  ],
+  "complex_geometry": [
+    {
+      "name": "complex-equivalence",
+      "exit_code": 0,
+      "seconds": 155.101,
+      "log_sha256": "69f9de98edf572987f5015fa9b071ffcf64ae02e0d00de69f2b5b3606f773db9"
+    },
+    {
+      "name": "complex-baseline-overlap",
+      "exit_code": 0,
+      "seconds": 3.976,
+      "log_sha256": "8d78f7abec66f1a787ed88f2791e9bfcdd4f05b4f1f1e94f3c79450c798448ff"
+    },
+    {
+      "name": "complex-candidate-overlap",
+      "exit_code": 0,
+      "seconds": 3.594,
+      "log_sha256": "8d78f7abec66f1a787ed88f2791e9bfcdd4f05b4f1f1e94f3c79450c798448ff"
+    }
+  ],
+  "integrated_gui": [
+    {
+      "name": "complex-box",
+      "exit_code": 0,
+      "seconds": 139.60750890000054,
+      "log_sha256": "d4ebecfd6cb05f3e231df66c697c531d014501ea26469b76ddb658bbe6a4007e"
+    },
+    {
+      "name": "sheet-exchange",
+      "exit_code": 0,
+      "seconds": 17.225317399999767,
+      "log_sha256": "ad98cbc3f6be71283bb474128a1230ccb8eed60fe131d79ab022e06214b37052"
+    },
+    {
+      "name": "same-body",
+      "exit_code": 0,
+      "seconds": 17.9746965000013,
+      "log_sha256": "7158a4785d960d2a21b76cd9f3c3a3bcf08e4fb968db6a917d80a8faba038742"
+    },
+    {
+      "name": "selection",
+      "exit_code": 0,
+      "seconds": 57.09161470000254,
+      "log_sha256": "b8affb9199485dadb0e6c43c64136d32ddbfd6a152191a97d02eeaa2feb3889a"
+    }
+  ],
+  "overlap_audit": [
+    {
+      "file": "review-models\\chamfered-corner\\box-probe-corrected.prtz",
+      "exit_code": 1,
+      "output": "overlap_pair=1,5 volume=0.0657098\r\nindependent_overlap_volume=0.0657098\r\nMismatch at line 210: 0.065710 versus 0.000000"
+    },
+    {
+      "file": "review-models\\chamfered-corner\\box-probe-unfolded.prtz",
+      "exit_code": 0,
+      "output": "independent_overlap_volume=0"
+    },
+    {
+      "file": "review-models\\chamfered-corner\\converted.prtz",
+      "exit_code": 0,
+      "output": "independent_overlap_volume=0"
+    },
+    {
+      "file": "review-models\\chamfered-corner\\nominal-unfolded.prtz",
+      "exit_code": 0,
+      "output": "independent_overlap_volume=0"
+    },
+    {
+      "file": "review-models\\drafted\\box-probe-corrected.prtz",
+      "exit_code": 1,
+      "output": "overlap_pair=1,4 volume=0.013879\r\nindependent_overlap_volume=0.013879\r\nMismatch at line 210: 0.013879 versus 0.000000"
+    },
+    {
+      "file": "review-models\\drafted\\box-probe-unfolded.prtz",
+      "exit_code": 0,
+      "output": "independent_overlap_volume=0"
+    },
+    {
+      "file": "review-models\\drafted\\converted.prtz",
+      "exit_code": 0,
+      "output": "independent_overlap_volume=0"
+    },
+    {
+      "file": "review-models\\drafted\\nominal-unfolded.prtz",
+      "exit_code": 0,
+      "output": "independent_overlap_volume=0"
+    },
+    {
+      "file": "review-models\\drafted-asymmetric\\box-probe-corrected.prtz",
+      "exit_code": 1,
+      "output": "overlap_pair=1,5 volume=0.0804373\r\nindependent_overlap_volume=0.0804373\r\nMismatch at line 210: 0.080437 versus 0.000000"
+    },
+    {
+      "file": "review-models\\drafted-asymmetric\\box-probe-unfolded.prtz",
+      "exit_code": 0,
+      "output": "independent_overlap_volume=0"
+    },
+    {
+      "file": "review-models\\drafted-asymmetric\\converted.prtz",
+      "exit_code": 0,
+      "output": "independent_overlap_volume=0"
+    },
+    {
+      "file": "review-models\\drafted-asymmetric\\nominal-unfolded.prtz",
+      "exit_code": 0,
+      "output": "independent_overlap_volume=0"
+    },
+    {
+      "file": "review-models\\drafted-chamfer\\box-probe-corrected.prtz",
+      "exit_code": 1,
+      "output": "overlap_pair=1,5 volume=0.0875908\r\nindependent_overlap_volume=0.0875908\r\nMismatch at line 210: 0.087591 versus 0.000000"
+    },
+    {
+      "file": "review-models\\drafted-chamfer\\box-probe-unfolded.prtz",
+      "exit_code": 0,
+      "output": "independent_overlap_volume=0"
+    },
+    {
+      "file": "review-models\\drafted-chamfer\\converted.prtz",
+      "exit_code": 0,
+      "output": "independent_overlap_volume=0"
+    },
+    {
+      "file": "review-models\\drafted-chamfer\\nominal-unfolded.prtz",
+      "exit_code": 0,
+      "output": "independent_overlap_volume=0"
+    },
+    {
+      "file": "review-models\\rectangular\\box-probe-corrected.prtz",
+      "exit_code": 1,
+      "output": "overlap_pair=1,4 volume=0.0126448\r\nindependent_overlap_volume=0.0126448\r\nMismatch at line 210: 0.012645 versus 0.000000"
+    },
+    {
+      "file": "review-models\\rectangular\\box-probe-unfolded.prtz",
+      "exit_code": 0,
+      "output": "independent_overlap_volume=0"
+    },
+    {
+      "file": "review-models\\rectangular\\converted.prtz",
+      "exit_code": 0,
+      "output": "independent_overlap_volume=0"
+    },
+    {
+      "file": "review-models\\rectangular\\nominal-unfolded.prtz",
+      "exit_code": 0,
+      "output": "independent_overlap_volume=0"
+    },
+    {
+      "file": "review-models\\trapezoidal\\box-probe-corrected.prtz",
+      "exit_code": 1,
+      "output": "overlap_pair=1,4 volume=0.00694717\r\nindependent_overlap_volume=0.00694717\r\nMismatch at line 210: 0.006947 versus 0.000000"
+    },
+    {
+      "file": "review-models\\trapezoidal\\box-probe-unfolded.prtz",
+      "exit_code": 0,
+      "output": "independent_overlap_volume=0"
+    },
+    {
+      "file": "review-models\\trapezoidal\\converted.prtz",
+      "exit_code": 0,
+      "output": "independent_overlap_volume=0"
+    },
+    {
+      "file": "review-models\\trapezoidal\\nominal-unfolded.prtz",
+      "exit_code": 0,
+      "output": "independent_overlap_volume=0"
+    }
+  ],
+  "corrected_folded_overlap_status": "Small recorded intersections accepted by the user; independent branches and unfolding remain mandatory.",
+  "logs": {
+    "final-reference-matrix.log": {
+      "sha256": "614dbccc78391967accd7518e1cabd3313f943294882f36907765a711572a65c",
+      "bytes": 30449
+    },
+    "final-existing-exchange.log": {
+      "sha256": "b3a56959b776ff73e0a90140efeb92f4214019f22897e3f74211bfff2a262ee6",
+      "bytes": 1814
+    },
+    "final-other-sheet-gates.log": {
+      "sha256": "962ce040b49d29132bf520cafe69e22a7df02b4a242bf7cfa28f310dec218db3",
+      "bytes": 1836
+    },
+    "model-calculation-reference-fix.log": {
+      "sha256": "c7f8449f9b1e6cf27fd80f9d0351cbff21df0fd8d8861481d187bd5ad4642fce",
+      "bytes": 446
+    },
+    "drawing-contracts.log": {
+      "sha256": "b9e9859f193656270eb9115503fa781722e6ae5be8bf40966340b65d37f7792b",
+      "bytes": 600
+    },
+    "drawing-translations.log": {
+      "sha256": "747b3b2a2a4ee26bd288a6ab22744144f15e7b577cd99c19de25a179d3377cd6",
+      "bytes": 311
+    },
+    "drawing-icon-themes.log": {
+      "sha256": "9649ce6bf13cc1edeae888448fb2422b3155fd55dd96d54156a429645e87dd89",
+      "bytes": 455
+    },
+    "package-gate-unit.log": {
+      "sha256": "85a0f7f29486224014f00bf0e194f82b3adc9dba878ae2332d90b79957c8f82c",
+      "bytes": 103
+    }
+  },
+  "native_linux": "not executed",
+  "github_publication": "held for user review after verified candidate completion"
+}

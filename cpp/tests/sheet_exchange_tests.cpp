@@ -1,5 +1,6 @@
 #include <zima/kernel/sheet_exchange.hpp>
 #include <zima/document/part_document.hpp>
+#include <zima/document/viewer_packet_json.hpp>
 #include <zima/kernel/occt_kernel.hpp>
 #include <zima/kernel/calculated_body_shape.hpp>
 #include <zima/kernel/calculation_diagnostics.hpp>
@@ -31,6 +32,20 @@
 #include <zima/kernel/calculated_body_shape.hpp>
 #include <TopExp_Explorer.hxx>
 #include <TopoDS_Shape.hxx>
+#include <BRepAlgoAPI_Cut.hxx>
+#include <BRepAlgoAPI_Common.hxx>
+#include <BRepGProp.hxx>
+#include <GProp_GProps.hxx>
+#include <BRepCheck_Analyzer.hxx>
+#include <BRepAdaptor_Curve.hxx>
+#include <BRepAdaptor_Surface.hxx>
+#include <BRepClass_FaceClassifier.hxx>
+#include <BRepTools.hxx>
+#include <BRepBuilderAPI_MakeVertex.hxx>
+#include <BRepExtrema_DistShapeShape.hxx>
+#include <GeomAPI_ProjectPointOnSurf.hxx>
+#include <BRep_Tool.hxx>
+#include <TopoDS.hxx>
 #include <iostream>
 #include <map>
 #include <array>
@@ -39,7 +54,11 @@
 #include <numbers>
 #include <iomanip>
 #include <fstream>
+#include <atomic>
+#include <future>
+#include <thread>
 #include "profile_solid_fixture.hpp"
+#include "../app/reference_tree_policy.hpp"
 
 namespace {
 using namespace zima;
@@ -877,7 +896,9 @@ void empty_conversion_contract(kernel::OcctKernel& kernel) {
 }
 
 void bent_conversion_contract(kernel::OcctKernel&);
-void boundary_graph_correction_contract(const workspace::SheetBodyConversion&,kernel::OcctKernel&);
+void boundary_graph_correction_contract(const workspace::SheetBodyConversion&,kernel::OcctKernel&,
+    std::vector<std::size_t>* observed_calculations=nullptr,
+    const std::filesystem::path& output="build");
 void contract(bool include_oblique_corners = true) {
     kernel::OcctKernel kernel;
     empty_conversion_contract(kernel);
@@ -3041,6 +3062,11 @@ void bent_conversion_contract(kernel::OcctKernel& kernel) {
             near(measured_volume(kernel,same.calculated.back().body_outputs.at(source)),
                 measured_volume(kernel,cache.back().body_outputs.at(source)),.01);
             auto cold=workspace::calculate_part_with_resolved_references(kernel,same.document);
+            if(original_definition!=same.document.serialized()&&std::getenv("ZIMA_EXPERIMENT_SHEET_SKELETON_FIRST")) {
+                const auto difference=nlohmann::json::diff(original_definition,same.document.serialized());
+                std::ofstream("build/skeleton-cold-difference.json")<<difference.dump(2);
+                for(const auto& change:difference)std::cerr<<"cold_change="<<change.at("path")<<'\n';
+            }
             check(same.document.serialized()==original_definition,
                 "Unchanged cold conversion rewrote its native identities or boundary graph");
             boundary_graph_correction_contract(same,kernel);
@@ -3444,7 +3470,8 @@ void bent_conversion_contract(kernel::OcctKernel& kernel) {
     }
 }
 void boundary_graph_correction_contract(const workspace::SheetBodyConversion& source,
-        kernel::OcctKernel& engine) {
+        kernel::OcctKernel& engine,std::vector<std::size_t>* observed_calculations,
+        const std::filesystem::path& output) {
     auto part=source.document;
     auto cache=source.calculated;
     const auto original=part.serialized();
@@ -3468,8 +3495,15 @@ void boundary_graph_correction_contract(const workspace::SheetBodyConversion& so
         const auto calculations=kernel::body_calculation_count.load();
         cache=workspace::calculate_part_with_resolved_references(engine,part,&cache);
         check(cache.back().calculation_errors.empty(),"Boundary correction failed material calculation");
-        check(kernel::body_calculation_count.load()-calculations<=1,
-            "Independent boundary correction repeated material calculation");
+        if(kernel::body_calculation_count.load()-calculations>1)
+            std::cerr<<"correction_calculations="<<kernel::body_calculation_count.load()-calculations
+                <<" stage="<<stage<<" last="<<last<<" value="<<value<<std::endl;
+        // The original focused fixture retains its one-call release gate.
+        // The new box matrix records nested operand calls separately: its
+        // A/B runner compares the same multi-branch fixture and cold caches.
+        if(observed_calculations)observed_calculations->push_back(kernel::body_calculation_count.load()-calculations);
+        else check(kernel::body_calculation_count.load()-calculations<=1,
+                "Independent boundary correction repeated material calculation");
         check(part.find_container(source.container_id)->sheet_from_body==definition,
             "Local correction rebuilt or changed its shared source graph");
         for(const auto& before:source.document.sketches) {
@@ -3496,6 +3530,11 @@ void boundary_graph_correction_contract(const workspace::SheetBodyConversion& so
                 dimension->value,1e-8);
         }
     }
+    if(std::abs(measured_volume(engine,cache.back().body_outputs.at(body))-original_volume)>1e-6) {
+        std::ofstream("build/correction-before.json")<<original.dump(2);
+        std::ofstream("build/correction-after.json")<<part.serialized().dump(2);
+        std::ofstream("build/correction-difference.json")<<nlohmann::json::diff(original,part.serialized()).dump(2);
+    }
     near(measured_volume(engine,cache.back().body_outputs.at(body)),original_volume,1e-6);
     {
         auto* feature=part.find_container(owner);
@@ -3507,7 +3546,24 @@ void boundary_graph_correction_contract(const workspace::SheetBodyConversion& so
         cache=workspace::calculate_part_with_resolved_references(engine,part,&cache);
     }
     const auto corrected_volume=measured_volume(engine,cache.back().body_outputs.at(body));
-    near(workspace::prepare_sheet_dxf(part,cache,engine).volume,corrected_volume,.05);
+    const auto corrected_unfolded_volume=workspace::prepare_sheet_dxf(part,cache,engine).volume;
+    // The focused constant-section fixture has equal folded/unfolded volume.
+    // Variable-width corner closures and a non-midplane neutral axis do not
+    // imply that equality. The box matrix compares their native developed
+    // geometry against its baseline and preserves it through release.
+    if(!observed_calculations)near(corrected_unfolded_volume,corrected_volume,.05);
+    else std::cout<<"corrected_folded_volume="<<std::setprecision(15)<<corrected_volume
+                  <<" corrected_unfolded_volume="<<corrected_unfolded_volume<<std::endl;
+    if(observed_calculations) {
+        std::filesystem::create_directories(output);
+        part.save(output/"box-probe-corrected.prtz",cache);
+        auto flat=part;
+        auto unbend=document::PartDocument::create_sketch_container();unbend.feature_kind=document::FeatureKind::Unbend;unbend.sheet_state.all=true;
+        flat.insert_history_entry(document::PartHistoryKind::Feature,unbend.id);flat.history.push_back(unbend);
+        const auto unbent=workspace::calculate_part_with_resolved_references(engine,flat,&cache);
+        check(!unbent.empty()&&unbent.back().calculation_errors.empty(),"Box native Unbend failed");
+        flat.save(output/"box-probe-unfolded.prtz",unbent);
+    }
     QTemporaryDir temporary("build/sheet-boundary-native-XXXXXX");
     check(temporary.isValid(),"Boundary persistence directory is unavailable");
     const auto path=std::filesystem::path(temporary.path().toStdString())/"boundary.prtz";
@@ -3553,7 +3609,7 @@ void boundary_graph_correction_contract(const workspace::SheetBodyConversion& so
     near(measured_volume(engine,state->session.calculated_boundaries().back().body_outputs.at(body)),
         corrected_volume,1e-6);
     near(workspace::prepare_sheet_dxf(state->session.document(),state->session.calculated_boundaries(),engine).volume,
-        corrected_volume,.05);
+        observed_calculations?corrected_unfolded_volume:corrected_volume,.05);
     {
         auto draft=*state->session.document().find_container(owner);
         auto sketch=*std::ranges::find(state->session.document().sketches,draft.bend.sketch_id,&sketcher::Sketch::id);
@@ -3570,10 +3626,84 @@ void boundary_graph_correction_contract(const workspace::SheetBodyConversion& so
 }
 }
 
+#include "sheet_boundary_skeleton_contract.inc"
+
 int main(int argc,char** argv) {
     try {
         // Fresh committed-source stages have no pre-existing build directory.
         std::filesystem::create_directories("build");
+        if(argc==2&&std::string_view(argv[1])=="--boundary-skeleton") {
+            boundary_skeleton_box_contract();return 0;
+        }
+        if(argc==2&&std::string_view(argv[1])=="--bend-allowance-probe") {
+            bend_allowance_equation_probe();return 0;
+        }
+        if(argc==3&&std::string_view(argv[1])=="--prepare-box-fixtures") {
+            prepare_box_fixtures(argv[2]);return 0;
+        }
+        if(argc==2&&std::string_view(argv[1])=="--ordinary-operand-probe") {
+            using Clock=std::chrono::steady_clock;
+            kernel::OcctKernel source_engine;
+            const auto input=source_engine.evaluate_history({{"stock",test::rectangular_request(160,100,20)}}).back();
+            std::vector<kernel::HistoryOperation> operations;
+            std::vector<std::string> owners{"stock"};
+            std::vector<std::size_t> indices;
+            for(int i=0;i<32;++i) {
+                test::CircularExtrusion hole{2,20};hole.translation={10.+20*(i%8),10.+25*(i/8),0};
+                kernel::FeatureGroupRequest group;group.children.emplace_back(static_cast<kernel::ExtrusionRequest>(hole));
+                owners.push_back("hole-"+std::to_string(i));indices.push_back(i+1);
+                operations.push_back({owners.back(),group,kernel::BooleanOperation::Subtract});
+            }
+            std::vector<kernel::BodyResult> serial_tools;
+            kernel::BodyResult serial_result;
+            for(int repeat=0;repeat<3;++repeat)for(bool parallel:{false,true}) {
+                kernel::OcctKernel evaluator;
+                const auto start=Clock::now();
+                std::vector<kernel::BodyResult> tools(operations.size());
+                std::atomic_size_t next{};
+                const auto work=[&] {
+                    kernel::OcctKernel isolated;
+                    kernel::AggregatePropertyScope properties(kernel::AggregatePropertyDemand::Deferred);
+                    kernel::FaceMeasurementScope measurements(false);
+                    while(true) {
+                        const auto i=next.fetch_add(1);if(i>=operations.size())break;
+                        tools[i]=isolated.calculate_feature_tool(operations[i],input,{},input,{});
+                    }
+                };
+                if(parallel) {
+                    std::vector<std::future<void>> jobs;
+                    for(int worker=0;worker<8;++worker)jobs.push_back(std::async(std::launch::async,work));
+                    for(auto& job:jobs)job.get();
+                } else work();
+                const auto prepared=Clock::now();
+                auto result=evaluator.calculate_subtract_block(input,tools,indices,owners,1e-7,.1);
+                const auto complete=Clock::now();
+                std::cout<<std::setprecision(9)<<"operand_probe repeat="<<repeat<<" parallel="<<parallel
+                    <<" preparation_seconds="<<std::chrono::duration<double>(prepared-start).count()
+                    <<" preparation_and_cut_seconds="<<std::chrono::duration<double>(complete-start).count()<<std::endl;
+                evaluator.ensure_body_properties(result);
+                near(result.volume,160.*100*20-32*std::numbers::pi*4*20,1e-6);
+                if(!parallel){serial_tools=tools;serial_result=result;}
+                else {
+                    for(std::size_t i=0;i<tools.size();++i)
+                        check(document::serialize_viewer_reference_geometry(tools[i].mesh.original_references)==
+                              document::serialize_viewer_reference_geometry(serial_tools[i].mesh.original_references),
+                              "Parallel preparation changed exact references");
+                    check(document::serialize_viewer_reference_geometry(result.mesh.original_references)==
+                          document::serialize_viewer_reference_geometry(serial_result.mesh.original_references),
+                          "Parallel preparation changed final references");
+                    const auto a=kernel::read_calculated_body_shape(result),b=kernel::read_calculated_body_shape(serial_result);
+                    for(bool reverse:{false,true}) {
+                        BRepAlgoAPI_Cut difference(reverse?b:a,reverse?a:b);
+                        check(difference.IsDone(),"Operand probe comparison failed");
+                        GProp_GProps properties;BRepGProp::VolumeProperties(difference.Shape(),properties);
+                        near(properties.Mass(),0,1e-6);
+                    }
+                }
+            }
+            std::cout<<"Ordinary independent operand probe: analytical volume, exact references and two-way difference passed"<<std::endl;
+            return 0;
+        }
         if(argc==1){contract();return 0;}
         if(argc==2&&std::string_view(argv[1])=="--bent-conversion") {
             zima::kernel::OcctKernel kernel;bent_conversion_contract(kernel);
@@ -3606,6 +3736,153 @@ int main(int argc,char** argv) {
             zima::kernel::OcctKernel regeneration;
             cache=zima::workspace::calculate_part_with_resolved_references(
                 regeneration,part);
+        }
+        if(argc==3&&std::string_view(argv[2])=="overlap-audit") {
+            check_independent_overlap(converted_body_shape(part,cache));
+            return 0;
+        }
+        if(argc==3&&std::string_view(argv[2])=="reference-audit") {
+            workspace::ReferenceIndex index;
+            index.add_geometry(cache.back().mesh.original_references);
+            index.add_geometry(part.origin_viewer_mesh().original_references);
+            index.add_geometry(part.construction_viewer_mesh().original_references);
+            index.add_geometry(part.history_origin_reference_geometry_before({}));
+            index.add_geometry(part.body_origin_reference_geometry());
+            const auto statuses=workspace::cached_history_placement_reference_status(part,cache);
+            for(const auto& feature:part.history) {
+                const auto status=statuses.find(feature.id);
+                const auto issue=app::feature_reference_issue(feature,part,index,nullptr,
+                    status==statuses.end()?nullptr:&status->second);
+                if(!issue.empty())std::cout<<"reference_issue="<<feature.name<<" "<<feature.id<<" "<<issue<<std::endl;
+            }
+            std::ofstream(std::filesystem::path(argv[1]).parent_path()/"reference-audit.json")<<part.serialized().dump(2);
+            return 0;
+        }
+        if(argc==3&&std::string_view(argv[2])=="strict-unfold") {
+            part.document_precision["sheet_cut_tolerance"]="0.000001";
+            auto unbend=document::PartDocument::create_sketch_container();unbend.feature_kind=document::FeatureKind::Unbend;unbend.sheet_state.all=true;
+            part.insert_history_entry(document::PartHistoryKind::Feature,unbend.id);part.history.push_back(unbend);
+            kernel::OcctKernel engine;
+            cache=workspace::calculate_part_with_resolved_references(engine,part,&cache);
+            check(!cache.empty()&&cache.back().calculation_errors.empty(),"Strict Unbend failed");
+            part.save(std::filesystem::path(argv[1]).parent_path()/"strict-unfolded.prtz",cache);
+            std::cout<<"Strict native Unbend at 1e-6 mm passed"<<std::endl;
+            return 0;
+        }
+        if(argc==3&&std::string_view(argv[2])=="inspect-flat-branches") {
+            const auto conversion=std::ranges::find_if(part.history,[](const auto& f){return f.feature_kind==document::FeatureKind::SheetFromBody;});
+            check(conversion!=part.history.end(),"Flat branch probe requires a conversion");
+            const auto body=part.body_owner_for_object(conversion->id)->scope.id;
+            const auto shape=kernel::read_calculated_body_shape(cache.back().body_outputs.at(body));
+            std::vector<TopoDS_Shape> solids;
+            for(TopExp_Explorer e(shape,TopAbs_SOLID);e.More();e.Next())solids.push_back(e.Current());
+            double overlap{};
+            for(std::size_t i=0;i<solids.size();++i)for(std::size_t j=i+1;j<solids.size();++j) {
+                BRepAlgoAPI_Common common(solids[i],solids[j]);
+                check(common.IsDone(),"Branch overlap calculation failed");
+                GProp_GProps volume;BRepGProp::VolumeProperties(common.Shape(),volume);
+                overlap+=std::abs(volume.Mass());
+            }
+            std::cout<<std::setprecision(15)<<"branches="<<solids.size()<<" pairwise_overlap_volume="<<overlap<<std::endl;
+            return 0;
+        }
+        if(argc==3&&std::string_view(argv[2])=="convert-box-fixture") {
+            double bottom=INFINITY;
+            for(const auto& point:cache.back().mesh.vertices)bottom=std::min(bottom,point.z);
+            const auto& faces=cache.back().mesh.original_references.triangle_references;
+            const auto seed=std::ranges::find_if(faces,[&](const auto& face){return face.surface&&face.surface->kind==kernel::SurfaceGeometry::Kind::Plane&&std::abs(face.surface->axis.z)>.999999&&std::abs(face.surface->origin.z-bottom)<1e-6;});
+            check(seed!=faces.end(),"Box fixture has no planar base");
+            kernel::OcctKernel engine;const auto count=kernel::body_calculation_count.load();
+            const auto begin=std::chrono::steady_clock::now();
+            const auto converted=workspace::prepare_sheet_from_body(part,cache,*seed,2,engine,true,{}, {},diagnostic_preparation());
+            const auto end=std::chrono::steady_clock::now();
+            std::cout<<"conversion_seconds="<<std::chrono::duration<double>(end-begin).count()<<" body_calculations="<<kernel::body_calculation_count.load()-count<<std::endl;
+            converted.document.save(std::filesystem::path(argv[1]).parent_path()/"converted.prtz",converted.calculated);
+            std::vector<std::size_t> correction_calculations;
+            boundary_graph_correction_contract(converted,engine,&correction_calculations);
+            std::cout<<"correction_calculations="<<nlohmann::json(correction_calculations).dump()<<std::endl;
+            std::cout<<"Box correction, native persistence, cold regeneration, unfold and release passed"<<std::endl;
+            return 0;
+        }
+        if((argc==4||argc==5)&&std::string_view(argv[2])=="compare-native") {
+            std::vector<kernel::BodyResult> other_cache;
+            auto other=document::PartDocument::load(argv[3],&other_cache);
+            const auto target=[](const document::PartDocument& doc) {
+                const auto f=std::ranges::find_if(doc.history,[](const auto& f){return f.feature_kind==document::FeatureKind::SheetFromBody;});
+                check(f!=doc.history.end(),"Comparison requires a conversion");
+                return doc.body_owner_for_object(f->id)->scope.id;
+            };
+            const auto body=target(part),other_body=target(other);
+            kernel::OcctKernel first_engine,second_engine;
+            const auto first_volume=measured_volume(first_engine,cache.back().body_outputs.at(body));
+            const auto second_volume=measured_volume(second_engine,other_cache.back().body_outputs.at(other_body));
+            std::cout<<std::setprecision(15)<<"baseline_volume="<<first_volume<<" candidate_volume="<<second_volume<<std::endl;
+            const auto first_shape=kernel::read_calculated_body_shape(cache.back().body_outputs.at(body));
+            const auto second_shape=kernel::read_calculated_body_shape(other_cache.back().body_outputs.at(other_body));
+            if(argc==5&&std::string_view(argv[4])=="diagnose") {
+                const auto solids=[](const TopoDS_Shape& shape) {
+                    std::vector<TopoDS_Shape> result;
+                    for(TopExp_Explorer e(shape,TopAbs_SOLID);e.More();e.Next())result.push_back(e.Current());
+                    return result;
+                };
+                const auto first_solids=solids(first_shape),second_solids=solids(second_shape);
+                std::cout<<"valid_a="<<BRepCheck_Analyzer(first_shape).IsValid()<<" valid_b="<<BRepCheck_Analyzer(second_shape).IsValid()
+                    <<" solids_a="<<first_solids.size()<<" solids_b="<<second_solids.size()<<std::endl;
+                for(int which:{0,1,2})for(double fuzzy:{0.,1e-8,1e-7}) {
+                    const auto a=which==1?second_shape:first_shape,b=which==0?first_shape:second_shape;
+                    NCollection_List<TopoDS_Shape> arguments,tools;arguments.Append(a);tools.Append(b);
+                    BRepAlgoAPI_Cut cut;cut.SetArguments(arguments);cut.SetTools(tools);cut.SetFuzzyValue(fuzzy);cut.Build();
+                    GProp_GProps properties;if(cut.IsDone())BRepGProp::VolumeProperties(cut.Shape(),properties);
+                    std::cout<<"diagnostic_cut="<<which<<" fuzzy="<<fuzzy<<" done="<<cut.IsDone()<<" volume="<<properties.Mass()<<std::endl;
+                }
+                check(first_solids.size()==second_solids.size(),"Branch solid counts differ");
+                std::set<std::size_t> used;
+                for(std::size_t index=0;index<first_solids.size();++index) {
+                    GProp_GProps first;BRepGProp::VolumeProperties(first_solids[index],first);
+                    std::size_t nearest=second_solids.size();double error=INFINITY;
+                    for(std::size_t j=0;j<second_solids.size();++j)if(!used.contains(j)) {
+                        GProp_GProps second;BRepGProp::VolumeProperties(second_solids[j],second);
+                        const double distance=first.CentreOfMass().Distance(second.CentreOfMass());
+                        if(distance<error){error=distance;nearest=j;}
+                    }
+                    check(nearest<second_solids.size(),"No matching diagnostic branch");used.insert(nearest);
+                    double delta{};
+                    for(bool reverse:{false,true}) {
+                        BRepAlgoAPI_Cut cut(reverse?second_solids[nearest]:first_solids[index],reverse?first_solids[index]:second_solids[nearest]);
+                        check(cut.IsDone(),"Branch comparison failed");GProp_GProps properties;BRepGProp::VolumeProperties(cut.Shape(),properties);delta+=std::abs(properties.Mass());
+                    }
+                    std::cout<<"branch="<<index<<" centroid_distance="<<error<<" difference="<<delta<<std::endl;
+                    GProp_GProps accurate_a,accurate_b;
+                    const auto error_a=BRepGProp::VolumeProperties(first_solids[index],accurate_a,1e-12);
+                    const auto error_b=BRepGProp::VolumeProperties(second_solids[nearest],accurate_b,1e-12);
+                    double separation{};
+                    for(bool reverse:{false,true}) {
+                        const auto& from=reverse?second_solids[nearest]:first_solids[index];
+                        const auto& to=reverse?first_solids[index]:second_solids[nearest];
+                        for(TopExp_Explorer e(from,TopAbs_EDGE);e.More();e.Next()) {
+                            BRepAdaptor_Curve curve(TopoDS::Edge(e.Current()));
+                            for(int station=0;station<=16;++station) {
+                                const auto point=curve.Value(std::lerp(curve.FirstParameter(),curve.LastParameter(),station/16.));
+                                BRepExtrema_DistShapeShape distance(BRepBuilderAPI_MakeVertex(point).Vertex(),to);
+                                check(distance.IsDone(),"Native boundary distance failed");
+                                separation=std::max(separation,distance.Value());
+                            }
+                        }
+                    }
+                    std::cout<<"branch_integral_delta="<<accurate_b.Mass()-accurate_a.Mass()<<" gauss_error_a="<<error_a
+                        <<" gauss_error_b="<<error_b<<" max_native_edge_sample_distance="<<separation<<std::endl;
+                }
+                return 0;
+            }
+            compare_independent_branch_solids(first_shape,second_shape);
+            cache=workspace::calculate_part_with_resolved_references(first_engine,part);
+            other_cache=workspace::calculate_part_with_resolved_references(second_engine,other);
+            near(measured_volume(first_engine,cache.back().body_outputs.at(body)),first_volume,1e-6);
+            near(measured_volume(second_engine,other_cache.back().body_outputs.at(other_body)),second_volume,1e-6);
+            compare_independent_branch_solids(kernel::read_calculated_body_shape(cache.back().body_outputs.at(body)),
+                kernel::read_calculated_body_shape(other_cache.back().body_outputs.at(other_body)));
+            std::cout<<"Two-way native difference and cold regeneration passed"<<std::endl;
+            return 0;
         }
         if(argc==5&&std::string_view(argv[2])=="trim-copy") {
             const auto retained=static_cast<std::size_t>(std::stoull(argv[3]));
@@ -3731,9 +4008,13 @@ int main(int argc,char** argv) {
                 resolve(boundary.mesh.triangle_references);
                 resolve(boundary.mesh.original_references.triangle_references);
             }
+            const auto started=std::chrono::steady_clock::now();
+            const auto calculations=kernel::body_calculation_count.load();
             const auto rebuilt=workspace::prepare_edited_sheet_from_body(part,cache,id,
                 selected,definition.thickness,engine,
-                definition.thickness_override,included,definition.rip_sketches);
+                definition.thickness_override,included,definition.rip_sketches,diagnostic_preparation());
+            std::cout<<"conversion_seconds="<<std::chrono::duration<double>(std::chrono::steady_clock::now()-started).count()
+                <<" body_calculations="<<kernel::body_calculation_count.load()-calculations<<std::endl;
             const auto output=std::filesystem::path(argv[1]).parent_path()/"conversion-rebuilt.prtz";
             rebuilt.document.save(output,rebuilt.calculated);
             for(const auto& f:rebuilt.document.history)if(f.feature_kind==document::FeatureKind::Bend) {

@@ -14,7 +14,12 @@ struct SheetBodyConversion {
     std::string container_id;
     std::vector<std::string> created;
     std::size_t skipped{};
+    bool boundary_prepared_before_material{};
 };
+// The explicit modes support native equivalence/performance verification.
+// Automatic uses authored boundaries where available and retains materialized
+// reference preparation for all other supported conversion geometry.
+enum class SheetBodyPreparation {Automatic, Materialized, BoundarySkeleton};
 // Capture exact nominal attachment boundaries in the conversion's native
 // definition. Each generated region consumes this independent reference source.
 void prepare_sheet_boundary_graph(document::PartDocument&,
@@ -44,13 +49,15 @@ void stage_unresolved_sheet_from_body(document::PartDocument&,
     const std::vector<kernel::BodyResult>&,const kernel::FaceReference&,double thickness,
     const kernel::OcctKernel&,bool thickness_override=true,
     std::vector<kernel::FaceReference> included_faces={},
-    std::vector<std::string> rip_sketches={});
+    std::vector<std::string> rip_sketches={},
+    SheetBodyPreparation preparation=SheetBodyPreparation::Automatic);
 [[nodiscard]] SheetBodyConversion prepare_edited_sheet_from_body(
     const document::PartDocument&,const std::vector<kernel::BodyResult>&,
     const std::string& conversion_id,const std::optional<kernel::FaceReference>&,
     double thickness,const kernel::OcctKernel&,bool thickness_override=true,
     std::vector<kernel::FaceReference> included_faces={},
-    std::vector<std::string> rip_sketches={});
+    std::vector<std::string> rip_sketches={},
+    SheetBodyPreparation preparation=SheetBodyPreparation::Automatic);
 // Refreshes only bound, non-detached native Flat/Bend children whose stable
 // source regions changed. Missing source topology keeps the last valid child
 // geometry and marks its binding invalid for later repair.

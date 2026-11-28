@@ -15,7 +15,7 @@ class PackageTests(unittest.TestCase):
         names = ['zima_cpp_sheet_branch_' + case for case in (
             'separated', 'point-contact', 'edge-contact', 'face-contact', 'overlap', 'contained', 'common-parent', 'line-bend', 'gui')]
         names += ['zima_cpp_sheet_exchange_tests', 'zima_cpp_sheet_transition_command_tests',
-                  'zima_cpp_bend_end_constraints_contract']
+                  'zima_cpp_bend_end_constraints_contract', 'zima_cpp_sheet_boundary_skeleton_contract']
         with tempfile.TemporaryDirectory() as temp:
             stage = Path(temp)
             for registered in ([], names[:-1]):

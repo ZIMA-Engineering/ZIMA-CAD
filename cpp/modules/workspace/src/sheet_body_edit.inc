@@ -106,7 +106,7 @@ SheetBodyConversion prepare_edited_sheet_from_body(
         const std::string& conversion_id,const std::optional<Face>& selected,
         double thickness,const kernel::OcctKernel& kernel,
         bool thickness_override,std::vector<Face> included_faces,
-        std::vector<std::string> rip_sketches) {
+        std::vector<std::string> rip_sketches,SheetBodyPreparation preparation) {
     const auto* existing=source.find_container(conversion_id);
     const auto* owner=source.body_owner_for_object(conversion_id);
     if(!existing||existing->feature_kind!=document::FeatureKind::SheetFromBody)
@@ -144,7 +144,7 @@ SheetBodyConversion prepare_edited_sheet_from_body(
         PartCalculationPolicy policy;policy.reject_errors=true;
         const auto input=calculate_part_with_resolved_references(kernel,prefix,&cache,policy);
         rebuilt=prepare_sheet_from_body(prefix,input,*selected,thickness,kernel,
-            thickness_override,std::move(included_faces),std::move(rip_sketches));
+            thickness_override,std::move(included_faces),std::move(rip_sketches),preparation);
         if(rebuilt.container_id.empty())
             throw std::invalid_argument("Sheet from Body does not exist.");
     } else {
@@ -193,6 +193,7 @@ SheetBodyConversion prepare_edited_sheet_from_body(
     const auto definition=rebuilt.document.find_container(conversion_id)->sheet_from_body;
     SheetBodyConversion result;result.document=source;result.container_id=conversion_id;
     result.skipped=rebuilt.skipped;
+    result.boundary_prepared_before_material=rebuilt.boundary_prepared_before_material;
     // Temporarily detach the old children for the established lost-reference
     // lifecycle when an edited region disappears. Surviving children keep IDs.
     auto* parent=result.document.find_container(conversion_id);
