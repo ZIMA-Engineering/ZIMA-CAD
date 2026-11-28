@@ -86,7 +86,8 @@
     "actualSize": "Skutečná velikost",
     "fitImage": "Přizpůsobit obrázek",
     "imageViewport": "Obrázek",
-    "contact": "Kontakt"
+    "contact": "Kontakt",
+    "sheetFromSolidShot": "ZIMA-CAD – Plech z tělesa"
   },
   "en": {
     "home": "Home",
@@ -175,7 +176,8 @@
     "actualSize": "Actual size",
     "fitImage": "Fit image",
     "imageViewport": "Image",
-    "contact": "Contact"
+    "contact": "Contact",
+    "sheetFromSolidShot": "ZIMA-CAD – Sheet Metal from Solid"
   },
   "de": {
     "home": "Start",
@@ -264,7 +266,8 @@
     "actualSize": "Originalgröße",
     "fitImage": "Bild einpassen",
     "imageViewport": "Bild",
-    "contact": "Kontakt"
+    "contact": "Kontakt",
+    "sheetFromSolidShot": "ZIMA-CAD – Blech aus Volumenkörper"
   },
   "fr": {
     "home": "Accueil",
@@ -353,7 +356,8 @@
     "actualSize": "Taille réelle",
     "fitImage": "Adapter l’image",
     "imageViewport": "Image",
-    "contact": "Contact"
+    "contact": "Contact",
+    "sheetFromSolidShot": "ZIMA-CAD – Tôle à partir d’un solide"
   },
   "ru": {
     "home": "Главная",
@@ -442,6 +446,7 @@
     "actualSize": "Фактический размер",
     "fitImage": "Вписать изображение",
     "imageViewport": "Изображение",
-    "contact": "Контакты"
+    "contact": "Контакты",
+    "sheetFromSolidShot": "ZIMA-CAD – Листовой металл из тела"
   }
 }

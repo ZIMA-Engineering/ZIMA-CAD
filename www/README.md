@@ -45,7 +45,11 @@ inventory, not arbitrary repository files. Stop it with Ctrl+C.
 Add PNG, JPEG, WebP, MP4 or WebM files to `0200-gallery/images/`. No handwritten
 image list is needed. The preview rebuilds automatically; a public static host
 needs a new build and upload. Filenames supply fallback captions, so use
-descriptive names. The initial four media files have localized captions.
+descriptive names. Map authored media to translation keys in `[GalleryCaptions]`
+to show a localized title below every preview in both the home slideshow and
+the gallery. The current five media files have captions in all five languages.
+`sheet-metal-from-solid.mp4` is the complete user-supplied recording, delivered
+at 1920 × 1044 with H.264 video, AAC audio and MP4 fast-start metadata.
 Videos use native controls, muted inline playback in the home slideshow and
 manual playback in the gallery. Hidden slides stop video playback. Reduced-motion
 preferences disable automatic slideshow playback. The first item varies between
