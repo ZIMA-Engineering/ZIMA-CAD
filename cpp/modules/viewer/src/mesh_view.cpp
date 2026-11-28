@@ -1460,6 +1460,51 @@ std::array<float, 11> MeshView::camera_state() const {
 }
 
 double MeshView::camera_field_of_view() const { return impl_->perspective_field_of_view; }
+void MeshView::navigate_camera(const QPointF& pan,const QQuaternion& rotation,
+    double logarithmic_scale,const QPointF& zoom_anchor,std::optional<kernel::Vec3> orbit_pivot) {
+    if(!std::isfinite(pan.x())||!std::isfinite(pan.y())||!std::isfinite(logarithmic_scale)||
+        !std::isfinite(zoom_anchor.x())||!std::isfinite(zoom_anchor.y())||
+        !std::isfinite(rotation.scalar())||!std::isfinite(rotation.x())||
+        !std::isfinite(rotation.y())||!std::isfinite(rotation.z())||rotation.lengthSquared()<1e-12F)return;
+    if(orbit_pivot&&(!std::isfinite(orbit_pivot->x)||!std::isfinite(orbit_pivot->y)||!std::isfinite(orbit_pivot->z)))return;
+    if(pan.isNull()&&rotation.isIdentity()&&logarithmic_scale==0)return;
+    if(!pan.isNull()) {
+        if(impl_->fly_navigation_enabled) {
+            const auto inverse=impl_->orientation.inverted();
+            const auto right=inverse.rotatedVector(QVector3D(1,0,0));
+            const auto up=inverse.rotatedVector(QVector3D(0,1,0));
+            const float distance_per_pixel=2*impl_->view_scale/std::max(1,height());
+            impl_->fly_position+=-right*float(pan.x())*distance_per_pixel+up*float(pan.y())*distance_per_pixel;
+        } else impl_->pan_pixels+=pan;
+    }
+    if(!rotation.isIdentity()) {
+        const auto next=(rotation*impl_->orientation).normalized();
+        if(!impl_->fly_navigation_enabled) {
+            const auto pivot=orbit_pivot?QVector3D(orbit_pivot->x,orbit_pivot->y,orbit_pivot->z):impl_->center;
+            const auto relative=impl_->center+impl_->orbit_center_offset-pivot;
+            impl_->orbit_center_offset=pivot-impl_->center+next.inverted().rotatedVector(impl_->orientation.rotatedVector(relative));
+        }
+        impl_->orientation=next;
+    }
+    if(logarithmic_scale!=0) {
+        if(impl_->fly_navigation_enabled&&impl_->projection_mode==ProjectionMode::Perspective) {
+            const auto forward=impl_->orientation.inverted().rotatedVector(QVector3D(0,0,-1));
+            const float distance=std::max(impl_->radius*.12F,impl_->view_scale*.08F);
+            impl_->fly_position-=forward*float(logarithmic_scale/std::log(1.15))*distance;
+        } else {
+            const auto old_scale=impl_->view_scale;
+            impl_->view_scale=std::clamp(float(impl_->view_scale*std::exp(std::clamp(logarithmic_scale,-20.,20.))),
+                impl_->radius*.001F,impl_->radius*1000.F);
+            if(old_scale>0) {
+                const auto ratio=old_scale/impl_->view_scale;
+                const QPointF center(width()*.5,height()*.5);
+                impl_->pan_pixels=zoom_anchor-center-(zoom_anchor-center-impl_->pan_pixels)*ratio;
+            }
+            impl_->rebuild_persisted_reference_mesh();
+        }
+    }
+    impl_->candidates.clear();update();
+}
 void MeshView::set_camera_output_aspect(std::optional<double> aspect) {
     if(aspect&&(!std::isfinite(*aspect)||*aspect<=0))throw std::invalid_argument("Invalid camera output aspect");
     impl_->camera_output_aspect=aspect;update();
@@ -7807,40 +7852,16 @@ void MeshView::mouseMoveEvent(QMouseEvent* event) {
             impl_->middle_dragged = true;
         }
         if (event->buttons().testFlag(Qt::RightButton)) {
-            if (impl_->fly_navigation_enabled) {
-                const auto inverse = impl_->orientation.inverted();
-                const QVector3D right = inverse.rotatedVector(
-                    QVector3D(1.0F, 0.0F, 0.0F));
-                const QVector3D up = inverse.rotatedVector(
-                    QVector3D(0.0F, 1.0F, 0.0F));
-                const float distance_per_pixel = 2.0F * impl_->view_scale /
-                    std::max(1, height());
-                impl_->fly_position +=
-                    -right * movement.x() * distance_per_pixel +
-                    up * movement.y() * distance_per_pixel;
-            } else {
-                impl_->pan_pixels += QPointF(movement.x(), movement.y());
-            }
+            navigate_camera(QPointF(movement.x(),movement.y()),QQuaternion{},0,rect().center());
         } else {
             constexpr float degrees_per_pixel = 0.22F;
             const auto horizontal = QQuaternion::fromAxisAndAngle(
                 0.0F, 1.0F, 0.0F, movement.x() * degrees_per_pixel);
             const auto vertical = QQuaternion::fromAxisAndAngle(
                 1.0F, 0.0F, 0.0F, movement.y() * degrees_per_pixel);
-            const auto next_orientation=(vertical * horizontal * impl_->orientation).normalized();
-            if(!impl_->fly_navigation_enabled) {
-                const auto pivot=impl_->middle_orbit_pivot.value_or(impl_->center);
-                // Rotate the camera about the fixed world pivot. Its camera
-                // coordinates, depth and projection stay constant in both
-                // Ortho and Perspective; zoom and pan retain their meanings.
-                const auto relative=impl_->center+impl_->orbit_center_offset-pivot;
-                impl_->orbit_center_offset=pivot-impl_->center+
-                    next_orientation.inverted().rotatedVector(impl_->orientation.rotatedVector(relative));
-            }
-            impl_->orientation=next_orientation;
+            const auto pivot=impl_->middle_orbit_pivot.value_or(impl_->center);
+            navigate_camera({},vertical*horizontal,0,rect().center(),kernel::Vec3{pivot.x(),pivot.y(),pivot.z()});
         }
-        impl_->candidates.clear();
-        update();
         return;
     }
     const bool command_wants_next_candidate =
@@ -8098,34 +8119,7 @@ void MeshView::mouseReleaseEvent(QMouseEvent* event) {
 
 void MeshView::wheelEvent(QWheelEvent* event) {
     const float steps = event->angleDelta().y() / 120.0F;
-    if (impl_->fly_navigation_enabled &&
-        impl_->projection_mode == ProjectionMode::Perspective) {
-        const QVector3D forward = impl_->orientation.inverted().rotatedVector(
-            QVector3D(0.0F, 0.0F, -1.0F));
-        const float distance = std::max(impl_->radius * 0.12F,
-            impl_->view_scale * 0.08F);
-        // Positive wheel steps widen the ordinary camera's view scale.
-        // Move backward in fly mode to preserve that same zoom direction.
-        impl_->fly_position -= forward * steps * distance;
-        impl_->candidates.clear();
-        update();
-        event->accept();
-        return;
-    }
-    const float old_scale = impl_->view_scale;
-    impl_->view_scale *= std::pow(1.15F, steps);
-    impl_->view_scale = std::clamp(
-        impl_->view_scale, impl_->radius * 0.001F, impl_->radius * 1000.0F);
-    if (old_scale > 0.0F) {
-        const float zoom_ratio = old_scale / impl_->view_scale;
-        const QPointF cursor = event->position();
-        const QPointF center(width() * 0.5, height() * 0.5);
-        impl_->pan_pixels = cursor - center -
-            (cursor - center - impl_->pan_pixels) * zoom_ratio;
-    }
-    impl_->candidates.clear();
-    impl_->rebuild_persisted_reference_mesh();
-    update();
+    navigate_camera({},QQuaternion{},std::log(1.15)*steps,event->position());
     event->accept();
 }
 

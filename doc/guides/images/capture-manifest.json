@@ -8843,6 +8843,81 @@
       "kind": "native overview",
       "sha256": "0212cfd470c78d5c0ef0a2e6c9cac58d5d7bd23608fe0ef2e0592dd00dba585e",
       "guide": "render"
+    },
+    {
+      "path": "commands/en/controllerSettingsAction.png",
+      "language": "en",
+      "kind": "native command",
+      "sha256": "f6c089a75890288d980c84cb7a22bfdb5faa8e4113fa012778ed75d9b82fddea",
+      "action": "controllerSettingsAction",
+      "text": "3D controllers",
+      "enabled": true
+    },
+    {
+      "path": "dialogs/en/controller-settings.png",
+      "language": "en",
+      "kind": "native dialog",
+      "sha256": "634aed2da7e432510bb63f08c63d9c36ab0ad4fadaaa77d059607c80b15753db"
+    },
+    {
+      "path": "commands/cs/controllerSettingsAction.png",
+      "language": "cs",
+      "kind": "native command",
+      "sha256": "f6c089a75890288d980c84cb7a22bfdb5faa8e4113fa012778ed75d9b82fddea",
+      "action": "controllerSettingsAction",
+      "text": "3D ovladače",
+      "enabled": true
+    },
+    {
+      "path": "dialogs/cs/controller-settings.png",
+      "language": "cs",
+      "kind": "native dialog",
+      "sha256": "d5a842d3f82949b697a8a495614bbdc2d4a9d7c18fb37ed3f2b23bba622c3b30"
+    },
+    {
+      "path": "commands/de/controllerSettingsAction.png",
+      "language": "de",
+      "kind": "native command",
+      "sha256": "f6c089a75890288d980c84cb7a22bfdb5faa8e4113fa012778ed75d9b82fddea",
+      "action": "controllerSettingsAction",
+      "text": "3D-Controller",
+      "enabled": true
+    },
+    {
+      "path": "dialogs/de/controller-settings.png",
+      "language": "de",
+      "kind": "native dialog",
+      "sha256": "6b22197848a067c3d65b4c5dea208d4cf13140be46b6149d8a7d04a63c764b71"
+    },
+    {
+      "path": "commands/fr/controllerSettingsAction.png",
+      "language": "fr",
+      "kind": "native command",
+      "sha256": "f6c089a75890288d980c84cb7a22bfdb5faa8e4113fa012778ed75d9b82fddea",
+      "action": "controllerSettingsAction",
+      "text": "Contrôleurs 3D",
+      "enabled": true
+    },
+    {
+      "path": "dialogs/fr/controller-settings.png",
+      "language": "fr",
+      "kind": "native dialog",
+      "sha256": "728469d95b5c31aece4b7e73fbbf83516e125e46e8fa4f944cde5c7a420e7938"
+    },
+    {
+      "path": "commands/ru/controllerSettingsAction.png",
+      "language": "ru",
+      "kind": "native command",
+      "sha256": "f6c089a75890288d980c84cb7a22bfdb5faa8e4113fa012778ed75d9b82fddea",
+      "action": "controllerSettingsAction",
+      "text": "3D-контроллеры",
+      "enabled": true
+    },
+    {
+      "path": "dialogs/ru/controller-settings.png",
+      "language": "ru",
+      "kind": "native dialog",
+      "sha256": "a3025fc6dae32b2455af4865bc8f02076497ea1916594034ebe2260a1c85530d"
     }
   ]
 }

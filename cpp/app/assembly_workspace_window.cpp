@@ -3,6 +3,7 @@
 #include "workspace/workspace_internal.hpp"
 #include "window_title_icon.hpp"
 #include "guide_capture.hpp"
+#include "controller_input.hpp"
 #include "updateservice.h"
 #include <zima/workspace/document_operations.hpp>
 #include <zima/workspace/family_operations.hpp>
@@ -81,6 +82,7 @@ AssemblyWorkspaceWindow::AssemblyWorkspaceWindow(const QString& working_director
     });
     refresh_tabs();
     refresh_scene();
+    initialize_controllers();
     documentation::install_command_capture(*this,application_settings_.language);
     if(application_settings_.browser.open_on_start)QTimer::singleShot(0,this,[this]{open_browser();});
 }
@@ -92,6 +94,8 @@ void AssemblyWorkspaceWindow::changeEvent(QEvent* event) {
 }
 
 AssemblyWorkspaceWindow::~AssemblyWorkspaceWindow() {
+    delete controller_settings_dialog_.data();
+    delete controller_input_;controller_input_=nullptr;
     stop_render();
     render_tabs_.clear();active_render_page_=nullptr;
     // File Manager pages are owned by file_manager_stack_. Let Qt destroy that

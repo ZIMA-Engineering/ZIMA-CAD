@@ -155,6 +155,7 @@ ApplicationSettings ApplicationSettings::load(const QString& working_directory, 
         return fallback;
     };
     result.language = value("Application/Language", "en");
+    result.controllers=controller::decode(value("Controllers/Preferences",QString{}));
     result.browser.home=value("Browser/HomePage",browser::official_url()).trimmed();
     result.browser.open_on_start=value("Browser/OpenOnStartup","false").toLower()=="true";
     result.browser.ask_download_path=value("Browser/AskDownloadPath","false").toLower()=="true";
@@ -445,6 +446,7 @@ bool ApplicationSettings::save(QString* error) const {
         file_manager_sources.push_back(object);
     }
     QMap<QString, QVariant> common{
+        {"Controllers/Preferences",controller::encode(controllers)},
         {"Drawing/PdfDirectory",drawing_pdf_directory},
         {"Drawing/DxfDirectory",drawing_dxf_directory},
         {"Drawing/ViewDisplayStyle",drawing_view_style},

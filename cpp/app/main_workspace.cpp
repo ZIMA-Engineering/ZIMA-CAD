@@ -17119,7 +17119,8 @@ int main(int argc, char* argv[]) {
     // legacy numbered-file suffixes. Isolate their policy from the user's naming settings;
     // normalization and all five languages have dedicated GUI contracts.
     std::optional<QTemporaryDir> console_test_settings;
-    if(runs_startup_contract && qEnvironmentVariableIsSet("ZIMA_VERIFY_CONSOLE_ONLY")) {
+    if(runs_startup_contract && qEnvironmentVariableIsSet("ZIMA_VERIFY_CONSOLE_ONLY") &&
+        !qEnvironmentVariableIsSet("ZIMA_VERIFY_CONTROLLERS_ONLY")) {
         console_test_settings.emplace();
         const auto inherited=zima::app::ApplicationSettings::load(startup_directory);
         QSettings config(console_test_settings->filePath("config.ini"),QSettings::IniFormat);

@@ -7,6 +7,7 @@
 #include <QStringList>
 #include "../common/document_naming.hpp"
 #include "../browser/preferences.hpp"
+#include "controller_preferences.hpp"
 
 class QApplication;
 
@@ -66,6 +67,7 @@ struct ApplicationSettings {
     bool vladimir{true};
     browser::Preferences browser;
     FileManagerPreferences file_manager;
+    controller::Preferences controllers;
     double sheet_cut_tolerance{0.05};
     document::SweepPrecisionDefaults sweep_precision_defaults;
 

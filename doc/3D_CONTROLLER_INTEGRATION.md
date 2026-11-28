@@ -1,7 +1,9 @@
 # Shared 3D controller integration
 
-Status: agreed direction, 2026-11-28; implementation and hardware acceptance
-remain pending. This feature is not part of Windows release 2026112801.
+Status: local Windows implementation and finite SpacePilot acceptance completed,
+2026-11-28. Native Linux and real NaviGo acceptance remain pending. See the
+[verification record](verification/20261128-3d-controllers.md). This feature is
+not part of the immutable Windows release 2026112801.
 
 The requested scope is camera navigation and programmable command buttons for
 multiple controller families, including 3Dconnexion and NaviGo. Manufacturing
@@ -26,8 +28,8 @@ implementing the feature; do not simulate mouse presses or duplicate camera
 equations in device adapters. Preserve existing middle-button confirmation,
 dragging, cursor orbit, fly navigation and Render camera editing contracts.
 
-Use `cpp/app/application_settings.hpp` and the existing internal
-`GlobalSettingsDialog` for preferences. Persist user profiles in installation
+Use `cpp/app/application_settings.hpp` and an internal `PropertiesSubWindow`
+opened beside System Setup for preferences. Persist user profiles in installation
 configuration, outside immutable version directories. No native model-format
 change or geometry sidecar is needed.
 
@@ -47,7 +49,9 @@ Continuous motion may be coalesced before a bounded render update. Discrete
 zoom impulses and button press/release edges must retain their meaning and
 must not disappear under a latest-frame-only policy. Reject malformed or
 non-finite input. Cap elapsed integration after a stalled application, stop on
-stale input, and clear held state on disconnect, focus loss and device changes.
+stale input, and clear motion on disconnect, focus loss and device changes.
+Retain observed held buttons across focus changes so a held key cannot become a
+new press merely by switching views; disconnect clears the button state too.
 Device polling and parsing must not block the GUI thread.
 
 Only the active eligible CAD view receives navigation. File Manager, browser
@@ -75,8 +79,10 @@ ensure one physical event cannot arrive through two enabled adapters.
 The user connected a device during this design discussion. Windows reports
 `SpacePilot`, USB VID/PID `046D:C625`, present with status OK and signed Microsoft
 HID drivers (`input.inf`). No running 3Dconnexion service/process or installation
-in its standard Program Files locations was found. This establishes USB
-enumeration only: axis motion, button events and the display are not yet tested.
+in its standard Program Files locations was found. That initial inspection
+established enumeration only. Subsequent physical motion, button mapping and
+zoom-direction acceptance are recorded in the verification report above; the
+display remains unsupported.
 The original SpacePilot has a different support history from SpaceNavigator;
 the manufacturer's discontinued-device table lists 3DxWare 10.4.10 as its last
 extended-support Windows driver. Do not advertise current-driver compatibility
@@ -143,4 +149,61 @@ same implementation change; corresponding guide images use that UI language.
 - [Windows Raw Input device information](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getrawinputdeviceinfoa)
 - [Windows HID capabilities](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/hidpi/ns-hidpi-_hidp_caps)
 
-This design adds no application UI strings and changes no runtime behavior.
+## Implemented boundaries
+
+The shared service lives in `cpp/app/controller_input.*`, with pure motion,
+framing and settings contracts in `controller_motion.hpp` and
+`controller_preferences.hpp`. `controller_hid.cpp` contains the native HID
+transport branches; `controller_serial.cpp` owns a bounded, dedicated serial
+worker. No new SDK dependency or model format is introduced.
+
+Windows uses foreground Raw Input for Multi-axis Controller collections
+(Generic Desktop usage 8) from vendors 046D/256F. Axes and button capabilities
+come from the HID preparsed descriptor. The Linux branch uses nonblocking evdev
+for those vendors with all six relative axes. Its scale is currently 500 units;
+native validation against the connected device remains required. Device IDs
+include the native connection path; moving USB ports or switching OS may require
+selecting/configuring a separate profile. The driver SDK, device display and
+driver radial menu are not implemented.
+
+NaviGo opens only the selected port at 115200 8N1, enables DTR/RTS and sends no
+firmware/calibration commands. Continuous axes use an adjustable input range
+(initially 100); Z=50 supplies one 1.15 zoom step. Partial lines, invalid numbers
+and oversized lines are handled before dispatch. All Z steps in a received
+chunk are retained while continuous motion uses its newest frame. No assignable
+NaviGo button events are inferred from the six-field protocol.
+
+Continuous input expires after 150 ms, independently for each axis/report.
+Integration is capped at 100 ms; longer stalls discard motion. A precise 16 ms
+GUI timer consumes input, while serial I/O remains on its worker. The physical
+HID convention becomes camera-space pan X, pan -Z, zoom Y, pitch Rx, yaw -Rz,
+roll Ry. The user selected pull-toward-user to zoom in on 2026-11-28 after the
+physical SpacePilot check. Per-axis reversal is user configurable. Motion changes transient camera
+state through the same navigation method as the existing mouse controls.
+
+Profiles are per device and Modeling/Sketch/Drawing context. Sketch defaults to
+rotation off; Drawing always consumes pan/zoom only. Settings changes remain
+private until OK. Cancel leaves saved preferences and the input service intact.
+The settings window displays raw input independently from navigation, which is
+paused while that window is open. Existing command availability is checked
+before every bound button press; visible dialogs and text entry block commands.
+
+`Controllers/Preferences` stores a schema-1 JSON value through the established
+configuration save path. It contains no native model data or external geometry.
+All controller UI strings are in the five application catalogs.
+
+## Verification entry points
+
+- `zima_cpp_controller_input_tests`: framing, impulses, timing, preferences,
+  button edges, focus ownership and disconnect.
+- `zima_cpp_controller_camera_tests`: independent camera equations, fixed
+  pivots, mouse wheel parity, frame rates, finite inputs and fly movement.
+- `ZIMA_VERIFY_CONSOLE_ONLY=1 ZIMA_VERIFY_CONTROLLERS_ONLY=1` with
+  `zima-cad-cpp --verify-startup --working-directory <isolated-directory>`:
+  internal GUI, real enumeration, synthetic application input, saved settings,
+  profiles, command availability and existing mouse navigation. The directory
+  must contain its own `config.ini`; production configuration is not a test target.
+
+Synthetic input and enumeration establish different facts from physical motion.
+Record real SpacePilot motion/buttons, native Linux behavior and real NaviGo
+hardware separately before claiming those capabilities as verified.

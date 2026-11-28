@@ -1,5 +1,30 @@
 # Linux build and distribution handoff - 2026-09-15
 
+## Pending 3D controller verification (2026-11-28)
+
+The shared controller service, internal settings window, camera integration and
+NaviGo framing are implemented in C++. Native integration is limited to Windows
+Raw Input versus Linux evdev and native serial opening. The current Windows
+machine has no WSL or separate Linux host; the user will boot its Linux system
+for native acceptance. Do not report Linux compilation or hardware success from
+the Windows results.
+
+Build `zima-cad-cpp`, `zima_cpp_controller_input_tests` and
+`zima_cpp_controller_camera_tests` using the established native Linux SDK. Run
+those tests and the isolated controller GUI entry point documented in
+[3D controller integration](3D_CONTROLLER_INTEGRATION.md). Verify access to the
+specific controller event node under `/dev/input`, all six axes, button IDs,
+foreground ownership, unplug/reconnect and stopping stale input. The evdev
+backend does not grab the device exclusively or change system permissions.
+If access is denied, establish the appropriate device-specific desktop/udev
+policy; do not run CAD as root or broadly grant access to unrelated input devices.
+
+For NaviGo, select its explicit `/dev/serial/by-id` or `/dev/ttyACM*` port and
+verify 115200 8N1, DTR/RTS, reconnect, partial frames and one-shot zoom. No real
+NaviGo hardware has been available during Windows development. Verify coexistence
+with any installed 3Dconnexion/spacenav software separately. Device display and
+driver-specific radial menus are outside the current adapter.
+
 ## Pending FEM player and video verification (2026-11-24)
 
 The shared FEM player uses Qt Multimedia 6.8 or newer and its FFmpeg backend for

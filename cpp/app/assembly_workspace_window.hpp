@@ -60,6 +60,7 @@ namespace zima::command_host { class Host; struct Change; }
 namespace zima::browser { class Runtime; class Tab; }
 
 namespace zima::app {
+namespace controller {class InputService;struct Target;}
 
 class CommandConsole;
 class PrimitivePropertiesDialog;
@@ -93,6 +94,7 @@ public:
     [[nodiscard]] zima::commands::Result execute_console_command(const QString& text);
     [[nodiscard]] bool open_document_path(const QString& path);
     void offer_system_setup();
+    [[nodiscard]] controller::InputService* controller_input_for_test()const{return controller_input_;}
     void show_tree_item_properties(QTreeWidgetItem* item);
     void export_sheet_dxf();
     void show_sheet_from_body(const std::string& container_id={});
@@ -540,6 +542,12 @@ private:
     std::string properties_dialog_instance_path_;
     QDialog* rename_document_dialog_{};
     QDialog* global_settings_dialog_{};
+    controller::InputService* controller_input_{};
+    QPointer<QDialog> controller_settings_dialog_;
+    QMap<QString,QPointer<QAction>> controller_actions_;
+    void initialize_controllers();
+    void show_controller_settings();
+    [[nodiscard]] controller::Target controller_target()const;
     struct PartRollbackContext {
         std::string part_document_id;
         std::string instance_path;

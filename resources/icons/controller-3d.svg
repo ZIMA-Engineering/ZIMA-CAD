@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" role="img" aria-labelledby="title">
+  <title id="title">3D controller</title>
+  <g fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+    <ellipse cx="12" cy="8" rx="5" ry="2.5"/>
+    <path d="M7 8v6c0 3.3 10 3.3 10 0V8M7 13l-3 3v3c3 2.5 13 2.5 16 0v-3l-3-3M2 7V3h4M18 3h4v4M12 3v2"/>
+    <path d="M5 17h1m12 0h1"/>
+  </g>
+</svg>

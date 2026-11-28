@@ -1297,6 +1297,20 @@ public:
     }
 
     void fit_sheet() { view_zoom_=1;view_pan_={};update(); }
+    void navigate_view(const QPointF& pan_pixels,double logarithmic_zoom_in,const QPointF& anchor) {
+        if(!sheet_||!std::isfinite(pan_pixels.x())||!std::isfinite(pan_pixels.y())||!std::isfinite(logarithmic_zoom_in))return;
+        if(pan_pixels.isNull()&&logarithmic_zoom_in==0)return;
+        view_pan_+=pan_pixels;
+        if(logarithmic_zoom_in!=0) {
+            const double old_zoom=canvas_zoom();
+            const auto local=(anchor-canvas_origin(old_zoom))/old_zoom;
+            view_zoom_=std::clamp(view_zoom_*std::exp(std::clamp(logarithmic_zoom_in,-20.,20.)),.05,100.);
+            const double next_zoom=canvas_zoom();
+            const QPointF centered((width()-sheet_->width_mm()*next_zoom)*.5,(height()-sheet_->height_mm()*next_zoom)*.5);
+            view_pan_=anchor-local*next_zoom-centered;
+        }
+        update();
+    }
     QRectF sheet_rectangle()const {
         if(!sheet_)return {};
         const auto zoom=canvas_zoom();
@@ -2116,17 +2130,7 @@ protected:
             QWidget::wheelEvent(event);
             return;
         }
-        const double old_zoom = canvas_zoom();
-        const QPointF old_origin = canvas_origin(old_zoom);
-        const QPointF local = (event->position() - old_origin) / old_zoom;
-        const double factor = std::pow(1.0 / 1.15,
-            static_cast<double>(event->angleDelta().y()) / 120.0);
-        view_zoom_ = std::clamp(view_zoom_ * factor, 0.05, 100.0);
-        const double new_zoom = canvas_zoom();
-        const QPointF centered((width() - sheet_->width_mm() * new_zoom) * 0.5,
-            (height() - sheet_->height_mm() * new_zoom) * 0.5);
-        view_pan_ = event->position() - local * new_zoom - centered;
-        update();
+        navigate_view({},-std::log(1.15)*event->angleDelta().y()/120.,event->position());
         event->accept();
     }
     void keyPressEvent(QKeyEvent* event) override {
@@ -3464,6 +3468,10 @@ void DrawingWindow::show_dimension_properties(const std::string& id,int extend,
         :tr("Kóta: vyberte vazby a umístění. OK potvrdí měřenou kótu."));
 }
 void DrawingWindow::fit_sheet() { canvas_->fit_sheet(); }
+void DrawingWindow::navigate_view(const QPointF& pan_fraction,double logarithmic_zoom_in) {
+    canvas_->navigate_view(QPointF(pan_fraction.x()*canvas_->height(),-pan_fraction.y()*canvas_->height()),
+        logarithmic_zoom_in,canvas_->rect().center());
+}
 void DrawingWindow::start_selection() {
     canvas_->start_selection();
     update_action_states();

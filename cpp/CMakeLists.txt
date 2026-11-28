@@ -694,7 +694,20 @@ if(ZIMA_BUILD_TESTS)
     endif()
 endif()
 
+add_library(zima_controller STATIC app/controller_input.cpp app/controller_hid.cpp app/controller_serial.cpp)
+target_include_directories(zima_controller PUBLIC app)
+target_link_libraries(zima_controller PUBLIC Qt6::Core PRIVATE Threads::Threads)
+if(WIN32)
+    target_link_libraries(zima_controller PRIVATE hid user32)
+endif()
+if(ZIMA_BUILD_TESTS)
+    add_executable(zima_cpp_controller_input_tests tests/controller_input_tests.cpp)
+    target_link_libraries(zima_cpp_controller_input_tests PRIVATE zima_controller)
+    add_test(NAME zima_cpp_controller_input_tests COMMAND zima_cpp_controller_input_tests)
+endif()
+
 add_executable(zima-cad-cpp
+    app/controller_workspace.cpp app/controller_dialog.cpp
     app/fem_body_command.cpp app/fem_body_ui_verification.cpp app/fem_video_export.cpp
     app/fem_condition_command.cpp
     app/cam_body_command.cpp app/cam_body_ui_verification.cpp
@@ -725,6 +738,7 @@ endif()
 
 target_include_directories(zima-cad-cpp PRIVATE app)
 target_link_libraries(zima-cad-cpp PRIVATE
+    zima_controller
     zima_update_ui zima_ai zima_dxf_preview
     zima_edge_treatment_preview
     zima_command_host zima_commands zima_workspace zima_assembly zima_document_core zima_drawing zima_kernel_occt zima_viewer zima_ui
@@ -881,6 +895,10 @@ if(ZIMA_BUILD_TESTS)
     add_executable(zima_cpp_origin_camera_tests tests/origin_camera_tests.cpp)
     target_link_libraries(zima_cpp_origin_camera_tests PRIVATE zima_document_core zima_viewer)
     add_test(NAME zima_cpp_origin_camera_tests COMMAND zima_cpp_origin_camera_tests)
+    add_executable(zima_cpp_controller_camera_tests tests/controller_camera_tests.cpp)
+    target_link_libraries(zima_cpp_controller_camera_tests PRIVATE zima_viewer)
+    add_test(NAME zima_cpp_controller_camera_tests COMMAND zima_cpp_controller_camera_tests)
+    set_tests_properties(zima_cpp_controller_camera_tests PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 30)
 endif()
 
 add_executable(zima_cpp_history_fingerprint_benchmark tests/history_fingerprint_benchmark.cpp)
@@ -3539,6 +3557,13 @@ foreach(fastener_check_target zima_cpp_fastener_library_contract_tests zima_file
     if(TARGET ${fastener_check_target})
         set_target_properties(${fastener_check_target} PROPERTIES
             RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/fastener-runtime")
+    endif()
+endforeach()
+
+foreach(controller_check_target zima_cpp_controller_input_tests zima_cpp_controller_camera_tests zima_cpp_origin_camera_tests)
+    if(TARGET ${controller_check_target})
+        set_target_properties(${controller_check_target} PROPERTIES
+            RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/controller-runtime")
     endif()
 endforeach()
 

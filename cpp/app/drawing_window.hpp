@@ -34,6 +34,7 @@ public:
         bool create_initial_document = true);
     void save_pdf();
     void fit_sheet();
+    void navigate_view(const QPointF& pan_fraction,double logarithmic_zoom_in);
     QRectF sheet_rectangle_for_test() const;
     std::optional<QPointF> witness_grip_for_test(const std::string&,const std::string&,int)const;
     void export_dxf(const std::filesystem::path& path);

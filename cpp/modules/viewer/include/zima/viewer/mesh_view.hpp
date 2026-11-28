@@ -133,6 +133,11 @@ public:
     [[nodiscard]] std::optional<std::pair<zima::kernel::Vec3, zima::kernel::Vec3>>
         ray_at(const QPointF& position) const;
     [[nodiscard]] std::array<float, 11> camera_state() const;
+    // Shared transient navigation for mouse and external 3D controllers.
+    // Positive logarithmic_scale widens the view; pan is in viewport pixels.
+    void navigate_camera(const QPointF& pan,const QQuaternion& rotation,
+        double logarithmic_scale,const QPointF& zoom_anchor,
+        std::optional<kernel::Vec3> orbit_pivot=std::nullopt);
     // Runtime resize anchoring belongs to the displayed document, not to a
     // persisted named camera or its authored physical frame.
     [[nodiscard]] std::array<float, 4> camera_viewport_anchor() const;

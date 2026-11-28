@@ -43,6 +43,7 @@
 #include "surface_intersection_dialog.hpp"
 #include "surface_trim_dialog.hpp"
 #include "global_settings_dialog.hpp"
+#include "controller_dialog.hpp"
 #include "surface_wire_visibility.hpp"
 #include "confirmed_face_hit.hpp"
 #include <zima/document/sheet_form_definition.hpp>
@@ -285,6 +286,7 @@ Q_NEVER_INLINE static int verify_sketch_roles(QApplication& application, Assembl
 #include "general_surface_ui_verification.inc"
 #include "profile_point_order_ui_verification.inc"
 #include "cursor_orbit_ui_verification.inc"
+#include "controller_ui_verification.inc"
 #include "point_circle_ui_verification.inc"
 #include "loft_intersection_ui_verification.inc"
 #include "loft_ui_verification.inc"
@@ -645,6 +647,7 @@ Q_NEVER_INLINE static int verify_shaft_thread_dialog(AssemblyWorkspaceWindow& wi
     }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}
 }
 int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& window,const std::filesystem::path& directory) {
+    if(qEnvironmentVariableIsSet("ZIMA_VERIFY_CONTROLLERS_ONLY"))return verify_controller_ui(application,window,directory);
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_EXIT_ONLY"))return verify_sketch_exit_ui(application,window,directory);
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_BROKEN_REFERENCE_ONLY"))return verify_broken_reference_ui(application,window,directory);
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_PARTIAL_GENERATOR_SOURCE"))return verify_partial_generator_ui(application,directory);

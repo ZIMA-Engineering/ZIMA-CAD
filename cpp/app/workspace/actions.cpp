@@ -313,19 +313,20 @@ void AssemblyWorkspaceWindow::create_actions() {
         t("toolbar.standard_views", "Základní pohledy"));
     standard_views_menu_->setObjectName("standardViewsMenu");
     const auto add_standard_view = [this](
-        const QString& text, zima::viewer::StandardView standard_view) {
+        const QString& text, zima::viewer::StandardView standard_view,const char* id) {
         auto* action = standard_views_menu_->addAction(text);
+        action->setObjectName(id);
         connect(action, &QAction::triggered, this, [this, standard_view] {
             if (viewer_ != nullptr) viewer_->set_standard_view(standard_view);
         });
     };
-    add_standard_view(t("toolbar.view.default", "Výchozí – izometrický"), zima::viewer::StandardView::Isometric);
-    add_standard_view(t("toolbar.view.front", "Front – XZ"), zima::viewer::StandardView::Front);
-    add_standard_view(t("toolbar.view.back", "Back – XZ opačně"), zima::viewer::StandardView::Back);
-    add_standard_view(t("toolbar.view.left", "Left – YZ"), zima::viewer::StandardView::Left);
-    add_standard_view(t("toolbar.view.right", "Right – YZ opačně"), zima::viewer::StandardView::Right);
-    add_standard_view(t("toolbar.view.top", "Top – XY"), zima::viewer::StandardView::Top);
-    add_standard_view(t("toolbar.view.bottom", "Bottom – XY opačně"), zima::viewer::StandardView::Bottom);
+    add_standard_view(t("toolbar.view.default", "Výchozí – izometrický"), zima::viewer::StandardView::Isometric,"standardIsometricAction");
+    add_standard_view(t("toolbar.view.front", "Front – XZ"), zima::viewer::StandardView::Front,"standardFrontAction");
+    add_standard_view(t("toolbar.view.back", "Back – XZ opačně"), zima::viewer::StandardView::Back,"standardBackAction");
+    add_standard_view(t("toolbar.view.left", "Left – YZ"), zima::viewer::StandardView::Left,"standardLeftAction");
+    add_standard_view(t("toolbar.view.right", "Right – YZ opačně"), zima::viewer::StandardView::Right,"standardRightAction");
+    add_standard_view(t("toolbar.view.top", "Top – XY"), zima::viewer::StandardView::Top,"standardTopAction");
+    add_standard_view(t("toolbar.view.bottom", "Bottom – XY opačně"), zima::viewer::StandardView::Bottom,"standardBottomAction");
     view->addSeparator();
     view->addAction(selection_action_);
     view->addSeparator();
@@ -414,6 +415,11 @@ void AssemblyWorkspaceWindow::create_actions() {
     connect(settings_action_, &QAction::triggered,
         this, [this] { show_global_settings(); });
     tools->addAction(settings_action_);
+    auto* controller_settings=make_action(t("controller.title","3D controllers"),"controller-3d");
+    controller_settings->setObjectName("controllerSettingsAction");
+    controller_settings->setToolTip(t("controller.tooltip","Configure 3D controller motion and buttons"));
+    tools->addAction(controller_settings);
+    connect(controller_settings,&QAction::triggered,this,[this]{show_controller_settings();});
     auto* setup_action=make_action(tr("System Setup"),"settings");
     setup_action->setObjectName("systemSetupAction");
     tools->addAction(setup_action);
@@ -1091,6 +1097,7 @@ void AssemblyWorkspaceWindow::create_actions() {
     main_toolbar_->addAction(redo_action_);
     main_toolbar_->addSeparator();
     main_toolbar_->addAction(settings_action_);
+    main_toolbar_->addAction(controller_settings);
     auto* browser_action=make_action(tr("New web tab"),"web");
     browser_action->setObjectName("newBrowserTabAction");
     main_toolbar_->addAction(browser_action);tools->addAction(browser_action);

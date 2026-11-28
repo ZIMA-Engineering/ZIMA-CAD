@@ -2700,5 +2700,87 @@
         "note": "Экспортируется только активный лист. Диалог выбора файла не открывается; существующий одноимённый результат может быть перезаписан."
       }
     }
+  },
+  "controllerSettingsAction": {
+    "slug": "command-controller-settings",
+    "group": "shared",
+    "dialogCapture": "controller-settings",
+    "sources": [
+      "cpp/app/controller_dialog.cpp",
+      "cpp/app/controller_workspace.cpp",
+      "cpp/app/controller_input.cpp"
+    ],
+    "locales": {
+      "en": {
+        "title": "3D controllers",
+        "intro": "Configure a 3D controller for camera navigation and existing CAD commands.",
+        "prerequisites": "Connect a compatible controller. The original USB SpacePilot has been exercised on Windows. Native Linux and real NaviGo hardware verification are still pending.",
+        "steps": [
+          "Open Tools > 3D controllers or click the controller icon beside System Setup.",
+          "Choose the device and Modeling, Sketch or Drawing profile. For NaviGo, select its explicit serial port on Connection; it opens after OK.",
+          "On Camera, adjust pan, rotation and zoom sensitivity. Dead zone ignores small neutral movements; Reverse changes an axis direction. Pull the 3Dconnexion cap toward you to zoom in. Live input shows the received axes while camera navigation is paused.",
+          "On Buttons, press a device button to highlight its row, then select its command. Unassigned disables that binding. Buttons invoke only commands currently available in CAD.",
+          "Confirm OK, return to an active model or Drawing view and try the controller. Reopen settings to refine the profile. Cancel discards pending settings."
+        ],
+        "result": "The saved device/profile settings remain available after restarting CAD. Motion changes only the camera, without recalculating geometry or adding Undo transactions.",
+        "note": "Sketch defaults to rotation disabled; Drawings use pan and zoom only. Commands are blocked during text entry and while dialogs are open. NaviGo uses 115200 8N1 and an adjustable input range; its current six-value protocol has no assignable button events. Device displays and driver radial menus are not implemented."
+      },
+      "cs": {
+        "title": "3D ovladače",
+        "intro": "Nastavte 3D ovladač pro pohyb kamery a spouštění existujících příkazů CADu.",
+        "prerequisites": "Připojte kompatibilní ovladač. Původní USB SpacePilot byl vyzkoušen ve Windows. Ověření v nativním Linuxu a na skutečném zařízení NaviGo zatím čeká.",
+        "steps": [
+          "Otevřete Nástroje > 3D ovladače nebo klikněte na ikonu ovladače vedle nastavení systému.",
+          "Vyberte zařízení a profil Modelování, Skica nebo Výkres. Pro NaviGo vyberte na kartě Připojení jeho konkrétní sériový port; připojí se po OK.",
+          "Na kartě Kamera nastavte citlivost posunu, otáčení a přiblížení. Mrtvá zóna potlačuje drobné pohyby v klidu; Obrátit změní směr osy. Tažením hlavice 3Dconnexion k sobě přibližujete. Živý vstup ukazuje přijímané osy, zatímco pohyb kamery je pozastaven.",
+          "Na kartě Tlačítka stiskněte tlačítko zařízení, aby se zvýraznil jeho řádek, a vyberte příkaz. Nepřiřazeno vazbu vypne. Spouštějí se pouze příkazy aktuálně dostupné v CADu.",
+          "Potvrďte OK, vraťte se do aktivního pohledu modelu nebo výkresu a ovladač vyzkoušejte. Pro doladění profil znovu otevřete. Zrušit zahodí rozpracované nastavení."
+        ],
+        "result": "Uložené nastavení zařízení a profilů zůstane zachováno po restartu CADu. Pohyb mění pouze kameru, bez přepočtu geometrie a bez zápisů do historie Zpět.",
+        "note": "Ve skice je otáčení výchozím nastavením vypnuté; výkres používá pouze posun a přiblížení. Při psaní textu a v otevřených dialozích jsou příkazy blokované. NaviGo používá 115200 8N1 a nastavitelný rozsah vstupu; jeho současný protokol šesti hodnot nepřenáší události pro přiřaditelná tlačítka. Displej zařízení a kruhové nabídky ovladače nejsou implementované."
+      },
+      "de": {
+        "title": "3D-Controller",
+        "intro": "Konfigurieren Sie einen 3D-Controller für die Kameranavigation und vorhandene CAD-Befehle.",
+        "prerequisites": "Schließen Sie einen kompatiblen Controller an. Der ursprüngliche USB SpacePilot wurde unter Windows erprobt. Die Prüfung unter nativem Linux und mit echter NaviGo-Hardware steht noch aus.",
+        "steps": [
+          "Öffnen Sie Werkzeuge > 3D-Controller oder klicken Sie auf das Controllersymbol neben der Systemeinrichtung.",
+          "Wählen Sie das Gerät und das Profil Modellierung, Skizze oder Zeichnung. Wählen Sie für NaviGo unter Verbindung den zugehörigen seriellen Anschluss; die Verbindung startet nach OK.",
+          "Passen Sie unter Kamera die Empfindlichkeit für Verschieben, Drehen und Zoom an. Die Totzone unterdrückt kleine Bewegungen in Neutralstellung; Umkehren ändert die Achsenrichtung. Ziehen Sie die 3Dconnexion-Kappe zu sich, um heranzuzoomen. Die Live-Eingabe zeigt die Achsen bei pausierter Kameranavigation.",
+          "Drücken Sie unter Tasten eine Gerätetaste, um deren Zeile hervorzuheben, und wählen Sie einen Befehl. Nicht zugewiesen deaktiviert die Zuordnung. Es werden nur aktuell verfügbare CAD-Befehle ausgeführt.",
+          "Bestätigen Sie mit OK, wechseln Sie zur aktiven Modell- oder Zeichnungsansicht und testen Sie den Controller. Öffnen Sie die Einstellungen erneut zur Feinabstimmung. Abbrechen verwirft ausstehende Änderungen."
+        ],
+        "result": "Die gespeicherten Geräteprofile bleiben nach dem Neustart erhalten. Bewegungen ändern nur die Kamera, ohne Geometrieberechnung oder Rückgängig-Einträge.",
+        "note": "In Skizzen ist Drehen standardmäßig deaktiviert; Zeichnungen verwenden nur Verschieben und Zoom. Texteingabe und offene Dialoge sperren Befehle. NaviGo verwendet 115200 8N1 und einen einstellbaren Eingabebereich; sein aktuelles Protokoll mit sechs Werten enthält keine zuweisbaren Tastenereignisse. Gerätedisplays und radiale Treibermenüs sind nicht implementiert."
+      },
+      "fr": {
+        "title": "Contrôleurs 3D",
+        "intro": "Configurez un contrôleur 3D pour déplacer la caméra et lancer les commandes de CAO existantes.",
+        "prerequisites": "Branchez un contrôleur compatible. Le SpacePilot USB d’origine a été essayé sous Windows. La vérification sous Linux natif et avec du matériel NaviGo réel reste à effectuer.",
+        "steps": [
+          "Ouvrez Outils > Contrôleurs 3D ou cliquez sur l’icône du contrôleur à côté de la configuration du système.",
+          "Choisissez le périphérique et le profil Modélisation, Esquisse ou Dessin. Pour NaviGo, sélectionnez son port série dans Connexion ; il sera ouvert après OK.",
+          "Dans Caméra, réglez la sensibilité du déplacement, de la rotation et du zoom. La zone morte ignore les petits mouvements au repos ; Inverser change le sens d’un axe. Tirez le capuchon 3Dconnexion vers vous pour rapprocher la vue. L’entrée en direct affiche les axes pendant que la navigation est suspendue.",
+          "Dans Boutons, appuyez sur un bouton du périphérique pour surligner sa ligne, puis choisissez une commande. Non affecté désactive l’affectation. Seules les commandes actuellement disponibles sont exécutées.",
+          "Validez par OK, revenez à une vue active du modèle ou du dessin et essayez le contrôleur. Rouvrez les réglages pour affiner le profil. Annuler abandonne les modifications en cours."
+        ],
+        "result": "Les profils enregistrés restent disponibles après le redémarrage. Le mouvement modifie uniquement la caméra, sans recalculer la géométrie ni ajouter une opération Annuler.",
+        "note": "La rotation est désactivée par défaut dans les esquisses ; les dessins utilisent uniquement le déplacement et le zoom. La saisie de texte et les dialogues ouverts bloquent les commandes. NaviGo utilise 115200 8N1 et une plage d’entrée réglable ; son protocole actuel à six valeurs ne fournit pas d’événements de boutons attribuables. Les écrans des périphériques et les menus radiaux du pilote ne sont pas implémentés."
+      },
+      "ru": {
+        "title": "3D-контроллеры",
+        "intro": "Настройте 3D-контроллер для перемещения камеры и запуска существующих команд САПР.",
+        "prerequisites": "Подключите совместимый контроллер. Оригинальный USB SpacePilot проверен в Windows. Проверка в нативной системе Linux и на реальном устройстве NaviGo ещё предстоит.",
+        "steps": [
+          "Откройте Инструменты > 3D-контроллеры или нажмите значок контроллера рядом с настройками системы.",
+          "Выберите устройство и профиль Моделирование, Эскиз или Чертёж. Для NaviGo выберите его конкретный последовательный порт на вкладке Подключение; соединение начнётся после OK.",
+          "На вкладке Камера настройте чувствительность перемещения, вращения и масштаба. Мёртвая зона подавляет небольшие движения в нейтральном положении; Инвертировать меняет направление оси. Потяните рукоятку 3Dconnexion к себе для приближения. Индикаторы показывают входные оси, пока навигация камеры приостановлена.",
+          "На вкладке Кнопки нажмите кнопку устройства, чтобы выделить её строку, затем выберите команду. Не назначено отключает привязку. Выполняются только доступные в данный момент команды САПР.",
+          "Подтвердите OK, вернитесь в активный вид модели или чертежа и проверьте контроллер. Для уточнения профиля снова откройте настройки. Отмена отбрасывает несохранённые изменения."
+        ],
+        "result": "Сохранённые профили устройства доступны после перезапуска. Движение меняет только камеру, не пересчитывая геометрию и не создавая записей отмены.",
+        "note": "В эскизе вращение по умолчанию отключено; в чертеже используются только перемещение и масштаб. Ввод текста и открытые диалоги блокируют команды. NaviGo использует 115200 8N1 и настраиваемый диапазон входа; его текущий протокол из шести значений не содержит событий назначаемых кнопок. Дисплеи устройств и радиальные меню драйвера не реализованы."
+      }
+    }
   }
 }

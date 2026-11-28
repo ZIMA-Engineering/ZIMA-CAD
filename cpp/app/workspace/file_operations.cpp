@@ -673,6 +673,7 @@ void AssemblyWorkspaceWindow::offer_system_setup() {
 }
 
 void AssemblyWorkspaceWindow::show_global_settings(bool system_setup,bool first_launch) {
+    if(controller_settings_dialog_) {controller_settings_dialog_->raise();controller_settings_dialog_->activateWindow();return;}
     if (global_settings_dialog_ != nullptr) {
         global_settings_dialog_->raise();
         global_settings_dialog_->activateWindow();
