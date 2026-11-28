@@ -3751,7 +3751,11 @@ bool refresh_sheet_from_body_associations(
         if(std::ranges::none_of(conversion->sheet_from_body.child_bindings,
                 [](const auto& binding){return !binding.detached;}))continue;
         const auto source_inputs=sheet_boundary_source_inputs(source,*conversion);
-        if(!source_inputs.empty()&&source_inputs==conversion->sheet_from_body.boundary_source_inputs&&
+        const auto defaults=document::sheet_metal_defaults(source);
+        const double thickness=conversion->sheet_from_body.thickness_override?
+            conversion->sheet_from_body.thickness:defaults.thickness_mm.value_or(1.);
+        const bool thickness_changed=thickness!=conversion->sheet_from_body.thickness;
+        if(!thickness_changed&&!source_inputs.empty()&&source_inputs==conversion->sheet_from_body.boundary_source_inputs&&
                 calculated.back().calculation_errors.empty()&&
                 std::ranges::all_of(conversion->sheet_from_body.child_bindings,
                     [](const auto& binding){return binding.detached||binding.references_valid;}))continue;
@@ -3791,7 +3795,15 @@ bool refresh_sheet_from_body_associations(
         auto source_mesh=source_mesh_in_target_coordinates(source,
             ripped_source.empty()?calculated:ripped_source,*conversion,!ripped_source.empty());
         bool missing{};
-        bool changed_source{};
+        // Attached children inherit the calculated boundary's thickness, not
+        // the Part default directly. Rebuild that boundary when its material
+        // inputs change even if every source face/edge remains identical.
+        // Keep the last calculated thickness separate from the input key so
+        // a previously saved stale attached boundary is also recalculated.
+        const auto previous_inputs=nlohmann::json::parse(
+            conversion->sheet_from_body.boundary_source_inputs,nullptr,false);
+        bool changed_source=thickness_changed||!previous_inputs.is_object()||
+            previous_inputs.value("k_factor",defaults.k_factor)!=defaults.k_factor;
         for(auto& binding:conversion->sheet_from_body.child_bindings) {
             if(binding.detached)continue;
             bool binding_missing{};
@@ -4024,6 +4036,7 @@ bool refresh_sheet_from_body_associations(
 
         conversion=source.find_container(conversion_id);
         auto next_definition=conversion->sheet_from_body;
+        next_definition.thickness=rebuilt_parent->sheet_from_body.thickness;
         next_definition.boundary_source_inputs=source_inputs;
         next_definition.boundary_graph=rebuilt_parent->sheet_from_body.boundary_graph;
         replace_generated_identity(next_definition.boundary_graph,replacements);

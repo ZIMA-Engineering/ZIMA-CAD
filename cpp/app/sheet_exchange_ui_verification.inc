@@ -355,6 +355,56 @@ int verify_sheet_exchange_ui(QApplication& application,const std::filesystem::pa
         const auto saved=save();check(saved.history.size()>original,"Conversion created no native sheet features");
         check_source_references("material conversion OK");
         const auto conversion=std::find_if(saved.history.begin()+original,saved.history.end(),[](const auto& feature){return feature.feature_kind==document::FeatureKind::SheetFromBody;});
+        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SHEET_MATERIAL_DEFAULTS")) {
+            check(conversion!=saved.history.end(),"Thickness GUI fixture has no conversion");
+            const auto conversion_id=conversion->id;
+            const auto generated=conversion->sheet_from_body.generated_features;
+            const auto original_thickness=document::sheet_metal_defaults(saved).thickness_mm.value_or(1.);
+            const auto properties=[&] {
+                window.findChild<QAction*>("sheetMetalPropertiesAction")->trigger();flush();
+                auto* current=window.findChild<QDialog*>("fileSettingsDialog");
+                check(current,"Sheet Properties did not open");return current;
+            };
+            const auto verify_thickness=[&](double expected) {
+                const auto current=save();const auto* parent=current.find_container(conversion_id);
+                check(parent&&parent->sheet_from_body.generated_features==generated,"Sheet Properties replaced generated identities");
+                const auto defaults=document::sheet_metal_defaults(current);
+                check(defaults.thickness_mm==expected,"Sheet Properties did not persist the requested thickness");
+                for(const auto& binding:parent->sheet_from_body.child_bindings)if(!binding.detached) {
+                    const auto* child=current.find_container(binding.feature_id);
+                    const auto actual=binding.bend?document::resolved_bend_parameters(*child,defaults).thickness:
+                        document::flat_thickness(*child,defaults);
+                    check(std::abs(actual-expected)<1e-10&&binding.references_valid,"Sheet Properties retained a stale attached thickness");
+                }
+                std::set<std::string> displayed;
+                for(const auto& face:view->mesh().triangle_references)if(std::ranges::find(generated,face.owner_id)!=generated.end()) {
+                    check(std::abs(face.sheet_thickness-expected)<1e-10,"Sheet Properties did not refresh the displayed material");
+                    displayed.insert(face.owner_id);
+                }
+                check(displayed.size()==generated.size(),"Changed sheet is missing generated material in the View");
+                check_source_references("sheet thickness Properties");
+            };
+            const double changed=original_thickness==3.?2.:3.;
+            auto* current=properties();current->findChild<QDoubleSpinBox*>("sheetMetalThickness")->setValue(changed);
+            current->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
+            verify_thickness(original_thickness);
+            for(double expected:{changed,original_thickness}) {
+                current=properties();current->findChild<QDoubleSpinBox*>("sheetMetalThickness")->setValue(expected);
+                current->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+                check(!window.findChild<QDialog*>("fileSettingsDialog"),"Changed Sheet Properties did not confirm");
+                verify_thickness(expected);
+                if(expected==changed) {
+                    window.grab().save(QString::fromStdString((directory/"changed-sheet-thickness.png").string()));
+                    window.findChild<QAction*>("undoAction")->trigger();flush();verify_thickness(original_thickness);
+                    window.findChild<QAction*>("redoAction")->trigger();flush();verify_thickness(changed);
+                }
+                const auto calculations=kernel::body_calculation_count.load();
+                current=properties();current->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+                check(kernel::body_calculation_count.load()==calculations,"Unchanged Sheet Properties recalculated material");
+            }
+            std::cout<<"Sheet thickness Properties: Cancel, changed/unchanged OK, displayed geometry, Undo/Redo and native save passed"<<std::endl;
+            return 0;
+        }
         auto* tree=window.findChild<QTreeWidget*>("documentTree");
         if(same_body) {
             check(conversion!=saved.history.end()&&

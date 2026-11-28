@@ -24,6 +24,7 @@
 #include <zima/workspace/history_deletion.hpp>
 #include <zima/workspace/history_policy.hpp>
 #include <zima/workspace/part_transactions.hpp>
+#include <zima/workspace/metadata_operations.hpp>
 #include <zima/workspace/flat_operations.hpp>
 #include <zima/workspace/bend_operations.hpp>
 #include <zima/workspace/sheet_state_operations.hpp>
@@ -3626,7 +3627,10 @@ void boundary_graph_correction_contract(const workspace::SheetBodyConversion& so
 }
 }
 
+void boundary_material_edit_contract(zima::document::PartDocument,
+    std::vector<zima::kernel::BodyResult>,const std::filesystem::path&);
 #include "sheet_boundary_skeleton_contract.inc"
+#include "sheet_boundary_defaults_contract.inc"
 
 int main(int argc,char** argv) {
     try {
@@ -3736,6 +3740,44 @@ int main(int argc,char** argv) {
             zima::kernel::OcctKernel regeneration;
             cache=zima::workspace::calculate_part_with_resolved_references(
                 regeneration,part);
+        }
+        if(argc==3&&(std::string_view(argv[2])=="material-edit-contract"||std::string_view(argv[2])=="material-edit-inherited")) {
+            if(std::string_view(argv[2])=="material-edit-inherited")
+                for(auto& feature:part.history) {
+                    if(feature.feature_kind==document::FeatureKind::SheetFromBody)feature.sheet_from_body.thickness_override=false;
+                    if(part.sheet_from_body_child_bound(feature.id)) {
+                        if(feature.feature_kind==document::FeatureKind::Bend)feature.bend.thickness_override=false;
+                        else if(feature.feature_kind==document::FeatureKind::Flat)feature.flat.thickness_override=false;
+                    }
+                }
+            boundary_material_edit_contract(std::move(part),std::move(cache),
+                std::filesystem::path(argv[1]).parent_path()/"material-edit-contract");
+            return 0;
+        }
+        if(argc==3&&std::string_view(argv[2])=="thickness-probe") {
+            kernel::OcctKernel engine;
+            workspace::Workspace live;const auto id=part.document_id;
+            live.add_part(part,cache);
+            auto& session=live.open_part(id)->session;
+            for(const double thickness:{3.,2.,3.}) {
+                auto settings=workspace::file_settings(live,id);
+                settings.sheet_metal->thickness_mm=thickness;
+                const auto started=std::chrono::steady_clock::now();
+                const auto change=workspace::set_file_settings(live,engine,id,settings);
+                std::cout<<"requested_thickness="<<thickness<<" calculated="<<change.calculated
+                    <<" seconds="<<std::chrono::duration<double>(std::chrono::steady_clock::now()-started).count()<<std::endl;
+                const auto& current=session.document();
+                for(const auto& parent:current.history)if(parent.feature_kind==document::FeatureKind::SheetFromBody)
+                    for(const auto& binding:parent.sheet_from_body.child_bindings)if(!binding.detached) {
+                        const auto* child=current.find_container(binding.feature_id);
+                        const auto defaults=document::sheet_metal_defaults(current);
+                        const double actual=binding.bend?document::resolved_bend_parameters(*child,defaults).thickness:
+                            document::flat_thickness(*child,defaults);
+                        std::cout<<"child="<<child->name<<" thickness="<<actual<<std::endl;
+                        near(actual,thickness,1e-10);
+                    }
+            }
+            return 0;
         }
         if(argc==3&&std::string_view(argv[2])=="overlap-audit") {
             check_independent_overlap(converted_body_shape(part,cache));

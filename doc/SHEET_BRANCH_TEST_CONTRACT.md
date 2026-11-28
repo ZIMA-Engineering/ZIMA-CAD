@@ -63,6 +63,13 @@ Both packagers reject an absent or failed gate. Its acceptance status and the
 limits of the geometry comparison are recorded in the
 [boundary-first investigation](performance/20261128-skeleton-first-conversion.md).
 
+The same boundary gate also covers repeated inherited thickness edits on
+corrected rectangular and asymmetrically drafted boxes, fixed conversion
+thickness, source solid Fillet edits, native wall thickness, correction identity,
+Undo/Redo, cold reopening, Unbend/Bend Back and Explode. These material-input
+changes must invalidate boundary reuse even when source geometry is unchanged;
+see the [material-default regression](verification/20261128-sheet-material-defaults.md).
+
 Build 2026111903 is withheld: the saved 18.prtz case still contains invalid
 Tabule 03 and Ohyb 03 placements after touching branches. Earlier local-face
 attachment tests did not establish this independent-branch contract. The broader

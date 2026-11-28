@@ -260,6 +260,20 @@ void boundary_skeleton_box_contract() {
                 flat.save(folder/"nominal-unfolded.prtz",unfolded);
             }
             boundary_graph_correction_contract(result,engine,&correction_counts[mode],folder);
+            if(mode==1&&(std::string_view(name)=="rectangular"||std::string_view(name)=="drafted-asymmetric")) {
+                std::vector<kernel::BodyResult> edited_cache;
+                auto edited=document::PartDocument::load(folder/"box-probe-corrected.prtz",&edited_cache);
+                if(std::string_view(name)=="rectangular")
+                    boundary_material_edit_contract(edited,edited_cache,folder/"fixed-material");
+                auto* conversion=edited.find_container(result.container_id);
+                conversion->sheet_from_body.thickness_override=false;
+                for(const auto& binding:conversion->sheet_from_body.child_bindings) {
+                    auto* feature=edited.find_container(binding.feature_id);
+                    if(binding.bend)feature->bend.thickness_override=false;
+                    else feature->flat.thickness_override=false;
+                }
+                boundary_material_edit_contract(std::move(edited),std::move(edited_cache),folder/"inherited-material");
+            }
         }
         check(creation_counts[1]<creation_counts[0],"Boundary preparation did not remove intermediate material evaluations");
         check(correction_counts[0].size()==correction_counts[1].size(),"Box edit sequence changed");
