@@ -1,5 +1,15 @@
 # Native versioned distribution
 
+Signed Windows [2026112801](releases/2026112801.md#distribution-verification) was
+published at `2026-11-28T00:36:57Z` from immutable source
+`210adf731c2d6e4ea0891b24ce6cbb0bb2b5969b`. It adds shared visual guides for all right-toolbar
+commands in five languages, with matching native screenshots and searchable
+online/offline documentation. Candidate/signed smoke, 1,250 factory loads,
+twelve sheet gates and fifteen packaged GUI scenarios pass. Anonymous downloads,
+publisher signature, safe extraction and updater trusted/current checks pass.
+[Publication evidence](verification/20261128-windows-2801-publication.json)
+records the finite coverage and native Linux verification gap.
+
 Signed Windows [2026112701](releases/2026112701.md#distribution-verification) was
 published at `2026-11-27T18:40:47Z` from immutable source
 `8fc5e35bd673da0ddf6be4cbdcf3f51899ebf295`. It repairs saved angular hub keyways, second-OK
