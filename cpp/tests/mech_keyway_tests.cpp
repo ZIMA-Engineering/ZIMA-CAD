@@ -37,29 +37,23 @@ template<class F> void rejected(F f,std::source_location source=std::source_loca
 }
 kernel::SurfaceGeometry cylinder(bool inside=false){kernel::SurfaceGeometry s;
     s.kind=kernel::SurfaceGeometry::Kind::Cylinder;s.radius=17.5;s.reversed=inside;return s;}
-void angle_dimensions(const document::HistoryContainer& source,const kernel::ViewerReferenceGeometry& refs){
+void placement_orientation(const document::HistoryContainer& source,const kernel::ViewerReferenceGeometry& refs){
     using namespace kernel;
     const auto calls=body_calculation_count.load();
-    for(double degrees:{0.,-.01,.01,-90.,90.,180.,360.}) {
-        auto owner=source;owner.mech_keyway.angular_offset=degrees;
-        const auto draft=workspace::resolve_mech_keyway_draft(owner,"preview",refs);
+    {
+        const auto draft=workspace::resolve_mech_keyway_draft(source,"preview",refs);
         const auto dimensions=workspace::mech_keyway_dimensions(draft);
-        const auto& d=*std::ranges::find(dimensions,std::string("parameter:mech_angle"),
-            [](const auto& value){return value.reference.semantic_key;});
+        check(std::ranges::none_of(dimensions,[](const auto& value){return value.reference.semantic_key=="parameter:mech_angle";}),
+            "Keyway still exposes an independent angular dimension");
         const auto& p=draft.parent.placement;const auto& surface=*draft.parent.mech_keyway.support.surface;
         auto expected=dimension_sub(Vec3{p.x,p.y,p.z},surface.origin);
         expected=dimension_sub(expected,dimension_scale(draft.frame.axis,dimension_dot(expected,draft.frame.axis)));
         if(dimension_dot(expected,expected)<1e-14)expected=annotation_frame({}, {p.rotation_x,p.rotation_y,p.rotation_z}).axes[0];
         expected=dimension_unit(expected);
-        const auto first=dimension_unit(dimension_sub(d.line_first,d.witness_first));
-        const auto second=dimension_unit(dimension_sub(d.line_second,d.witness_first));
-        near(dimension_dot(first,expected),1,"Keyway angle starts from a different ray than its surface placement");
-        near(dimension_dot(first,d.plane_normal),0,"Keyway angle leaves the axial section plane");
-        near(dimension_dot(second,draft.frame.radial),1,"Keyway angle misses the actual groove");
-        near(dimension_dot(first,second),std::cos(degrees*std::numbers::pi/180),"Keyway angle ray separation is wrong");
-        near(dimension_dot(dimension_cross(first,second),d.plane_normal),std::sin(degrees*std::numbers::pi/180),"Keyway angle sense is wrong");
+        near(dimension_dot(draft.frame.radial,expected),1,"Keyway does not follow its container placement");
+        near(dimension_dot(draft.frame.radial,draft.frame.axis),0,"Keyway radial direction leaves the axial section plane");
     }
-    check(body_calculation_count.load()==calls,"Angle inspection calculated material");
+    check(body_calculation_count.load()==calls,"Placement inspection calculated material");
 }
 void editable_profile(const sketcher::Sketch& source){
     for(const bool locked:{false,true}) {
@@ -188,7 +182,7 @@ void definitions(){
     document::MechKeywayParameters p;
     p.support={"shaft","cylinder",{}};
     p.depth_upper_tolerance="0";p.depth_lower_tolerance="-0.2";
-    const auto f=document::keyway_frame(cylinder(),{1,0,0},0,0);
+    const auto f=document::keyway_frame(cylinder(),{1,0,0},0);
     auto cut=document::keyway_cut_definition("cut",p,f,5);
     near(cut.measurement,30.3,"Opposite-side shaft dimension");
     near(cut.profile.resolved_origin.x,17.5,"Shaft Sketch must start on the support surface");
@@ -210,6 +204,12 @@ void definitions(){
     p.last_end=document::KeywayEnd::Open;
     check(document::keyway_cut_definition("cut",p,f,5).profile.arcs.empty(),"Two open ends");
     check(document::load_mech_keyway(document::serialize_mech_keyway(p))==p,"Typed definition roundtrip");
+    auto encoded=document::serialize_mech_keyway(p);
+    check(encoded.at("version")==2&&!encoded.contains("angular_offset"),"Keyway persists an independent angle");
+    encoded.erase("version");
+    rejected([&]{static_cast<void>(document::load_mech_keyway(encoded));});
+    encoded["version"]=1;
+    rejected([&]{static_cast<void>(document::load_mech_keyway(encoded));});
     p.retaining_screws=0;p.position=document::KeywayPosition::Symmetric;
     auto symmetric=document::keyway_cut_definition("cut",p,f,30);
     near(symmetric.nominal_start,0,"Symmetric start");near(symmetric.nominal_end,60,"Symmetric end");
@@ -230,7 +230,8 @@ void measurements(){
     for(bool internal:{false,true})for(double angle:{-135.,0.,90.}){
         document::MechKeywayParameters p;p.internal=internal;p.depth=internal?3.3:4.7;
         p.depth_upper_tolerance=internal?"+0.2":"0";p.depth_lower_tolerance=internal?"+0.1":"-0.2";
-        auto f=document::keyway_frame(cylinder(internal),{1,0,0},0,angle);
+        const double radians=angle*std::numbers::pi/180;
+        auto f=document::keyway_frame(cylinder(internal),{std::cos(radians),std::sin(radians),0},0);
         auto s=document::keyway_measurement_sketch("annotation",p,f);
         auto restored=sketcher::Sketch::from_serialized(s.serialized());
         near(restored.dimensions.front().value,internal?38.3:30.3,"Measured value");
@@ -244,7 +245,8 @@ void woodruff(){
     auto cone=cylinder();cone.kind=kernel::SurfaceGeometry::Kind::Cone;cone.radius=10;cone.semi_angle=.1;
     document::MechKeywayParameters p;p.type=document::KeywayType::Woodruff;
     p.width=4;p.key_height=7.5;p.woodruff_diameter=19;p.depth=5;p.axial_offset=20;p.measurement_station=20;
-    auto f=document::keyway_frame(cone,{1,0,0},20,35);
+    const double radians=35*std::numbers::pi/180;
+    auto f=document::keyway_frame(cone,{std::cos(radians),std::sin(radians),0},20);
     auto cut=document::keyway_cut_definition("cut",p,f,0);
     near(cut.forward+cut.reverse,4,"Woodruff cutter width");
     near(cut.profile.circles.front().radius,9.5,"Woodruff cutter radius");
@@ -255,8 +257,8 @@ void woodruff(){
     near(measured.find_point("annotation:measurement:surface")->y,10+20*std::tan(.1),"Cone nominal surface at cutter centre");
     p.type=document::KeywayType::Parallel;
     rejected([&]{static_cast<void>(document::keyway_cut_definition("cut",p,f,0));});
-    rejected([&]{static_cast<void>(document::keyway_frame(cone,{0,0,1},20,0));});
-    rejected([&]{static_cast<void>(document::keyway_frame(cone,{1,0,0},-200,0));});
+    rejected([&]{static_cast<void>(document::keyway_frame(cone,{0,0,1},20));});
+    rejected([&]{static_cast<void>(document::keyway_frame(cone,{1,0,0},-200));});
 }
 void native_cut(){
     kernel::OcctKernel kernel;
@@ -280,7 +282,7 @@ void native_cut(){
             axial_plane=face;
     }
     workspace::initialize_mech_keyway_placement(owner,refs,axial_plane);
-    angle_dimensions(owner,refs);
+    placement_orientation(owner,refs);
     {
         const auto original=workspace::resolve_mech_keyway_draft(owner,"preview",refs);
         const auto wire=workspace::mech_keyway_preview_edges(original);
@@ -295,6 +297,18 @@ void native_cut(){
         rejected([&]{static_cast<void>(workspace::resolve_mech_keyway_draft(free,"preview",refs));});
         free=owner;free.placement.references.clear();free.placement.absolute_rotation_x+=15;
         rejected([&]{static_cast<void>(workspace::resolve_mech_keyway_draft(free,"preview",refs));});
+        free=owner;free.placement.references.clear();free.placement.x=free.placement.y=0;
+        free.placement.absolute_rotation_x=free.placement.absolute_rotation_y=0;
+        for(double degrees:{0.,-.01,.01,-90.,90.,180.,360.}){
+            free.placement.absolute_rotation_z=degrees;
+            const auto calls=kernel::body_calculation_count.load();
+            const auto moved=workspace::resolve_mech_keyway_draft(free,"preview",refs);
+            const double radians=degrees*std::numbers::pi/180;
+            near(moved.frame.radial.x,std::cos(radians),"Numeric Origin rotation did not orient the keyway X direction");
+            near(moved.frame.radial.y,std::sin(radians),"Numeric Origin rotation did not orient the keyway Y direction");
+            placement_orientation(free,refs);
+            check(kernel::body_calculation_count.load()==calls,"Numeric Origin rotation calculated material");
+        }
     }
     auto prepared=workspace::prepare_mech_keyway(part,owner,refs);
     auto encoded=prepared.serialized();
@@ -530,38 +544,68 @@ void native_variants(){
         }
         workspace::Workspace live;live.add_part(part,base);
         workspace::initialize_mech_keyway_placement(parent,input->mesh.original_references,axial_plane);
-        angle_dimensions(parent,input->mesh.original_references);
-        if(std::string_view(variant)=="bore"||std::string_view(variant)=="cone-bore-generator"){
+        placement_orientation(parent,input->mesh.original_references);
+        if(std::string_view(variant)=="bore"||std::string_view(variant)=="cone-bore-generator"||
+                std::string_view(variant)=="woodruff"||std::string_view(variant)=="cone"||std::string_view(variant)=="open-first"){
             auto refs=input->mesh.original_references;
             document::history_reference_detail::append(refs,part.origin_viewer_mesh().original_references);
             document::history_reference_detail::append(refs,part.construction_viewer_mesh().original_references);
             refs=part.construction_reference_geometry_for(body_id,std::move(refs));
             for(double angle:{0.,90.,-90.,37.})for(bool reverse:{false,true}){
+                std::cout<<"Placement matrix "<<variant<<": angle "<<angle<<", reverse "<<reverse<<'\n';
                 auto placed=parent;placed.mech_keyway.axial_offset=0;
                 placed.placement.references[1].offset=-20;
                 document::ConstructionReference azimuth;
                 azimuth.owner_id=body.origin().id;azimuth.semantic_key="origin:plane:yz";
                 azimuth.supports_offset=true;azimuth.use_angle=true;azimuth.offset=angle;
                 azimuth.orientation_role="position_only";placed.placement.references.push_back(azimuth);
-                if(reverse){placed.mech_keyway.axial_direction*=-1;std::swap(placed.mech_keyway.limits[0],placed.mech_keyway.limits[1]);}
+                if(reverse&&bore){placed.mech_keyway.axial_direction*=-1;std::swap(placed.mech_keyway.limits[0],placed.mech_keyway.limits[1]);}
+                if(!bore&&reverse)placed.placement.references.back().flip=true;
                 check(document::resolve_placement(placed.placement,refs),"Angular hub placement failed");
                 const auto draft=workspace::resolve_mech_keyway_draft(placed,"angular-preview",refs);
-                near(std::abs(kernel::dimension_dot(draft.cut.profile.resolved_normal,draft.frame.axis)),1.,"Angular hub Sketch is not transverse");
-                check(std::ranges::all_of(draft.cut_placement->references,[](const auto& r){return !r.use_angle||!r.orientation_drives_rotation;}),"Hub angle was promoted to orientation");
+                placement_orientation(placed,refs);
+                if(bore){
+                    near(std::abs(kernel::dimension_dot(draft.cut.profile.resolved_normal,draft.frame.axis)),1.,"Angular hub Sketch is not transverse");
+                    check(std::ranges::all_of(draft.cut_placement->references,[](const auto& r){return !r.use_angle||!r.orientation_drives_rotation;}),"Hub angle was promoted to orientation");
+                }
                 workspace::Workspace angular;angular.add_part(part,base);angular.activate(part.document_id);
-                check(workspace::commit_mech_keyway(angular,kernel,part.document_id,placed),"Angular hub commit failed");
+                std::vector<symbols::Placement> angular_textures;
+                if(woodruff&&!bore){
+                    auto& parameters=placed.mech_keyway;
+                    parameters.show_roughness=true;parameters.walls_symbol_id=placed.id+":walls";parameters.floor_symbol_id=placed.id+":floor";
+                    for(int side=0;side<2;++side){symbols::Placement value;value.symbol.id=side?parameters.floor_symbol_id:parameters.walls_symbol_id;
+                        value.symbol.definition=texture.serialized();value.symbol.variant=texture.default_variant;
+                        value.symbol.text_values["Specification"]=side?"Ra 6.3":"Ra 3.2";angular_textures.push_back(std::move(value));}
+                }
+                check(workspace::commit_mech_keyway(angular,kernel,part.document_id,placed,angular_textures),"Angular keyway commit failed");
                 auto* current=angular.open_part(part.document_id);
+                const auto verify_woodruff_measurement=[&](const document::PartDocument& value){
+                    if(!woodruff||bore)return;
+                    const auto annotation=std::ranges::find_if(value.history,[&](const auto& c){return c.mech_keyway_binding.parent_id==placed.id&&c.mech_keyway_binding.role=="annotation";});
+                    const auto measured=std::ranges::find(value.sketches,annotation->id,&sketcher::Sketch::owner_container_id);
+                    const auto* floor=measured->find_point(measured->id+":floor");
+                    const auto* surface=measured->find_point(measured->id+":surface");
+                    const auto delta=kernel::dimension_sub(measured->world_point(floor->x,floor->y),measured->world_point(surface->x,surface->y));
+                    near(std::sqrt(kernel::dimension_dot(delta,delta)),value.find_container(placed.id)->mech_keyway.depth,"Rotated Woodruff depth equation is wrong");
+                    const auto ref=std::ranges::find(measured->external_references,measured->id+":reference:floor",&sketcher::SketchExternalReference::id);
+                    check(ref!=measured->external_references.end()&&!ref->broken&&ref->source_semantic_key.starts_with("sketch-outline:")&&
+                        ref->source_semantic_key.find("boolean:")==std::string::npos,"Woodruff depth depends on a Boolean seam fragment");
+                    for(const auto& symbol:value.symbol_annotations)check(symbol.reference&&!symbol.unresolved,"Rotated Woodruff texture lost its support");
+                };
+                verify_woodruff_measurement(current->session.document());
                 check(current->session.undo()&&current->session.redo(),"Angular hub Undo/Redo failed");
                 auto reopened=document::PartDocument::from_serialized(current->session.document().serialized(current->session.calculated_boundaries()));
                 auto cold=workspace::calculate_part_with_resolved_references(kernel,reopened,nullptr,base_policy);
                 check(cold.back().calculation_errors.empty(),"Angular hub cold reopening failed");
+                verify_woodruff_measurement(reopened);
                 for(double delta:{.5,-.25}){
                     auto& source=*std::ranges::find(reopened.sketches,profile.id,&sketcher::Sketch::id);source.circles.back().radius+=delta;
                     cold=workspace::calculate_part_with_resolved_references(kernel,reopened,&cold,base_policy);
                     check(cold.back().calculation_errors.empty(),"Angular hub lost references after diameter edit");
+                    verify_woodruff_measurement(reopened);
                 }
             }
-            std::cout<<"Angular hub: four angles, both directions, 20 mm datum, Undo/Redo, cold reopen and repeated diameter edits passed\n";
+            std::cout<<"Angular keyway: four angles, both reference sides/directions, 20 mm datum, Undo/Redo, cold reopen and repeated diameter edits passed\n";
         }
         if(bore){
             for(int invalid=0;invalid<3;++invalid){
@@ -913,7 +957,7 @@ int main(int argc,char** argv){try{
         part.save(argv[4],calculated);std::cout<<"Saved calculated source prefix "<<count<<'\n';return 0;
     }
     if(argc==2&&std::string_view(argv[1])=="--shaft-frames"){shaft_frame_matrix();return 0;}
-    if(argc==2&&std::string_view(argv[1])=="--angle-dimensions"){native_cut();return 0;}
+    if(argc==2&&std::string_view(argv[1])=="--placement-orientation"){native_cut();return 0;}
     if(argc==2){
         const std::filesystem::path path=argv[1];
         auto part=document::PartDocument::load(path);

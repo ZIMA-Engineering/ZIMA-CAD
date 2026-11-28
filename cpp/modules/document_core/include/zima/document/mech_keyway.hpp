@@ -33,7 +33,7 @@ struct MechKeywayParameters {
     KeywayEnd first_end{KeywayEnd::Round}, last_end{KeywayEnd::Round};
     bool internal{};
     double width{10}, key_height{8}, depth{4.7}, length{45};
-    double axial_offset{}, angular_offset{}, measurement_station{};
+    double axial_offset{}, measurement_station{};
     int axial_direction{1};
     double first_overrun{}, last_overrun{};
     double bottom_radius{}, woodruff_diameter{28};
@@ -64,7 +64,7 @@ struct KeywayFrame {
 // Consumes exact analytic support and an orientation vector supplied by the
 // existing placement contract. It performs no OCCT calculation or mesh fitting.
 [[nodiscard]] KeywayFrame keyway_frame(const kernel::SurfaceGeometry&,
-    kernel::Vec3 orientation, double station, double angle_degrees);
+    kernel::Vec3 orientation, double station);
 void validate_mech_keyway(const MechKeywayParameters&);
 [[nodiscard]] nlohmann::json serialize_mech_keyway(const MechKeywayParameters&);
 [[nodiscard]] MechKeywayParameters load_mech_keyway(const nlohmann::json&);

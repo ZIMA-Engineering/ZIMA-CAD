@@ -39,8 +39,10 @@ palette-aware SVG renderer and cyan feature accent.
    This is one universal
    command, not a cone-only special case. Preserve direction and selected
    limit identity when the support or hub length changes.
-5. Both external and internal keyways provide angular correction about the
-   support axis relative to the orientation reference, initially zero.
+5. Both external and internal keyways take their circumferential position
+   exclusively from Container placement. The user removed the additional
+   keyway angular offset on 2026-11-28. There is no independent angle field,
+   inspection dimension or persisted angular offset in the keyway parameters.
 
 Keep placement, axial extent, and end shape separate. A closed shaft slot has
 rounded ends. A slot open through one shaft end has a rectangular portion and
@@ -67,7 +69,7 @@ Further agreements during implementation:
   the selected disc. These are distinct from the catalogue width restriction.
 - Ordinary single click selects. Double click in the View or Tree displays all
   feature dimensions, including informational width and the applicable length,
-  placement and angle, through the shared inspection path. Inspection does not
+  placement (including its reference angle), through the shared inspection path. Inspection does not
   calculate geometry or create an Undo step.
 - Update the key/keyway table illustrations using the user's original drawings
   where useful. Keep historical CSN and reviewed DIN data explicitly distinct.
@@ -136,6 +138,12 @@ the command identifies their geometric role and advances reference entry.
 Consume the ordinary placement controls and exact reference solver. Explicit
 numeric/whole-Origin placement on the axis remains a valid alternative.
 
+The 2026-11-28 change uses version 2 of the keyway parameter payload. A keyway
+frame consumes the resolved placement radial direction without a second rotation.
+Old unversioned keyway definitions require explicit conversion and are rejected;
+no compatibility loader or automatic conversion of user projects is included.
+The shared placement solver and native document extensions are unchanged.
+
 For a parallel key on a cylindrical shaft, author the planar slot profile on
 the surface and subtract inward by the catalogue depth. For a hub, author the
 profile at the bore surface and use two radial sides: outward by the groove
@@ -200,6 +208,13 @@ from the nominal shaft surface to the seat floor, rather than the opposite-side
 diameter dimension. On a taper, evaluate both points at the cutter-centre axial
 station. Keep this dimension non-driving with exact native support/floor
 references and use the depth deviations without reversing their signs.
+
+The placement-angle regression on 2026-11-28 exposed a Boolean seam splitting
+the Woodruff cutter's End-side floor. Floor dimensions and surface textures now
+follow that explicit ancestry to the authored End-side cylinder. The axial
+measurement section uses the existing exact cylinder-generator references and
+selects the unique generator incident to the floor point. It never anchors to
+a transient Boolean fragment or switches to the opposite cutter side.
 
 Tapered hubs are explicitly in scope. Verify their longitudinal groove floor,
 depth convention and key-top clearance against the mating Woodruff key and

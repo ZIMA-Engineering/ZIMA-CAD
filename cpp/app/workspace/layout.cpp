@@ -1899,10 +1899,10 @@ void AssemblyWorkspaceWindow::create_layout() {
         ApplicationMode::Modeling,"modelingModeButton");
     assembly_mode_button_=mode_button(
         ApplicationMode::Assembly,"assemblyModeButton");
-    sheet_metal_mode_button_=mode_button(
-        ApplicationMode::SheetMetal,"sheetMetalModeButton");
     surface_mode_button_=mode_button(
         ApplicationMode::Surface,"surfaceModeButton");
+    sheet_metal_mode_button_=mode_button(
+        ApplicationMode::SheetMetal,"sheetMetalModeButton");
     mech_mode_button_=mode_button(ApplicationMode::Mech,"mechModeButton");
     fem_mode_button_=mode_button(ApplicationMode::Fem,"femModeButton");
     render_mode_button_=mode_button(ApplicationMode::Render,"renderModeButton");

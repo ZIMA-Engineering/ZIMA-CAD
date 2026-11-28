@@ -1,4 +1,7 @@
 {
+  "Hloubka": "Tiefe",
+  "Žádné": "Keine",
+  "Unsupported keyway definition version": "Nicht unterstützte Version der Passfedernutdefinition",
   "CSN 02 2507 / 02 2562 (historical table)": "ČSN 02 2507 / 02 2562 (historische Tabelle)",
   "Směr dráhy": "Pfadrichtung",
   "Přepnout počátek na opačný konec dráhy. U uzavřené dráhy obrátit směr.": "Den Anfang an das gegenüberliegende Pfadende verlegen. Bei einem geschlossenen Pfad die Richtung umkehren.",
@@ -3546,7 +3549,7 @@
   "Select a cylindrical or conical support face": "Zylindrische oder kegelige Trägerfläche wählen",
   "Forward target face / plane": "Zielfläche / Zielebene vorwärts",
   "Reverse target face / plane": "Zielfläche / Zielebene rückwärts",
-  "MECH": "MECH",
+  "MECH": "Mechanik",
   "Drážka pro pero": "Passfedernut",
   "Hřídel": "Welle",
   "Náboj": "Nabe",

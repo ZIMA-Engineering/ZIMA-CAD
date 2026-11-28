@@ -108,19 +108,17 @@ void line(sketcher::Sketch& s,const char* role,const std::string& a,const std::s
 }
 }
 
-KeywayFrame keyway_frame(const kernel::SurfaceGeometry& s,V orientation,double station,double angle){
+KeywayFrame keyway_frame(const kernel::SurfaceGeometry& s,V orientation,double station){
     if((s.kind!=kernel::SurfaceGeometry::Kind::Cylinder&&s.kind!=kernel::SurfaceGeometry::Kind::Cone)||
         !finite(s.origin)||!std::isfinite(s.radius)||s.radius<0||
-        !std::isfinite(station)||!std::isfinite(angle)||!std::isfinite(s.semi_angle)||
+        !std::isfinite(station)||!std::isfinite(s.semi_angle)||
         std::abs(s.semi_angle)>=std::numbers::pi/2)
         throw std::invalid_argument("Keyway requires a cylindrical or conical material face");
     KeywayFrame f;f.axis=unit(s.axis);f.origin=add(s.origin,mul(f.axis,station));
     f.slope=s.kind==kernel::SurfaceGeometry::Kind::Cone?std::tan(s.semi_angle):0;
     f.radius=s.radius+station*f.slope;f.internal=s.reversed;
     if(!std::isfinite(f.radius)||f.radius<=1e-9)throw std::invalid_argument("Keyway station is outside the cone branch");
-    auto radial=unit(add(orientation,mul(f.axis,-dot(orientation,f.axis))));
-    const double a=angle*std::numbers::pi/180;
-    f.radial=add(mul(radial,std::cos(a)),mul(cross(f.axis,radial),std::sin(a)));
+    f.radial=unit(add(orientation,mul(f.axis,-dot(orientation,f.axis))));
     f.tangent=cross(f.radial,f.axis);return f;
 }
 
@@ -128,7 +126,7 @@ void validate_mech_keyway(const MechKeywayParameters& p){
     for(const auto& limit:p.limits)
         if(!std::isfinite(limit.length)||limit.length<0||!std::isfinite(limit.correction))
             throw std::invalid_argument("Invalid keyway axial limit");
-    for(double n:{p.width,p.key_height,p.depth,p.length,p.axial_offset,p.angular_offset,
+    for(double n:{p.width,p.key_height,p.depth,p.length,p.axial_offset,
             p.measurement_station,p.first_overrun,p.last_overrun,p.bottom_radius,p.woodruff_diameter,
             p.retaining_diameter,p.retaining_pitch,p.retaining_depth})
         if(!std::isfinite(n))throw std::invalid_argument("Keyway dimensions must be finite");
@@ -153,11 +151,11 @@ nlohmann::json serialize_mech_keyway(const MechKeywayParameters& p){
     auto limits=nlohmann::json::array();
     for(const auto& limit:p.limits)limits.push_back({{"termination",static_cast<int>(limit.termination)},
         {"length",limit.length},{"correction",limit.correction},{"reference",ref(limit.reference)}});
-    return {{"support",ref(p.support)},{"limits",std::move(limits)},
+    return {{"version",2},{"support",ref(p.support)},{"limits",std::move(limits)},
         {"type",static_cast<int>(p.type)},{"position",static_cast<int>(p.position)},{"floor",static_cast<int>(p.floor)},
         {"first_end",static_cast<int>(p.first_end)},{"last_end",static_cast<int>(p.last_end)},
         {"internal",p.internal},{"width",p.width},{"key_height",p.key_height},{"depth",p.depth},{"length",p.length},
-        {"axial_offset",p.axial_offset},{"angular_offset",p.angular_offset},{"measurement_station",p.measurement_station},
+        {"axial_offset",p.axial_offset},{"measurement_station",p.measurement_station},
         {"axial_direction",p.axial_direction},{"first_overrun",p.first_overrun},{"last_overrun",p.last_overrun},
         {"bottom_radius",p.bottom_radius},{"woodruff_diameter",p.woodruff_diameter},{"table_id",p.table_id},{"table_row_id",p.table_row_id},
         {"width_fit",p.width_fit},{"depth_fit",p.depth_fit},{"depth_upper_tolerance",p.depth_upper_tolerance},{"depth_lower_tolerance",p.depth_lower_tolerance},
@@ -166,6 +164,8 @@ nlohmann::json serialize_mech_keyway(const MechKeywayParameters& p){
         {"show_roughness",p.show_roughness}};
 }
 MechKeywayParameters load_mech_keyway(const nlohmann::json& j){
+    if(!j.contains("version")||j.at("version")!=2)
+        throw std::invalid_argument("Unsupported keyway definition version");
     MechKeywayParameters p;p.support=ref(j.at("support"));
     if(j.at("limits").size()!=2)throw std::invalid_argument("Keyway requires two axial limits");
     for(std::size_t i=0;i<2;++i){const auto& limit=j.at("limits").at(i);
@@ -175,7 +175,7 @@ MechKeywayParameters load_mech_keyway(const nlohmann::json& j){
     p.type=enumeration<KeywayType>(j.at("type"),2);p.position=enumeration<KeywayPosition>(j.at("position"),3);
     p.floor=enumeration<KeywayFloor>(j.at("floor"),2);p.first_end=enumeration<KeywayEnd>(j.at("first_end"),2);p.last_end=enumeration<KeywayEnd>(j.at("last_end"),2);
 #define LOAD(field) j.at(#field).get_to(p.field)
-    LOAD(internal);LOAD(width);LOAD(key_height);LOAD(depth);LOAD(length);LOAD(axial_offset);LOAD(angular_offset);LOAD(measurement_station);
+    LOAD(internal);LOAD(width);LOAD(key_height);LOAD(depth);LOAD(length);LOAD(axial_offset);LOAD(measurement_station);
     LOAD(axial_direction);LOAD(first_overrun);LOAD(last_overrun);LOAD(bottom_radius);LOAD(woodruff_diameter);LOAD(table_id);LOAD(table_row_id);
     LOAD(width_fit);LOAD(depth_fit);LOAD(depth_upper_tolerance);LOAD(depth_lower_tolerance);LOAD(retaining_screws);LOAD(retaining_diameter);LOAD(retaining_pitch);
     LOAD(retaining_depth);LOAD(walls_symbol_id);LOAD(floor_symbol_id);LOAD(show_roughness);

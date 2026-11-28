@@ -694,7 +694,6 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
                     auto& p=container->mech_keyway;
                     if(key=="mech_length"&&p.position!=document::KeywayPosition::TwoSided&&!(p.type==document::KeywayType::Woodruff&&!p.internal))positive(p.length);
                     else if(key=="mech_offset"){p.axial_offset=next_value;changed=true;}
-                    else if(key=="mech_angle"){p.angular_offset=next_value;changed=true;}
                     else for(std::size_t i=0;i<2;++i){
                         if(key==(i?"mech_reverse_length":"mech_forward_length")&&p.position==document::KeywayPosition::TwoSided&&
                                 p.limits[i].termination==document::KeywayTermination::Length&&next_value>=0){p.limits[i].length=next_value;changed=true;}

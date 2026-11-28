@@ -30,6 +30,8 @@ int verify_mech_keyway_ui(QApplication& application,QWidget& parent){
         check(!dialog.buttons()->button(QDialogButtonBox::Apply),"MECH exposes an Apply transaction");
         check(dialog.pending_value()==owner,"Opening MECH rounded or rewrote untouched parameters");
         check(!dialog.findChild<QDoubleSpinBox*>("mechKeyWidth"),"Catalogue width became independently editable");
+        check(!dialog.findChild<QWidget*>("mechKeyAngle"),"Keyway exposes an independent angle below placement");
+        check(!dialog.set_inline_parameter_value("mech_angle",30),"Keyway accepts a removed angular parameter");
         check(!dialog.findChild<QWidget*>("edgeTreatmentEdges"),"MECH exposes unrelated edge-treatment controls");
         check(dialog.mech_keyway_panel()!=nullptr&&app::uses_container_placement(document::FeatureKind::MechKeyway),"MECH bypasses shared placement");
         dialog.buttons()->button(QDialogButtonBox::Ok)->click();application.processEvents();
@@ -50,6 +52,9 @@ int verify_mech_keyway_ui(QApplication& application,QWidget& parent){
         dialog.show();application.processEvents();application.processEvents();
         auto* toggle=panel->findChild<QCheckBox*>("mechKeyRoughness");
         auto* scroll=dialog.findChild<QScrollArea*>("propertiesContentScrollArea");
+        // Reserve the horizontal minimum of the optional texture controls
+        // before checking the dialog's vertical growth policy.
+        dialog.resize(std::max(dialog.width(),900),dialog.height());application.processEvents();
         const auto original_size=dialog.size();
         dialog.move(dialog.x(),parent.height()-dialog.height());
         toggle->click();application.processEvents();application.processEvents();
@@ -121,6 +126,9 @@ int verify_mech_keyway_ui(QApplication& application,QWidget& parent){
         QSettings settings(config.filePath("config.ini"),QSettings::IniFormat);
         settings.setValue("Application/Language",language);settings.setValue("Paths/Localization",QString::fromStdString(catalogs.generic_string()));settings.sync();
         auto loaded=app::ApplicationSettings::load(config.path());app::apply_application_translations(application,loaded);application.processEvents();
+        check(!translated.findChild<QWidget*>("mechKeyAngle"),"Language change restored the removed keyway angle");
+        const auto version_error=loaded.qt_translations.value("Unsupported keyway definition version");
+        check(!version_error.isEmpty()&&(QString(language)=="en"||version_error!="Unsupported keyway definition version"),"Keyway format error is untranslated");
         check(translated.findChild<QComboBox*>("mechKeyType")->itemText(1)==loaded.qt_translations.value("Woodruff key"),"MECH type did not follow the language change");
         // New property windows take their feature-specific title from the active catalogue.
         app::PrimitivePropertiesDialog titled(owner,true,true,[](auto){},&parent);

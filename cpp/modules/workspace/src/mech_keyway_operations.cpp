@@ -13,6 +13,7 @@
 #include <zima/document/general_surface.hpp>
 #include <zima/kernel/dimension_layout.hpp>
 #include <zima/kernel/feature_side_identity.hpp>
+#include <zima/kernel/wrapped_image.hpp>
 #include <zima/sketcher/face_curve_reference.hpp>
 #include <algorithm>
 #include <cmath>
@@ -26,6 +27,19 @@ double dot(V a,V b){return a.x*b.x+a.y*b.y+a.z*b.z;}
 V sub(V a,V b){return {a.x-b.x,a.y-b.y,a.z-b.z};}
 V mul(V a,double k){return {a.x*k,a.y*k,a.z*k};}
 V add(V a,V b){return {a.x+b.x,a.y+b.y,a.z+b.z};}
+std::optional<kernel::FaceReference> woodruff_floor_reference(
+        const document::HistoryContainer& cut,const kernel::FaceReference& face,
+        const kernel::ViewerReferenceGeometry& refs) {
+    if(!face.surface||face.surface->kind!=kernel::SurfaceGeometry::Kind::Cylinder)return {};
+    const kernel::FaceReference authored{cut.id,"generated:"+kernel::feature_side_parent_key(
+        {cut.feature_id,kernel::FeatureSide::End,cut.id+":profile:cutter"}),{}};
+    if(!kernel::wrapped_image_face_matches(face,authored))return {};
+    // The Boolean can split the cutter floor at its seam. Anchor the exact
+    // authored End-side surface only when one of its real descendants survives.
+    const auto original=std::ranges::find(refs.triangle_references,authored);
+    if(original==refs.triangle_references.end()||!original->surface)return {};
+    return *original;
+}
 V rotation_for_axes(V x,V y,V z) {
     const double ry=std::asin(std::clamp(-x.z,-1.,1.));
     const double rx=std::abs(std::cos(ry))>1e-9?std::atan2(y.z,z.z):0.;
@@ -66,8 +80,8 @@ document::Placement keyway_profile_placement(const document::HistoryContainer& p
     contact.instance_path=parent.mech_keyway.support.instance_path;
     contact.supports_offset=true;contact.orientation_role=document::placement_position_only_role;
     if(!surface_position)placement.references.insert(placement.references.begin(),contact);
-    // Keep all authored positional supports. The independent keyway angle is
-    // represented by their ordinary exact measured offsets in the child.
+    // Keep the parent's authored positional supports and measure their exact
+    // offsets at the generated child profile's station.
     for(auto& r:placement.references)if(r.supports_offset) {
         const auto value=document::measure_placement_reference_value(r,placement.references,refs,origin);
         if(!value)throw std::invalid_argument("Keyway orientation reference is unavailable");
@@ -400,16 +414,6 @@ std::vector<kernel::ViewerDimension> mech_keyway_dimensions(const MechKeywayDraf
             }
         }
     }
-    ViewerDimension angle;angle.reference={owner.id,"parameter:mech_angle",{}};
-    angle.value=angle.sweep_degrees=p.angular_offset;angle.kind=ViewerDimensionKind::Angular;angle.unit_suffix="deg";
-    angle.witness_first=angle.witness_second=f.origin;angle.plane_normal=f.axis;
-    // Surface placement uses its radial contact ray, which need not be local X.
-    // Undo only the authored groove angle to recover that same zero direction.
-    const double radians=p.angular_offset*std::numbers::pi/180.;
-    const auto zero=dimension_add(dimension_scale(f.radial,std::cos(radians)),
-        dimension_scale(dimension_cross(f.axis,f.radial),-std::sin(radians)));
-    angle.line_first=dimension_add(f.origin,dimension_scale(zero,f.radius+8));
-    angle.line_second=dimension_add(f.origin,dimension_scale(f.radial,f.radius+8));dimensions.push_back(std::move(angle));
     auto measurement=document::keyway_measurement_sketch(owner.id,p,f).viewer_mesh().dimensions;
     for(auto& d:measurement){d.reference={owner.id,"parameter:mech_measurement",{}};d.driving=false;dimensions.push_back(std::move(d));}
     return dimensions;
@@ -487,10 +491,17 @@ MechKeywayDraft resolve_mech_keyway_draft(document::HistoryContainer parent,
     if(p.position==document::KeywayPosition::TwoSided)
         for(std::size_t i=0;i<2;++i)if(p.limits[i].termination==document::KeywayTermination::UpTo)
             targets[i]=station(p.limits[i].reference,surface,refs);
-    const auto extents=document::keyway_axial_extents(p,reference,targets);
-    p.measurement_station=(extents[0]+extents[1])/2;
-    if(p.position==document::KeywayPosition::TwoSided)p.length=std::abs(extents[1]-extents[0]);
-    auto frame=document::keyway_frame(surface,radial,p.measurement_station,p.angular_offset);
+    if(p.type==document::KeywayType::Woodruff&&!p.internal) {
+        // The cutter centre is authored independently of its catalogue size.
+        // Resolve the size there before validating the disc-derived extents;
+        // a newly selected Woodruff type still carries the previous dimensions.
+        p.measurement_station=reference+p.axial_direction*p.axial_offset;
+    } else {
+        const auto extents=document::keyway_axial_extents(p,reference,targets);
+        p.measurement_station=(extents[0]+extents[1])/2;
+        if(p.position==document::KeywayPosition::TwoSided)p.length=std::abs(extents[1]-extents[0]);
+    }
+    auto frame=document::keyway_frame(surface,radial,p.measurement_station);
     if(!p.table_id.empty())document::select_keyway_size(p,2*frame.radius);
     auto definition=document::keyway_cut_definition(cut_id,p,frame,reference,targets);
     std::optional<document::Placement> cut_placement;
@@ -790,7 +801,7 @@ void bind_mech_keyway_roughness(document::PartDocument& doc,const std::vector<ke
             const auto& surface=support(p.support,source_refs);
             const auto delta=sub(V{parent.placement.x,parent.placement.y,parent.placement.z},surface.origin);
             const auto radial=sub(delta,mul(surface.axis,dot(delta,surface.axis)));
-            const auto frame=document::keyway_frame(surface,std::hypot(radial.x,radial.y,radial.z)>1e-7?radial:axes.axes[0],p.measurement_station,p.angular_offset);
+            const auto frame=document::keyway_frame(surface,std::hypot(radial.x,radial.y,radial.z)>1e-7?radial:axes.axes[0],p.measurement_station);
             const auto point=[&](double radial,double tangent){return kernel::dimension_add(frame.origin,
                 kernel::dimension_add(mul(frame.radial,radial),mul(frame.tangent,tangent)));};
             const auto contact=index?point(frame.radius+(p.internal?p.depth:-p.depth),p.width*.3):
@@ -813,13 +824,15 @@ void bind_mech_keyway_roughness(document::PartDocument& doc,const std::vector<ke
                 }
                 const auto& surface=*face.surface;
                 bool matches=false;
+                auto reference=face;
                 if(index&&p.type==document::KeywayType::Woodruff&&!p.internal){
-                    matches=surface.kind==kernel::SurfaceGeometry::Kind::Cylinder&&face.semantic_key=="generated:"+
-                        kernel::feature_side_parent_key({cut->feature_id,kernel::FeatureSide::End,cut->id+":profile:cutter"});
+                    if(const auto authored=woodruff_floor_reference(*cut,face,input->mesh.original_references)){
+                        reference=*authored;matches=true;
+                    }
                 }else if(surface.kind==kernel::SurfaceGeometry::Kind::Plane)
                     matches=std::abs(dot(surface.axis,normal))>normal_length*(1-1e-8)&&
                         std::abs(dot(sub(contact,surface.origin),surface.axis))<1e-7;
-                if(matches){if(target&&*target!=face)throw std::invalid_argument("Keyway surface texture reference is ambiguous");target=face;}
+                if(matches){if(target&&*target!=reference)throw std::invalid_argument("Keyway surface texture reference is ambiguous");target=reference;}
             }
             if(!target)throw std::invalid_argument("Keyway surface texture reference is unavailable");
             symbols::attach_to_surface(*symbol,*target,doc.document_id,contact);
@@ -869,17 +882,18 @@ void bind_mech_keyway_annotations(const kernel::OcctKernel& kernel,document::Par
             // the manufacturing dimension.
             const auto& surface=*face.surface;
             bool matches=false;
+            auto reference=face;
             if(p.type==document::KeywayType::Woodruff&&!p.internal) {
-                const auto key="generated:"+kernel::feature_side_parent_key({cut->feature_id,
-                    kernel::FeatureSide::End,cut->id+":profile:cutter"});
-                matches=face.semantic_key==key&&surface.kind==kernel::SurfaceGeometry::Kind::Cylinder;
+                if(const auto authored=woodruff_floor_reference(*cut,face,input->mesh.original_references)){
+                    reference=*authored;matches=true;
+                }
             } else if(surface.kind==kernel::SurfaceGeometry::Kind::Plane) {
                 matches=std::abs(dot(surface.axis,floor_normal))>1-1e-8&&
                     std::abs(dot(sub(floor_world,surface.origin),surface.axis))<1e-8;
             }
             if(matches){
-                if(floor&&*floor!=face)throw std::invalid_argument("Keyway floor reference is ambiguous");
-                floor=face;
+                if(floor&&*floor!=reference)throw std::invalid_argument("Keyway floor reference is ambiguous");
+                floor=reference;
             }
         }
         if(!floor)throw std::invalid_argument("Keyway floor reference is unavailable");
@@ -903,6 +917,16 @@ void bind_mech_keyway_annotations(const kernel::OcctKernel& kernel,document::Par
                     face.semantic_key=sketcher::analytic_section_key(face.semantic_key);
                 branches.push_back(prepare_sketch_external_reference(*context,doc.document_id,pending,
                     sketcher::ExternalReferenceKind::Face,face.owner_id,face.semantic_key,face.instance_path));
+            } else if(!on_support&&p.type==document::KeywayType::Woodruff&&!p.internal&&
+                    geometry.kind==kernel::SurfaceGeometry::Kind::Cylinder&&
+                    std::abs(dot(geometry.axis,pending.resolved_normal))<1e-10&&
+                    std::abs(dot(sub(geometry.origin,pending.resolved_origin),pending.resolved_normal))<1e-8) {
+                // This section contains the cutter axis. Its two exact
+                // generators are the ordinary persisted face-curve supports;
+                // their identity is independent of Boolean seam fragments.
+                for(int side:{-1,1})branches.push_back(prepare_sketch_external_reference(
+                    *context,doc.document_id,pending,sketcher::ExternalReferenceKind::Face,
+                    face.owner_id,sketcher::face_curve_key(face.semantic_key,side),face.instance_path));
             } else branches=prepare_sketch_intersection_branches(*context,kernel,doc.document_id,pending,face,face);
             std::optional<sketcher::SketchExternalReference> selected;
             for(auto branch:branches) {

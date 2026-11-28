@@ -1,4 +1,7 @@
 {
+  "Hloubka": "Depth",
+  "Žádné": "None",
+  "Unsupported keyway definition version": "Unsupported keyway definition version",
   "CSN 02 2507 / 02 2562 (historical table)": "ČSN 02 2507 / 02 2562 (historical table)",
   "Směr dráhy": "Path direction",
   "Přepnout počátek na opačný konec dráhy. U uzavřené dráhy obrátit směr.": "Switch the start to the opposite path end. Reverse direction on a closed path.",
@@ -3546,7 +3549,7 @@
   "Select a cylindrical or conical support face": "Select a cylindrical or conical support face",
   "Forward target face / plane": "Forward target face / plane",
   "Reverse target face / plane": "Reverse target face / plane",
-  "MECH": "MECH",
+  "MECH": "Mechanics",
   "Drážka pro pero": "Keyway",
   "Hřídel": "Shaft",
   "Náboj": "Hub",

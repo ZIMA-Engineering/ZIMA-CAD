@@ -1,4 +1,7 @@
 {
+  "Hloubka": "Глубина",
+  "Žádné": "Нет",
+  "Unsupported keyway definition version": "Неподдерживаемая версия определения шпоночного паза",
   "CSN 02 2507 / 02 2562 (historical table)": "ČSN 02 2507 / 02 2562 (историческая таблица)",
   "Směr dráhy": "Направление траектории",
   "Přepnout počátek na opačný konec dráhy. U uzavřené dráhy obrátit směr.": "Перенести начало на противоположный конец траектории. Для замкнутой траектории изменить направление.",
@@ -3546,7 +3549,7 @@
   "Select a cylindrical or conical support face": "Выберите цилиндрическую или коническую опорную поверхность",
   "Forward target face / plane": "Целевая поверхность / плоскость вперёд",
   "Reverse target face / plane": "Целевая поверхность / плоскость назад",
-  "MECH": "MECH",
+  "MECH": "Механика",
   "Drážka pro pero": "Шпоночный паз",
   "Hřídel": "Вал",
   "Náboj": "Ступица",

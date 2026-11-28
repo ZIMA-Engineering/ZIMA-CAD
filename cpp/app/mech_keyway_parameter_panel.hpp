@@ -73,7 +73,6 @@ public:
         direction_=choice("Směr","mechKeyDirection",{"Vpřed","Vzad"},pending_.axial_direction<0?1:0,
             [this](int n){pending_.axial_direction=n?-1:1;});
         offset_=number("Odsazení","mechKeyOffset",pending_.axial_offset,-1e6,1e6,[this](double n){pending_.axial_offset=n;});
-        angle_=number("Úhel","mechKeyAngle",pending_.angular_offset,-36000,36000,[this](double n){pending_.angular_offset=n;},true);
         length_=number("Délka","mechKeyLength",pending_.length,1e-5,1e6,[this](double n){pending_.length=n;});
         for(int i=0;i<2;++i) {
             limits_[i]=choice(i?QT_TR_NOOP("Reverse termination"):QT_TR_NOOP("Forward termination"),i?"mechKeyLimit1":"mechKeyLimit0",{"Délka","Až k..."},int(pending_.limits[i].termination),
@@ -266,8 +265,8 @@ private:
         auto* combo=new QComboBox(this);combo->setObjectName(name);for(const auto* key:keys)combo->addItem(tr(key));combo->setCurrentIndex(selected);add(label,combo);
         choices_.emplace_back(combo,std::move(keys));connect(combo,&QComboBox::currentIndexChanged,this,[this,write=std::move(write)](int n){write(n);refresh();notify();});return combo;
     }
-    ui::UnitDoubleSpinBox* number(const char* label,const char* name,double initial,double low,double high,std::function<void(double)> write,bool angle=false){
-        auto* field=new ui::UnitDoubleSpinBox(angle?ui::InputQuantity::Angle:ui::InputQuantity::Length,this);
+    ui::UnitDoubleSpinBox* number(const char* label,const char* name,double initial,double low,double high,std::function<void(double)> write){
+        auto* field=new ui::UnitDoubleSpinBox(ui::InputQuantity::Length,this);
         field->setObjectName(name);field->setRange(low,high);field->set_display_decimals(ui::numeric_decimal_places(this));field->setValue(initial);add(label,field);
         connect(field,&QDoubleSpinBox::valueChanged,this,[this,write=std::move(write)](double n){write(n);notify();});return field;
     }
@@ -293,7 +292,7 @@ private:
     QFormLayout* form_{};QTableWidget* refs_{};
     std::array<ui::ReferenceCellItem*,3> cells_{};std::array<QWidget*,3> indicators_{};std::array<QToolButton*,3> eyes_{};std::array<bool,3> inspected_{};
     QLabel *side_{},*depth_{},*preview_error_{};QComboBox *size_{},*type_{},*catalogue_{},*position_{},*direction_{},*floor_{},*screws_{};
-    ui::UnitDoubleSpinBox *offset_{},*angle_{},*length_{};
+    ui::UnitDoubleSpinBox *offset_{},*length_{};
     std::array<QComboBox*,2> limits_{},ends_{};
     std::array<ui::UnitDoubleSpinBox*,2> lengths_{},corrections_{},overruns_{};
     std::vector<std::pair<QWidget*,const char*>> labels_;

@@ -15,6 +15,7 @@ int verify_mech_keyway_workspace_ui(QApplication& application,AssemblyWorkspaceW
         live.add_part(part);live.activate(id);
         auto sketch=sketcher::Sketch::create_default();sketch.plane_auto=false;static_cast<void>(sketch.add_circle(0,0,17.5));
         auto shaft=document::PartDocument::create_feature_container(sketch.id);shaft.feature.sides[0].length=90;
+        shaft.name=QCoreApplication::translate("PrimitivePropertiesDialog","Tažení").toStdString();
         workspace::commit_profile(live,engine,id,shaft,workspace::ProfileEditMode::Create,sketch);
         auto* native=live.open_part(id);const auto file=directory/"mech-keyway-gui.prtz";
         native->session.document().save(file,native->session.calculated_boundaries());
@@ -26,6 +27,7 @@ int verify_mech_keyway_workspace_ui(QApplication& application,AssemblyWorkspaceW
         const auto editor=[&]{return dynamic_cast<PrimitivePropertiesDialog*>(window.findChild<QWidget*>("mechKeywayPropertiesDialog"));};
         const auto baseline=window.execute_console_command("documents").data;auto calls=kernel::body_calculation_count.load();
         create->trigger();flush();check(editor()&&editor()->mech_keyway_panel(),"MECH creation dialog missing");
+        check(!editor()->findChild<QWidget*>("mechKeyAngle")&&!editor()->set_inline_parameter_value("mech_angle",30),"MECH exposes an independent angle");
         check(editor()->mech_keyway_panel()->active_pick()==0,"MECH creation did not arm support entry");
         editor()->reject();flush();check(window.execute_console_command("documents").data==baseline&&kernel::body_calculation_count.load()==calls,"MECH create/Cancel changed document or calculated geometry");
         create->trigger();flush();auto* dialog=editor();auto* panel=dialog->mech_keyway_panel();
@@ -59,16 +61,49 @@ int verify_mech_keyway_workspace_ui(QApplication& application,AssemblyWorkspaceW
         check(window.execute_console_command("documents").data==baseline&&kernel::body_calculation_count.load()==calls,"MECH ordered reference Cancel changed the document");
         create->trigger();flush();dialog=editor();panel=dialog->mech_keyway_panel();
         view->fit_all();flush();click(view,*hit);place_planes(false);
+        const auto initial_placement=dialog->pending_value().placement;
+        check(dialog->set_inline_parameter_value("placement:reference_offset:2",37),"MECH shared placement angle is not editable");flush();
+        const auto angular_placement=dialog->pending_value().placement;
+        check(std::abs(document::placement_reference_display_value(angular_placement.references[2])-37)<1e-8&&
+            std::hypot(angular_placement.x-initial_placement.x,angular_placement.y-initial_placement.y)>1,
+            "MECH shared placement angle did not move its Origin around the shaft");
         check(dialog->set_inline_parameter_value("mech_offset",5),"MECH offset field unavailable");flush();
         check(kernel::body_calculation_count.load()==calls,"MECH picking/preview calculated a solid");
         window.grab().save(QString::fromStdWString((directory/"mech-keyway-create.png").wstring()));
+        check(dialog->grab().save(QString::fromStdWString((directory/"mech-keyway-dialog.png").wstring())),"Cannot capture keyway properties");
         const auto parent_id=dialog->container_id();dialog->buttons()->button(QDialogButtonBox::Ok)->click();flush();check(!editor(),"MECH OK did not close");
         window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
         auto persisted=document::PartDocument::load(file);const auto* parent=persisted.find_container(parent_id);
         check(parent&&parent->feature_kind==document::FeatureKind::MechKeyway,"MECH did not persist the logical owner");
+        check(parent->placement==angular_placement,"MECH angular placement did not persist");
         check(parent->mech_keyway.width==10&&parent->mech_keyway.length==45,"MECH catalogue size/length differs from preview");
         const auto row=[&]()->QTreeWidgetItem*{for(QTreeWidgetItemIterator it(tree);*it;++it)if((*it)->data(0,Qt::UserRole).toString().toStdString()==parent_id&&(*it)->data(0,Qt::UserRole+3)=="part-container")return *it;return nullptr;};
         check(row()&&row()->childCount()>=2,"MECH native children are not grouped in Tree");
+        calls=kernel::body_calculation_count.load();
+        window.show_tree_item_properties(row());flush();dialog=editor();
+        check(dialog&&dialog->pending_value().placement==angular_placement,"MECH reopening changed angular placement");
+        for(double angle:{-90.,.01,180.}){
+            check(dialog->set_inline_parameter_value("placement:reference_offset:2",angle),"MECH repeated angle edit failed");flush();
+            check(std::abs(document::placement_reference_display_value(dialog->pending_value().placement.references[2])-angle)<1e-8,"MECH angle edit was lost");
+        }
+        dialog->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
+        window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+        check(document::PartDocument::load(file).find_container(parent_id)->placement==angular_placement&&
+            kernel::body_calculation_count.load()==calls,"MECH angular preview/Cancel changed material or placement");
+        window.show_tree_item_properties(row());flush();dialog=editor();
+        check(dialog&&dialog->set_inline_parameter_value("placement:reference_offset:2",90),"MECH angle edit cannot reopen");flush();
+        dialog->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+        check(!editor(),"MECH angular edit did not commit");
+        window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+        check(document::placement_reference_display_value(document::PartDocument::load(file).find_container(parent_id)->placement.references[2])==90,"MECH edited angle did not persist");
+        window.findChild<QAction*>("undoAction")->trigger();flush();
+        window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+        check(document::PartDocument::load(file).find_container(parent_id)->placement==angular_placement,"MECH angular Undo lost placement");
+        window.findChild<QAction*>("redoAction")->trigger();flush();
+        window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+        check(document::placement_reference_display_value(document::PartDocument::load(file).find_container(parent_id)->placement.references[2])==90,"MECH angular Redo lost placement");
+        window.findChild<QAction*>("undoAction")->trigger();flush();
+        window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
         calls=kernel::body_calculation_count.load();const auto saved=window.execute_console_command("documents").data;
         window.show_tree_item_properties(row());flush();check(editor(),"MECH edit dialog did not reopen");
         editor()->buttons()->button(QDialogButtonBox::Ok)->click();flush();
@@ -153,6 +188,37 @@ int verify_mech_keyway_workspace_ui(QApplication& application,AssemblyWorkspaceW
         check(kernel::body_calculation_count.load()==calls,"Editing a 3D surface texture recalculated material");
         window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
         check(document::PartDocument::load(file).symbol_annotations==persisted.symbol_annotations,"Cancelling 3D surface texture editing changed annotations");
+        // Exercise the Woodruff floor at the Boolean seam through actual
+        // Properties confirmation, retaining both surface texture attachments.
+        window.show_tree_item_properties(row());flush();dialog=editor();
+        auto* key_type=dialog->findChild<QComboBox*>("mechKeyType");check(key_type,"MECH key type control missing");
+        key_type->setCurrentIndex(int(document::KeywayType::Woodruff));flush();
+        check(dialog->set_inline_parameter_value("placement:reference_offset:2",0)&&
+            dialog->set_inline_parameter_value("mech_offset",25),"Woodruff placement edit failed");flush();
+        dialog->buttons()->button(QDialogButtonBox::Ok)->click();flush();check(!editor(),"Rotated Woodruff OK failed");
+        window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+        const auto woodruff=document::PartDocument::load(file);
+        check(woodruff.find_container(parent_id)->mech_keyway.type==document::KeywayType::Woodruff,"Woodruff type did not persist");
+        const auto annotation=std::ranges::find_if(woodruff.history,[&](const auto& c){return c.mech_keyway_binding.parent_id==parent_id&&c.mech_keyway_binding.role=="annotation";});
+        check(annotation!=woodruff.history.end(),"Woodruff measurement is missing");
+        const auto measured=std::ranges::find(woodruff.sketches,annotation->id,&sketcher::Sketch::owner_container_id);
+        check(measured!=woodruff.sketches.end(),"Woodruff measurement Sketch is missing");
+        const auto* floor=measured->find_point(measured->id+":floor");
+        const auto* surface=measured->find_point(measured->id+":surface");check(floor&&surface,"Woodruff measurement points are missing");
+        const auto depth=kernel::dimension_sub(measured->world_point(floor->x,floor->y),measured->world_point(surface->x,surface->y));
+        check(std::abs(std::sqrt(kernel::dimension_dot(depth,depth))-woodruff.find_container(parent_id)->mech_keyway.depth)<1e-8,
+            "Woodruff GUI depth equation is wrong");
+        for(const auto& value:woodruff.symbol_annotations)check(value.reference&&!value.unresolved,"Woodruff GUI texture lost its support");
+        const auto& woodruff_placement=woodruff.find_container(parent_id)->placement;
+        view->set_view_direction({-woodruff_placement.x+.5*woodruff_placement.y,-woodruff_placement.y-.5*woodruff_placement.x,-8});
+        {QEventLoop wait;QTimer::singleShot(950,&wait,&QEventLoop::quit);wait.exec();}
+        view->fit_all();click(view,{3,3});flush();
+        window.grab().save(QString::fromStdWString((directory/"mech-keyway-woodruff.png").wstring()));
+        std::filesystem::copy_file(file,directory/"woodruff-gui.prtz",std::filesystem::copy_options::overwrite_existing);
+        window.findChild<QAction*>("undoAction")->trigger();flush();
+        window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+        check(document::PartDocument::load(file).find_container(parent_id)->mech_keyway.type==document::KeywayType::Parallel,"Woodruff Undo did not restore the parallel key");
+        calls=kernel::body_calculation_count.load();
         window.show_tree_item_properties(row());flush();dialog=editor();check(dialog,"MECH placement properties unavailable");
         auto* references=dialog->findChild<QTableWidget*>("primitiveReferenceTable");
         check(references&&references->item(0,1),"MECH shared placement table unavailable");

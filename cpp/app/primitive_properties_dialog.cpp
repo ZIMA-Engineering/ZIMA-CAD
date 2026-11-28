@@ -3482,7 +3482,7 @@ bool PrimitivePropertiesDialog::set_inline_parameter_value(
         return true;
     };
     if(mech_keyway_panel_&&key.starts_with("mech_")) {
-        const char* name=key=="mech_length"?"mechKeyLength":key=="mech_offset"?"mechKeyOffset":key=="mech_angle"?"mechKeyAngle":
+        const char* name=key=="mech_length"?"mechKeyLength":key=="mech_offset"?"mechKeyOffset":
             key=="mech_forward_length"?"mechKeyLength0":key=="mech_reverse_length"?"mechKeyLength1":
             key=="mech_forward_correction"?"mechKeyCorrection0":key=="mech_reverse_correction"?"mechKeyCorrection1":nullptr;
         auto* field=name?mech_keyway_panel_->findChild<QDoubleSpinBox*>(name):nullptr;

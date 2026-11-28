@@ -367,9 +367,8 @@ void AssemblyWorkspaceWindow::create_actions() {
     for (std::size_t index = 0; index < application_actions_.size(); ++index) {
         auto* action = new QAction(application_names[index],this);
         action->setIcon(resource_icon(QString::fromLatin1(application_icons[index])));
-        if(static_cast<ApplicationMode>(index)!=ApplicationMode::Piping)
-            applications->addAction(action);
-        else action->setVisible(false);
+        if(static_cast<ApplicationMode>(index)==ApplicationMode::Piping)
+            action->setVisible(false);
         action->setObjectName(
             QStringLiteral("applicationModeAction%1").arg(index));
         action->setCheckable(true);
@@ -380,6 +379,10 @@ void AssemblyWorkspaceWindow::create_actions() {
         });
         application_actions_[index] = action;
     }
+    for(const auto mode:{ApplicationMode::Modeling,ApplicationMode::Surface,
+            ApplicationMode::SheetMetal,ApplicationMode::Mech,ApplicationMode::Assembly,
+            ApplicationMode::Drawing,ApplicationMode::Fem,ApplicationMode::Render,ApplicationMode::Cam})
+        applications->addAction(application_actions_[static_cast<std::size_t>(mode)]);
     application_actions_[0]->setChecked(true);
 
     auto* tools = menuBar()->addMenu(t("menu.tools", "Nástroje"));

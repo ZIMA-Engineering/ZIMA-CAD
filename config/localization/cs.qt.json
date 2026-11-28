@@ -1,4 +1,7 @@
 {
+  "Hloubka": "Hloubka",
+  "Žádné": "Žádné",
+  "Unsupported keyway definition version": "Nepodporovaná verze definice drážky pro pero",
   "CSN 02 2507 / 02 2562 (historical table)": "ČSN 02 2507 / 02 2562 (historická tabulka)",
   "Směr dráhy": "Směr dráhy",
   "Přepnout počátek na opačný konec dráhy. U uzavřené dráhy obrátit směr.": "Přepnout počátek na opačný konec dráhy. U uzavřené dráhy obrátit směr.",
@@ -3546,7 +3549,7 @@
   "Select a cylindrical or conical support face": "Vyberte válcovou nebo kuželovou nosnou plochu",
   "Forward target face / plane": "Cílová plocha / rovina vpřed",
   "Reverse target face / plane": "Cílová plocha / rovina vzad",
-  "MECH": "MECH",
+  "MECH": "Mechanika",
   "Drážka pro pero": "Drážka pro pero",
   "Hřídel": "Hřídel",
   "Náboj": "Náboj",

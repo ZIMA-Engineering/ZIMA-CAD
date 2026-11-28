@@ -2759,10 +2759,10 @@
       "cs": {
         "title": "Drážka pro pero",
         "intro": "Vytvořte katalogově řízenou drážku pro pero na hřídeli nebo v náboji.",
-        "prerequisites": "Aktivujte upravitelné běžné těleso a režim MECH.",
+        "prerequisites": "Aktivujte upravitelné běžné těleso a režim Mechanika.",
         "steps": [
           "Vyberte skutečnou válcovou nebo kuželovou podporu a příslušnou řadu či typ pera.",
-          "Nastavte orientaci a osové umístění; náboje vyžadují nezávislé cíle Až k na obou stranách.",
+          "Obvodovou polohu nastavte úhlem v Umístění kontejneru a určete osové umístění; náboje vyžadují nezávislé cíle Až k na obou stranách.",
           "Ověřte navrženou velikost a dostupné volby a potvrďte OK."
         ],
         "result": "Řízená drážka sleduje podporu a katalogové rozměry.",
@@ -2771,10 +2771,10 @@
       "en": {
         "title": "Keyway",
         "intro": "Create a catalogue-managed shaft or hub keyway.",
-        "prerequisites": "Activate an editable ordinary Body and the MECH mode.",
+        "prerequisites": "Activate an editable ordinary Body and the Mechanics mode.",
         "steps": [
           "Select the actual cylindrical or conical support and choose an applicable key series/type.",
-          "Set orientation and axial placement; hubs require independent Up To targets on both sides.",
+          "Set the circumferential position with the angle in Container placement and set the axial placement; hubs require independent Up To targets on both sides.",
           "Review the proposed size and enabled options, then confirm OK."
         ],
         "result": "A managed keyway follows its support and catalogue dimensions.",
@@ -2783,10 +2783,10 @@
       "de": {
         "title": "Passfedernut",
         "intro": "Erstellen Sie eine kataloggesteuerte Wellen- oder Nabennut.",
-        "prerequisites": "Aktivieren Sie einen bearbeitbaren gewöhnlichen Körper und den MECH-Modus.",
+        "prerequisites": "Aktivieren Sie einen bearbeitbaren gewöhnlichen Körper und den Modus Mechanik.",
         "steps": [
           "Wählen Sie die tatsächliche zylindrische oder konische Trägerfläche und eine passende Keilreihe/-art.",
-          "Setzen Sie Ausrichtung und axiale Platzierung; Naben benötigen unabhängige Bis-zu-Ziele auf beiden Seiten.",
+          "Stellen Sie die Umfangsposition mit dem Winkel in der Containerplatzierung und die axiale Position ein; Naben benötigen unabhängige Bis-zu-Ziele auf beiden Seiten.",
           "Prüfen Sie vorgeschlagene Größe und verfügbare Optionen und bestätigen Sie OK."
         ],
         "result": "Die verwaltete Nut folgt ihrer Trägerfläche und den Katalogmaßen.",
@@ -2795,10 +2795,10 @@
       "fr": {
         "title": "Rainure de clavette",
         "intro": "Créez une rainure de clavette d’arbre ou de moyeu gérée par catalogue.",
-        "prerequisites": "Activez un corps ordinaire modifiable et le mode MECH.",
+        "prerequisites": "Activez un corps ordinaire modifiable et le mode Mécanique.",
         "steps": [
           "Sélectionnez le support cylindrique ou conique réel et une série/type de clavette admissible.",
-          "Réglez orientation et position axiale ; les moyeux exigent deux cibles Jusqu’à indépendantes.",
+          "Réglez la position angulaire dans le placement du conteneur et définissez la position axiale ; les moyeux exigent deux cibles Jusqu’à indépendantes.",
           "Vérifiez taille proposée et options disponibles, puis validez par OK."
         ],
         "result": "La rainure gérée suit son support et les dimensions du catalogue.",
@@ -2807,10 +2807,10 @@
       "ru": {
         "title": "Шпоночный паз",
         "intro": "Создайте управляемый каталогом шпоночный паз вала или ступицы.",
-        "prerequisites": "Активируйте редактируемое обычное тело и режим MECH.",
+        "prerequisites": "Активируйте редактируемое обычное тело и режим «Механика».",
         "steps": [
           "Выберите фактическую цилиндрическую или коническую поверхность и допустимую серию либо тип шпонки.",
-          "Задайте ориентацию и осевое положение; ступицы требуют независимых целей До с обеих сторон.",
+          "Задайте угловое положение в размещении контейнера и настройте осевое положение; ступицы требуют независимых целей До с обеих сторон.",
           "Проверьте предложенный размер и доступные параметры, затем нажмите OK."
         ],
         "result": "Управляемый паз следует опорной поверхности и размерам каталога.",

@@ -1,4 +1,7 @@
 {
+  "Hloubka": "Profondeur",
+  "Žádné": "Aucune",
+  "Unsupported keyway definition version": "Version non prise en charge de la définition de rainure de clavette",
   "CSN 02 2507 / 02 2562 (historical table)": "ČSN 02 2507 / 02 2562 (table historique)",
   "Směr dráhy": "Sens du parcours",
   "Přepnout počátek na opačný konec dráhy. U uzavřené dráhy obrátit směr.": "Placer le départ à l’autre extrémité du parcours. Inverser le sens d’un parcours fermé.",
@@ -3546,7 +3549,7 @@
   "Select a cylindrical or conical support face": "Sélectionnez une surface support cylindrique ou conique",
   "Forward target face / plane": "Face / plan cible avant",
   "Reverse target face / plane": "Face / plan cible arrière",
-  "MECH": "MECH",
+  "MECH": "Mécanique",
   "Drážka pro pero": "Rainure de clavette",
   "Hřídel": "Arbre",
   "Náboj": "Moyeu",
