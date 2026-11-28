@@ -1062,6 +1062,21 @@ void AssemblyWorkspaceWindow::add_assembly_tree_children(
     bool ancestor_suppressed) {
     const auto* assembly = workspace_.open_assembly(assembly_document_id);
     if (assembly == nullptr) return;
+    // Presentation groups keep the real occurrence path and source ownership.
+    // History ordering and insertion remain inside the ordinary Assembly group.
+    const auto group=[&](const char* role,const QString& label,const char* icon) {
+        auto* item=new QTreeWidgetItem(parent,{label});
+        item->setData(0,Qt::UserRole+1,QString::fromStdString(parent_path.encoded()));
+        item->setData(0,Qt::UserRole+2,QString::fromStdString(assembly_document_id));
+        item->setData(0,Qt::UserRole+3,role);
+        item->setFlags(Qt::ItemIsEnabled|Qt::ItemIsSelectable);
+        item->setIcon(0,resource_icon(icon));
+        return item;
+    };
+    auto* mechanisms=group("assembly-mechanisms-group",tr("Mechanisms"),"mech");
+    mechanisms->setToolTip(0,tr("No mechanisms yet. Motion tools are being prepared."));
+    parent=group("assembly-model-group",tr("Sestava"),"assembly");
+    parent->setExpanded(true);
     const auto references=assembly_reference_index(assembly->session.document());
     if (assembly_document_id == workspace_.active_document_id()) {
         add_origin_tree_item(parent, assembly_document_id, true, parent_path);
@@ -1268,8 +1283,11 @@ void AssemblyWorkspaceWindow::add_snapshot_tree_children(
         } else {
             add_origin_tree_item(item, component.source_document_id, false, path);
         }
-        for(int i=0;i<item->childCount();++i) {
-            auto* origin=item->child(i);
+        auto* origin_parent=item;
+        for(int i=0;i<item->childCount();++i)
+            if(item->child(i)->data(0,Qt::UserRole+3)=="assembly-model-group")origin_parent=item->child(i);
+        for(int i=0;i<origin_parent->childCount();++i) {
+            auto* origin=origin_parent->child(i);
             if(origin->data(0,Qt::UserRole+3)=="document-origin"&&
                 origin->data(0,Qt::UserRole).toString().toStdString()==component.source_document_id+":origin"&&
                 !(shown_occurrence_origin_paths_.contains(path.encoded())||visible_occurrence_origin_paths_.contains(path.encoded())||

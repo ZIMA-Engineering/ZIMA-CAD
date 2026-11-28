@@ -260,6 +260,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                     feature->feature_kind==document::FeatureKind::Flat||feature->feature_kind==document::FeatureKind::Bend||
                     feature->feature_kind==document::FeatureKind::LineBend||
                     feature->feature_kind==document::FeatureKind::MechKeyway||
+                    feature->feature_kind==document::FeatureKind::MechGroove||
                     feature->feature_kind==document::FeatureKind::SheetTransition||
                     feature->feature_kind==document::FeatureKind::Fillet||
                     feature->feature_kind==document::FeatureKind::Chamfer)return true;
@@ -1899,6 +1900,8 @@ void AssemblyWorkspaceWindow::create_layout() {
         ApplicationMode::Modeling,"modelingModeButton");
     assembly_mode_button_=mode_button(
         ApplicationMode::Assembly,"assemblyModeButton");
+    mechanisms_mode_button_=mode_button(
+        ApplicationMode::Mechanisms,"mechanismsModeButton");
     surface_mode_button_=mode_button(
         ApplicationMode::Surface,"surfaceModeButton");
     sheet_metal_mode_button_=mode_button(
@@ -2060,6 +2063,12 @@ void AssemblyWorkspaceWindow::create_layout() {
             auto* item = tree_->currentItem();
             if (item == nullptr || !selected_items.contains(item)) {
                 item = selected_items.front();
+            }
+            if(item->data(0,Qt::UserRole+3)=="assembly-model-group"||
+               item->data(0,Qt::UserRole+3)=="assembly-mechanisms-group") {
+                // A presentation group is neither an occurrence nor a reference.
+                if(!properties_dialog_&&active_sketch_id_.empty())viewer_->clear_selection();
+                return;
             }
             if(item->data(0,Qt::UserRole+3)=="render-object"){select_render_object(item->data(0,Qt::UserRole).toString().toStdString(),false);return;}
             if(item->data(0,Qt::UserRole+3)=="fem-condition") {
@@ -2584,6 +2593,9 @@ void AssemblyWorkspaceWindow::create_layout() {
             const auto role=item->data(0,Qt::UserRole+3).toString();
             auto owner=item->data(0,Qt::UserRole).toString().toStdString();
             const auto path=item->data(0,Qt::UserRole+1).toString().toStdString();
+            if(role=="assembly-model-group"||role=="assembly-mechanisms-group") {
+                activate_assembly_group(item);return;
+            }
             if(role=="model-symbol"){show_model_symbol_properties(owner);return;}
             if(role=="render-object"){select_render_object(owner,true);return;}
             if(role=="fem-condition"){select_fem_condition(owner,true);return;}
@@ -2646,6 +2658,15 @@ void AssemblyWorkspaceWindow::create_layout() {
                 }
             }
             if(measurement_context_menu(item,position)||section_context_menu(item,position))return;
+            if(item&&(item->data(0,Qt::UserRole+3)=="assembly-model-group"||
+                      item->data(0,Qt::UserRole+3)=="assembly-mechanisms-group")) {
+                if(properties_dialog_||tree_edit_dialog_||section_dialog_||!active_sketch_id_.empty())return;
+                QMenu menu(this);
+                auto* activate=menu.addAction(resource_icon("active-check"),tr("Aktivovat"));
+                activate->setObjectName("activateAssemblyGroupAction");
+                if(exec_tree_menu(menu,item,position)==activate)activate_assembly_group(item);
+                return;
+            }
             if(item&&item->data(0,Qt::UserRole+3)=="document-renders") {
                 if(properties_dialog_||!active_sketch_id_.empty()||workspace_.active_document_id()!=workspace_.displayed_document_id())return;
                 QMenu menu(this);

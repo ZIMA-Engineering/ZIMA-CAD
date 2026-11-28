@@ -3900,5 +3900,88 @@
         "note": "Экспорт требует одной плоскости развёртки и одной толщины; он не добавляет операцию развёртывания и заменяет прежний одноимённый экспорт."
       }
     }
+  },
+  "mechGrooveAction": {
+    "slug": "command-mech-groove",
+    "group": "mech",
+    "sources": [
+      "cpp/app/workspace/toolbars.cpp",
+      "cpp/app/workspace/primitive_properties.cpp",
+      "cpp/app/mech_groove_parameter_panel.hpp",
+      "doc/MECH_GROOVE.md"
+    ],
+    "locales": {
+      "cs": {
+        "title": "Zápich",
+        "intro": "Vytvořte obvodový zápich na hřídeli nebo uvnitř náboje s obdélníkovým či kruhovým profilem.",
+        "prerequisites": "Aktivujte upravitelné těleso dílu a aplikaci Mechanika.",
+        "steps": [
+          "Spusťte Zápich. Vyberte válcovou plochu: zadá se jako Osa a určí vnější nebo vnitřní zápich.",
+          "Vyberte rovinnou plochu nebo rovinu počátku jako Plocha a nastavte osové odsazení. Pořadí obou referencí může být opačné; natočení není potřeba.",
+          "Zvolte obdélníkový nebo kruhový profil. Pro vlastní zápich zadejte šířku a hloubku, případně poloměr kruhového profilu.",
+          "Případně vyberte katalogovou řadu DIN 471/472 nebo DIN 9925/9926. Rozměr vychází z průměru podpory; u obdélníkového zápichu lze volit šířku v zobrazeném rozmezí.",
+          "Zkontrolujte drátový náhled a potvrďte OK. Vlastnosti stejného prvku slouží i k pozdějším úpravám."
+        ],
+        "result": "Samostatný odečítací prvek sleduje vybraný válec a osové umístění. Rozměry a reference se ukládají do dílu.",
+        "note": "Kruhový profil má šířku odvozenou z hloubky a poloměru. Neodpovídající katalogový průměr nebo strana vyžadují opravu. Po prvním neúspěšném OK zůstává návrh soukromý; druhé nezměněné OK uloží nevyřešený prvek, Zrušit změny zahodí."
+      },
+      "en": {
+        "title": "Groove",
+        "intro": "Create a circumferential groove on a shaft or inside a hub with a rectangular or circular section.",
+        "prerequisites": "Activate an editable Part Body and the Mechanics application.",
+        "steps": [
+          "Start Groove. Select a cylindrical material face: it is entered as Axis and determines the external or internal side.",
+          "Select a planar face or Origin plane as Surface and set the axial offset. You may enter the two references in either order; rotation is unnecessary.",
+          "Choose a rectangular or circular section. For a custom groove, enter width and depth, or the circular profile radius.",
+          "Alternatively select a DIN 471/472 or DIN 9925/9926 catalogue series. The support diameter determines its size; rectangular groove width is selectable within the displayed range.",
+          "Review the wire preview and confirm OK. Reopen the same feature Properties for later edits."
+        ],
+        "result": "One subtractive feature follows the selected cylinder and axial placement. Its dimensions and references are saved inside the Part.",
+        "note": "Circular width is derived from depth and radius. An unavailable catalogue diameter or incompatible side needs repair. The first failed OK keeps the draft private; a second unchanged OK saves an unresolved feature, while Cancel discards the changes."
+      },
+      "de": {
+        "title": "Einstich",
+        "intro": "Erstellen Sie einen umlaufenden Einstich auf einer Welle oder in einer Nabe mit rechteckigem oder kreisförmigem Profil.",
+        "prerequisites": "Aktivieren Sie einen bearbeitbaren Bauteilkörper und die Anwendung Mechanik.",
+        "steps": [
+          "Starten Sie Einstich. Wählen Sie eine zylindrische Materialfläche: Sie wird als Achse eingetragen und bestimmt die Außen- oder Innenseite.",
+          "Wählen Sie eine ebene Fläche oder Ursprungsebene als Fläche und stellen Sie den axialen Versatz ein. Beide Referenzreihenfolgen sind möglich; eine Drehung ist nicht erforderlich.",
+          "Wählen Sie ein rechteckiges oder kreisförmiges Profil. Geben Sie für einen benutzerdefinierten Einstich Breite und Tiefe beziehungsweise den Kreisprofilradius ein.",
+          "Alternativ wählen Sie eine Katalogreihe DIN 471/472 oder DIN 9925/9926. Der Stützdurchmesser bestimmt die Größe; bei rechteckigen Einstichen ist die Breite im angezeigten Bereich wählbar.",
+          "Prüfen Sie die Drahtvorschau und bestätigen Sie mit OK. Spätere Änderungen erfolgen in den Eigenschaften desselben Elements."
+        ],
+        "result": "Ein subtraktives Element folgt dem gewählten Zylinder und der axialen Platzierung. Maße und Referenzen werden im Bauteil gespeichert.",
+        "note": "Die Kreisprofilbreite wird aus Tiefe und Radius abgeleitet. Ein nicht verfügbarer Katalogdurchmesser oder eine unpassende Seite muss korrigiert werden. Das erste fehlgeschlagene OK behält den privaten Entwurf; ein zweites unverändertes OK speichert ein ungelöstes Element, Abbrechen verwirft die Änderungen."
+      },
+      "fr": {
+        "title": "Gorge",
+        "intro": "Créez une gorge circonférentielle sur un arbre ou dans un moyeu, avec un profil rectangulaire ou circulaire.",
+        "prerequisites": "Activez un corps de pièce modifiable et l’application Mécanique.",
+        "steps": [
+          "Lancez Gorge. Sélectionnez une face cylindrique du matériau : elle est saisie comme Axe et détermine le côté extérieur ou intérieur.",
+          "Sélectionnez une face plane ou un plan d’origine comme Surface, puis réglez le décalage axial. Les deux références peuvent être saisies dans l’ordre inverse ; aucune rotation n’est nécessaire.",
+          "Choisissez un profil rectangulaire ou circulaire. Pour une gorge personnalisée, indiquez la largeur et la profondeur, ou le rayon du profil circulaire.",
+          "Vous pouvez aussi choisir une série de catalogue DIN 471/472 ou DIN 9925/9926. Le diamètre du support détermine la taille ; la largeur rectangulaire est réglable dans la plage affichée.",
+          "Vérifiez l’aperçu filaire et validez par OK. Rouvrez les propriétés du même élément pour le modifier ensuite."
+        ],
+        "result": "Un élément soustractif suit le cylindre sélectionné et le placement axial. Ses dimensions et références sont enregistrées dans la pièce.",
+        "note": "La largeur circulaire est calculée à partir de la profondeur et du rayon. Un diamètre absent du catalogue ou un côté incompatible doit être corrigé. Le premier échec de OK conserve le brouillon privé ; un second OK inchangé enregistre un élément non résolu, tandis qu’Annuler abandonne les modifications."
+      },
+      "ru": {
+        "title": "Канавка",
+        "intro": "Создайте кольцевую канавку на валу или внутри ступицы с прямоугольным либо круглым профилем.",
+        "prerequisites": "Активируйте редактируемое тело детали и приложение «Механика».",
+        "steps": [
+          "Запустите команду «Канавка». Выберите цилиндрическую поверхность материала: она задаётся как ось и определяет наружную или внутреннюю сторону.",
+          "Выберите плоскую грань или плоскость начала координат как поверхность и задайте осевое смещение. Ссылки можно задавать в обратном порядке; поворот не требуется.",
+          "Выберите прямоугольный или круглый профиль. Для произвольной канавки задайте ширину и глубину либо радиус круглого профиля.",
+          "Также можно выбрать каталог DIN 471/472 или DIN 9925/9926. Размер определяется диаметром опоры; ширину прямоугольной канавки можно выбрать в показанном диапазоне.",
+          "Проверьте каркасный предпросмотр и нажмите OK. Для дальнейших изменений откройте свойства того же элемента."
+        ],
+        "result": "Один вычитающий элемент следует выбранному цилиндру и осевому размещению. Размеры и ссылки сохраняются внутри детали.",
+        "note": "Ширина круглого профиля вычисляется по глубине и радиусу. Отсутствующий в каталоге диаметр или несовместимую сторону нужно исправить. После первой неудачи OK черновик остаётся частным; повторное OK без изменений сохраняет неразрешённый элемент, а «Отмена» отбрасывает изменения."
+      }
+    },
+    "dialogCapture": "groove"
   }
 }

@@ -3,7 +3,9 @@
 #include <zima/document/solid_state_reference_views.hpp>
 #include <zima/workspace/hole_operations.hpp>
 #include <zima/workspace/mech_keyway_operations.hpp>
+#include <zima/workspace/mech_groove_operations.hpp>
 #include "../mech_keyway_parameter_panel.hpp"
+#include "../mech_groove_parameter_panel.hpp"
 #include "../feature_naming.hpp"
 #include "workspace_internal.hpp"
 #include <zima/document/sketch_placement.hpp>
@@ -296,6 +298,8 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         : edit_mode ? *edited
         : feature_kind == zima::document::FeatureKind::MechKeyway
             ? zima::workspace::create_mech_keyway()
+        : feature_kind == zima::document::FeatureKind::MechGroove
+            ? zima::document::create_mech_groove()
         : feature_kind == zima::document::FeatureKind::SheetForm
             ? zima::document::create_sheet_form()
         : feature_kind == zima::document::FeatureKind::Hole
@@ -582,6 +586,11 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                     pending_profile_feature_->id == committed_cut_id) {
                     pending_profile_feature_.reset();
                 }
+                return;
+            }
+            if (committed.feature_kind == zima::document::FeatureKind::MechGroove) {
+                try {static_cast<void>(zima::workspace::commit_mech_groove(workspace_,kernel_,owner_id,std::move(committed)));}
+                catch(const std::exception& error){throw std::runtime_error(tr(error.what()).toStdString());}
                 return;
             }
             if (committed.feature_kind == zima::document::FeatureKind::MechKeyway) {
@@ -1311,6 +1320,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         // Opening edits (including View dimensions) keep the user's camera.
         const bool fit_new_basic_preview = !edit_mode &&
             feature_kind != zima::document::FeatureKind::MechKeyway &&
+            feature_kind != zima::document::FeatureKind::MechGroove &&
             feature_kind != zima::document::FeatureKind::TwistedSheet &&
             feature_kind != zima::document::FeatureKind::SheetForm &&
             feature_kind != zima::document::FeatureKind::Thread &&
@@ -1427,6 +1437,15 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                 }
                 viewer_->set_transient_edges(
                     preview_geometry.thread_edges(resolved_preview, body, &opening_preview_axis));
+            } else if (resolved_preview.feature_kind == zima::document::FeatureKind::MechGroove) {
+                try {
+                    resolved_preview=document::resolve_mech_groove_draft(resolved_preview,primitive_reference_geometry_);
+                    dialog->mech_groove_panel()->update_derived(resolved_preview.mech_groove);
+                    viewer_->set_transient_edges(document::mech_groove_preview_edges(resolved_preview));
+                }catch(const std::exception& error){
+                    viewer_->set_transient_edges({});
+                    dialog->mech_groove_panel()->set_draft_error(error.what());
+                }
             } else if (resolved_preview.feature_kind == zima::document::FeatureKind::MechKeyway) {
                 try {
                     auto draft=workspace::resolve_mech_keyway_draft(resolved_preview,resolved_preview.id+":preview",primitive_reference_geometry_);
@@ -1465,6 +1484,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             origin_preview.entity_id = resolved_preview.feature_id;
             origin_preview.container_origin = resolved_preview.container_origin;
             origin_preview.kind = (defer_profile_scene_refresh ||
+                resolved_preview.feature_kind == zima::document::FeatureKind::MechGroove ||
                 resolved_preview.feature_kind == zima::document::FeatureKind::MechKeyway)
                 ? zima::document::ConstructionKind::Point
                 : zima::document::ConstructionKind::Axis;

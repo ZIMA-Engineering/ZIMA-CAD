@@ -64,6 +64,9 @@ struct HistoryDependencyCollector {
         };
         using document::FeatureKind;
         switch(feature.feature_kind) {
+        case FeatureKind::MechGroove:
+            reference(root,feature.mech_groove.support);
+            break;
         case FeatureKind::MechKeyway:
             reference(root,feature.mech_keyway.support);
             if(feature.mech_keyway.position==document::KeywayPosition::TwoSided)

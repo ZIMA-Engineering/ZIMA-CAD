@@ -70,6 +70,14 @@ Undo/Redo, cold reopening, Unbend/Bend Back and Explode. These material-input
 changes must invalidate boundary reuse even when source geometry is unchanged;
 see the [material-default regression](verification/20261128-sheet-material-defaults.md).
 
+The boundary gate additionally exercises source-first settling with repeated
+solid height, placement and Fillet edits. A finite RIP crosses from a valid
+trimmed sector into a lost sector and back. Checks cover exact native face
+classification, retained last-valid frames, independent material, correction
+identity, bounded calculation counts, persistence, Undo/Redo and subsequent
+Unbend, Bend Back and Explode. See the
+[source edit investigation](performance/20261128-sheet-source-edit-preparation.md).
+
 Build 2026111903 is withheld: the saved 18.prtz case still contains invalid
 Tabule 03 and Ohyb 03 placements after touching branches. Earlier local-face
 attachment tests did not establish this independent-branch contract. The broader

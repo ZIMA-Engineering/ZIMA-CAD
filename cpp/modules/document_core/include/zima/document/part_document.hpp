@@ -2,6 +2,7 @@
 #include <cmath>
 #include <zima/document/sweep_precision.hpp>
 #include <zima/document/mech_keyway.hpp>
+#include <zima/document/mech_groove.hpp>
 #include <zima/document/family_document.hpp>
 #include <zima/document/profile_parameters.hpp>
 #include <zima/document/feature_parameters.hpp>
@@ -50,7 +51,7 @@ enum class NativeCalculatedCacheReuse {
 };
 
 enum class CombineMode { Add, Subtract };
-enum class FeatureKind { Sketch, Extrusion, Revolution, Sweep3D, ImportedStep, Fillet, Chamfer, Shell, Hole, Thread, DrillPoint, ShaftThread, HelicalSweep, Sweep2D, Holes, Bend, LineBend, Flat, SheetFromBody, SheetProfile, TwistedSheet, Unbend, BendBack, DerivedCopy, SheetTransition, Feature, BoundarySurface, Straighten, RestoreShape, SurfaceSewing, GeneralSurface, SurfaceIntersection, SurfaceTrim, SurfaceThicken, SheetForm, Loft, MechKeyway };
+enum class FeatureKind { Sketch, Extrusion, Revolution, Sweep3D, ImportedStep, Fillet, Chamfer, Shell, Hole, Thread, DrillPoint, ShaftThread, HelicalSweep, Sweep2D, Holes, Bend, LineBend, Flat, SheetFromBody, SheetProfile, TwistedSheet, Unbend, BendBack, DerivedCopy, SheetTransition, Feature, BoundarySurface, Straighten, RestoreShape, SurfaceSewing, GeneralSurface, SurfaceIntersection, SurfaceTrim, SurfaceThicken, SheetForm, Loft, MechKeyway, MechGroove };
 [[nodiscard]] inline bool is_solid_state(FeatureKind kind) {
     return kind==FeatureKind::Straighten||kind==FeatureKind::RestoreShape;
 }
@@ -984,6 +985,7 @@ struct HistoryContainer {
     SheetProfileParameters sheet_profile;
     SheetProfileBinding sheet_profile_binding;
     MechKeywayParameters mech_keyway;
+    MechGrooveParameters mech_groove;
     MechKeywayBinding mech_keyway_binding;
     TwistedSheetParameters twisted_sheet;
     SheetStateParameters sheet_state;

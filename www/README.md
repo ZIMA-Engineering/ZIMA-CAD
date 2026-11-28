@@ -80,7 +80,7 @@ continue to agree with the current native implementation.
 ## Command guides
 
 `[CommandCatalogs]` names the three authored catalogs: modeling, sketch/FEM and
-workspaces. Together they currently describe all 145 right-toolbar actions.
+workspaces. Together they currently describe all 147 right-toolbar actions.
 Each exact action ID has a unique `command-*` slug, a workspace `group`, verified
 repository `sources`, and `locales` containing exactly `cs`, `en`, `de`, `fr`,
 and `ru`. Every locale provides nonempty `title`, `intro`, `prerequisites`,

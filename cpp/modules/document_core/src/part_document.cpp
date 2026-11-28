@@ -8461,6 +8461,7 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::extrusion_preview_edges(
 
 std::vector<zima::kernel::ViewerEdge> PartDocument::primitive_preview_edges(
         const HistoryContainer& container) const {
+    if(container.feature_kind==FeatureKind::MechGroove)return mech_groove_preview_edges(container);
     std::vector<zima::kernel::ViewerEdge> result;
     const zima::kernel::Vec3 rotation{container.placement.rotation_x,
         container.placement.rotation_y, container.placement.rotation_z};
@@ -12254,6 +12255,11 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
             thread.cuts_before = std::move(before);
             thread.cuts_after = std::move(after);
             primitive = thread;
+        } else if (container.feature_kind == FeatureKind::MechGroove) {
+            if(container.combine_mode!=CombineMode::Subtract||container.mech_groove.section.empty())
+                throw std::invalid_argument("Groove requires a resolved subtractive section");
+            const auto section=sketcher::Sketch::from_serialized(container.mech_groove.section);
+            primitive=revolution_request(section,section.id+":axis",360.);
         } else if (container.feature_kind == FeatureKind::ShaftThread) {
             primitive=shaft_thread_request(container);
         } else if (container.feature_kind == FeatureKind::DrillPoint) {
@@ -13691,7 +13697,7 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
             type != "fillet" && type != "chamfer" &&
             type != "derived_copy" && type != "shell" && type != "twisted_sheet" && type != "sheet_transition" && type != "boundary_surface" && type != "surface_sewing" && type != "surface_thicken" && type != "surface_intersection" && type != "surface_trim" && type != "general_surface" && type != "unbend" && type != "bend_back" && type != "straighten" && type != "restore_shape" &&
             type != "flat" && type != "sheet_from_body" && type != "sheet_profile" && type != "bend" && type != "line_bend" && type != "holes" && type != "hole" && type != "thread" && type != "shaft_thread" &&
-            type != "drill_point" && type != "sheet_form" && type != "loft" && type != "mech_keyway") {
+            type != "drill_point" && type != "sheet_form" && type != "loft" && type != "mech_keyway" && type != "mech_groove") {
             throw std::runtime_error("Unsupported history feature type");
         }
         HistoryContainer container;
@@ -13720,6 +13726,7 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
             : type == "sheet_from_body" ? FeatureKind::SheetFromBody
             : type == "sheet_profile" ? FeatureKind::SheetProfile
             : type == "mech_keyway" ? FeatureKind::MechKeyway
+            : type == "mech_groove" ? FeatureKind::MechGroove
             : type == "unbend" ? FeatureKind::Unbend
             : type == "straighten" ? FeatureKind::Straighten
             : type == "restore_shape" ? FeatureKind::RestoreShape
@@ -13798,6 +13805,8 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
         }
         if(container.feature_kind==FeatureKind::MechKeyway)
             container.mech_keyway=load_mech_keyway(source.at("mech_keyway"));
+        if(container.feature_kind==FeatureKind::MechGroove)
+            container.mech_groove=load_mech_groove(source.at("mech_groove"));
         if (const auto binding = source.value(
                 "sheet_profile_binding", nlohmann::json{});
                 !binding.empty()) {
@@ -13869,7 +13878,7 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
                container.sheet_from_body.thickness>1000000)
                 throw std::runtime_error(
                     "Invalid Sheet from Body definition");
-        } else if (container.feature_kind == FeatureKind::MechKeyway) {
+        } else if (container.feature_kind == FeatureKind::MechKeyway || container.feature_kind == FeatureKind::MechGroove) {
             // The typed MECH codec above owns this compound definition.
         } else if (container.feature_kind == FeatureKind::SheetProfile) {
             const auto& definition = source.at("sheet_profile");
@@ -15213,6 +15222,10 @@ nlohmann::json PartDocument::serialized(
             validate_sheet_profile_width(profile);
         } else if (container.feature_kind == FeatureKind::MechKeyway) {
             validate_mech_keyway(container.mech_keyway);
+        } else if (container.feature_kind == FeatureKind::MechGroove) {
+            validate_mech_groove(container.mech_groove);
+            if(container.combine_mode!=CombineMode::Subtract)
+                throw std::invalid_argument("Groove must subtract material");
         } else if (container.edge_treatment.routes.empty() ||
                    std::any_of(container.edge_treatment.routes.begin(),
                        container.edge_treatment.routes.end(),
@@ -15246,6 +15259,7 @@ nlohmann::json PartDocument::serialized(
                 : container.feature_kind == FeatureKind::SheetFromBody ? "sheet_from_body"
                 : container.feature_kind == FeatureKind::SheetProfile ? "sheet_profile"
                 : container.feature_kind == FeatureKind::MechKeyway ? "mech_keyway"
+                : container.feature_kind == FeatureKind::MechGroove ? "mech_groove"
                 : container.feature_kind == FeatureKind::Bend ? "bend"
                 : container.feature_kind == FeatureKind::LineBend ? "line_bend"
                 : container.feature_kind == FeatureKind::Unbend ? "unbend"
@@ -15363,6 +15377,8 @@ nlohmann::json PartDocument::serialized(
                 {"role",container.mech_keyway_binding.role}};
         if (container.feature_kind == FeatureKind::MechKeyway) {
             serialized["mech_keyway"]=serialize_mech_keyway(container.mech_keyway);
+        } else if (container.feature_kind == FeatureKind::MechGroove) {
+            serialized["mech_groove"]=serialize_mech_groove(container.mech_groove);
         } else if (container.feature_kind == FeatureKind::DerivedCopy) {
             serialized["derived_copy"]=container.derived_copy;
         } else if (container.feature_kind == FeatureKind::Sketch) {

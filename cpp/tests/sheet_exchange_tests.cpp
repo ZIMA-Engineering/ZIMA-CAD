@@ -24,6 +24,9 @@
 #include <zima/workspace/history_deletion.hpp>
 #include <zima/workspace/history_policy.hpp>
 #include <zima/workspace/part_transactions.hpp>
+#include <zima/workspace/profile_operations.hpp>
+#include <zima/workspace/placement_edit.hpp>
+#include <zima/workspace/operation_input.hpp>
 #include <zima/workspace/metadata_operations.hpp>
 #include <zima/workspace/flat_operations.hpp>
 #include <zima/workspace/bend_operations.hpp>
@@ -3631,13 +3634,17 @@ void boundary_material_edit_contract(zima::document::PartDocument,
     std::vector<zima::kernel::BodyResult>,const std::filesystem::path&);
 #include "sheet_boundary_skeleton_contract.inc"
 #include "sheet_boundary_defaults_contract.inc"
+#include "sheet_source_edit_contract.inc"
 
 int main(int argc,char** argv) {
     try {
         // Fresh committed-source stages have no pre-existing build directory.
         std::filesystem::create_directories("build");
         if(argc==2&&std::string_view(argv[1])=="--boundary-skeleton") {
-            boundary_skeleton_box_contract();return 0;
+            boundary_skeleton_box_contract();sheet_source_edit_contract();return 0;
+        }
+        if(argc==2&&std::string_view(argv[1])=="--source-edits") {
+            sheet_source_edit_contract();return 0;
         }
         if(argc==2&&std::string_view(argv[1])=="--bend-allowance-probe") {
             bend_allowance_equation_probe();return 0;

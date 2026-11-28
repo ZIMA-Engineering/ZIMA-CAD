@@ -210,11 +210,7 @@ void AssemblyWorkspaceWindow::update_section_ui(){
     group->setData(0,Qt::UserRole+3,"document-sections");
     group->setFlags(group->flags()&~Qt::ItemIsUserCheckable);
     group->setIcon(0,resource_icon("sections"));
-    auto position=std::min(1,root->childCount());
-    if(const auto* assembly=workspace_.open_assembly(id); assembly && position<root->childCount()) {
-        const auto* component=assembly->session.document().find_occurrence(root->child(position)->data(0,Qt::UserRole).toString().toStdString());
-        if(component && zima::assembly::is_skeleton(*component)) ++position;
-    }
+    const auto position=workspace_.open_assembly(id)?0:std::min(1,root->childCount());
     root->insertChild(position,group);group->setExpanded(section_tree_expanded_[id]);
     // Render definitions share a document group, like Sections. Their ordinary
     // native Body identities, source order and calculation contracts stay intact.

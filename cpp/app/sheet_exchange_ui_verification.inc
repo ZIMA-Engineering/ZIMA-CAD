@@ -1,4 +1,8 @@
+#include "sheet_source_edit_ui_verification.inc"
+
 int verify_sheet_exchange_ui(QApplication& application,const std::filesystem::path& directory) {
+    if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SHEET_SOURCE_EDITS"))
+        return verify_sheet_source_edit_ui(application,directory);
     using namespace zima;
     const auto check=[](bool value,const char* message){if(!value)throw std::runtime_error(message);};
     const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};

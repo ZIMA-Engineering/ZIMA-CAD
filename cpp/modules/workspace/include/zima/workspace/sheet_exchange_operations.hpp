@@ -65,6 +65,10 @@ void stage_unresolved_sheet_from_body(document::PartDocument&,
 struct SheetFromBodySourceCache {
     std::map<std::string,std::vector<kernel::BodyResult>> ripped_sources;
 };
+// Refresh changed source geometry before calculating children of the old
+// boundary. The key belongs to one settling operation, never to persistence.
+[[nodiscard]] std::optional<std::pair<std::string,std::string>> changed_sheet_from_body_source(
+    const document::PartDocument&);
 [[nodiscard]] bool refresh_sheet_from_body_associations(
     document::PartDocument&,const std::vector<kernel::BodyResult>&,
     const kernel::OcctKernel&,SheetFromBodySourceCache* = nullptr);

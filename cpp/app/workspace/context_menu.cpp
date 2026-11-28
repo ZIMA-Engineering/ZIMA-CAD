@@ -14,6 +14,8 @@ using namespace workspace_detail;
 
 
 void AssemblyWorkspaceWindow::show_tree_item_properties(QTreeWidgetItem* item) {
+    if(item&&(item->data(0,Qt::UserRole+3)=="assembly-model-group"||
+              item->data(0,Qt::UserRole+3)=="assembly-mechanisms-group"))return;
     if(item&&item->data(0,Qt::UserRole+3)=="cam-setup"){show_cam_body_properties(item->data(0,Qt::UserRole).toString().toStdString());return;}
     if(active_cam_body()&&item&&item->data(0,Qt::UserRole+3)!="part-body")return;
     if(item&&item->data(0,Qt::UserRole+3)=="render-object") {

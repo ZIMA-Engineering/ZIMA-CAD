@@ -6598,8 +6598,8 @@ int verify_application_tools_ui(QApplication& application,const std::filesystem:
         check(window.open_document_path(QString::fromStdString(assembly_path.string())),"Assembly fixture failed to open");flush();
         check(menu->actions().contains(window.findChild<QAction*>("insertComponentAction"))&&
             assembly&&assembly->isChecked()&&assembly->isEnabled()&&
-            !selector()->parentWidget()->isVisible()&&!selector()->isVisible()&&
-            !assembly_button()->isVisible()&&!sheet_button()->isVisible()&&
+            selector()->parentWidget()->isVisible()&&!selector()->isVisible()&&
+            assembly_button()->isVisible()&&!sheet_button()->isVisible()&&
             !surface_button()->isVisible()&&!modeling->isEnabled()&&
             !sheet->isEnabled()&&!surface->isEnabled(),
             "An active Assembly exposes the Part application switcher");
@@ -6611,7 +6611,7 @@ int verify_application_tools_ui(QApplication& application,const std::filesystem:
             modeling->isEnabled()&&sheet->isEnabled()&&surface->isEnabled(),
             "Activating a Part occurrence did not expose its Part applications");
         window.deactivate_active_occurrence_for_test();flush();
-        check(assembly->isChecked()&&!selector()->parentWidget()->isVisible(),
+        check(assembly->isChecked()&&assembly_button()->isVisible()&&!selector()->isVisible(),
             "Returning to the Assembly retained the Part application switcher");
         // Flat creation and editing use the same transient container/Sketch dialog.
         auto flat_part=document::PartDocument::create_default();document::BodyHistoryGraph flat_graph;
@@ -12553,6 +12553,8 @@ int verify_startup_contract(
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SURFACE_TRIM_ONLY")) return zima::app::verify_surface_trim_ui(application,window,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_PROJECTION_ONLY")) return zima::app::verify_projection_ui(application,window,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_MECH_KEYWAY_WORKSPACE")) return zima::app::verify_mech_keyway_workspace_ui(application,window,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_MECH_GROOVE_WORKSPACE")) return zima::app::verify_mech_groove_workspace_ui(application,window,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_ASSEMBLY_MODES")) return zima::app::verify_assembly_modes_ui(application,window,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_WRAPPING_ONLY")) return zima::app::verify_wrapping_ui(application,window,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SURFACE_INTERSECTION_ONLY")) return zima::app::verify_surface_intersection_ui(application,window,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SPLINE_TANGENT_ONLY")) return verify_spline_tangent_selection(application,test_directory);

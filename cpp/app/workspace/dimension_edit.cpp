@@ -1,6 +1,8 @@
 #include "../loft_dialog.hpp"
 #include <zima/workspace/loft_operations.hpp>
 #include <zima/workspace/mech_keyway_operations.hpp>
+#include <zima/workspace/mech_groove_operations.hpp>
+#include <zima/document/groove_catalog.hpp>
 #include <zima/workspace/family_operations.hpp>
 #include "../inline_dimension_edit.hpp"
 #include <zima/workspace/placement_edit.hpp>
@@ -690,6 +692,18 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
                         workspace_, workspace_.active_document_id(), candidate.owner_id);
                     changed = workspace::assign_displayed_placement_dimension(
                         *container, geometry, placement_key, next_value);
+                } else if(container->feature_kind==FeatureKind::MechGroove) {
+                    auto& p=container->mech_groove;
+                    if(key=="groove_width"&&p.profile==document::GrooveProfile::Rectangular) {
+                        if(!p.catalogue.empty()) {
+                            const auto& row=document::groove_size(p.catalogue,p.support_diameter);
+                            if(next_value<row.width_min||next_value>row.width_max)
+                                throw std::runtime_error("Groove width is outside the selected range");
+                            p.width_position=(next_value-row.width_min)/(row.width_max-row.width_min);
+                        }
+                        positive(p.width);
+                    } else if(p.catalogue.empty()&&key=="groove_depth")positive(p.depth);
+                    else if(p.catalogue.empty()&&key=="groove_radius"&&p.profile==document::GrooveProfile::Circular)positive(p.radius);
                 } else if(container->feature_kind==FeatureKind::MechKeyway) {
                     auto& p=container->mech_keyway;
                     if(key=="mech_length"&&p.position!=document::KeywayPosition::TwoSided&&!(p.type==document::KeywayType::Woodruff&&!p.internal))positive(p.length);
@@ -982,6 +996,9 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
                     kernel_,next.document_id,*dimension_feature,
                     *dimension_feature_sketch));
                 construction_dimension_object_id_=dimension_feature->id;
+            } else if(edited_feature&&edited_feature->feature_kind==document::FeatureKind::MechGroove) {
+                static_cast<void>(workspace::commit_mech_groove(workspace_,kernel_,next.document_id,*edited_feature));
+                construction_dimension_object_id_=edited_feature->id;
             } else if(edited_feature&&edited_feature->feature_kind==document::FeatureKind::MechKeyway) {
                 static_cast<void>(workspace::commit_mech_keyway(workspace_,kernel_,next.document_id,*edited_feature));
                 construction_dimension_object_id_=edited_feature->id;

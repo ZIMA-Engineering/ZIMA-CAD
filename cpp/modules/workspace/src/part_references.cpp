@@ -309,7 +309,8 @@ bool refresh_sketch_external_references(
     // MECH dependency errors belong to its compound lifecycle. Sketch refresh
     // must not retire them and repeatedly re-enable invalid material children.
     std::map<std::string,std::string> compound_errors;
-    for(const auto& feature:document.history)if(feature.feature_kind==document::FeatureKind::MechKeyway)
+    for(const auto& feature:document.history)if(feature.feature_kind==document::FeatureKind::MechKeyway||
+            feature.feature_kind==document::FeatureKind::MechGroove)
         if(const auto error=document.reference_errors.find(feature.id);error!=document.reference_errors.end()) {
             compound_errors.emplace(*error);
             for(const auto& child:document.history)if(child.mech_keyway_binding.parent_id==feature.id)

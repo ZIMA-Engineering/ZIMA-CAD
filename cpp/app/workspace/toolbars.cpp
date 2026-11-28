@@ -112,7 +112,10 @@ void AssemblyWorkspaceWindow::update_application_actions() {
     } else if (workspace_.open_assembly(workspace_.active_document_id()) != nullptr) {
         application_actions_[static_cast<std::size_t>(ApplicationMode::Assembly)]
             ->setEnabled(true);
-        active_application_ = ApplicationMode::Assembly;
+        application_actions_[static_cast<std::size_t>(ApplicationMode::Mechanisms)]
+            ->setEnabled(true);
+        if(active_application_!=ApplicationMode::Mechanisms)
+            active_application_ = ApplicationMode::Assembly;
     }
     application_actions_[static_cast<std::size_t>(active_application_)]->setChecked(true);
     if(application_mode_selector_) {
@@ -125,19 +128,21 @@ void AssemblyWorkspaceWindow::update_application_actions() {
         if(fem_mode_button_)fem_mode_button_->setVisible(fem);
         if(render_mode_button_)render_mode_button_->setVisible(render);
         if(cam_mode_button_)cam_mode_button_->setVisible(cam);
-        if(assembly_mode_button_)
-            assembly_mode_button_->hide();
+        const bool assembly_context=workspace_.open_assembly(workspace_.active_document_id())!=nullptr;
+        if(assembly_mode_button_)assembly_mode_button_->setVisible(assembly_context);
+        if(mechanisms_mode_button_)mechanisms_mode_button_->setVisible(assembly_context);
         if(sheet_metal_mode_button_)
             sheet_metal_mode_button_->setVisible(part_context&&!fem&&!render&&!cam);
         if(surface_mode_button_)
             surface_mode_button_->setVisible(part_context&&!fem&&!render&&!cam);
         if(mech_mode_button_)mech_mode_button_->setVisible(part_context&&!fem&&!render&&!cam);
         application_mode_selector_->setVisible(
-            part_context&&
+            (part_context||assembly_context)&&
             !workspace_.open_drawing(workspace_.displayed_document_id()));
     }
     if(properties_dialog_ || !active_sketch_id_.empty() || section_dialog_)
         for(auto* action:application_actions_)action->setEnabled(false);
+    update_assembly_group_states();
 }
 
 void AssemblyWorkspaceWindow::set_active_application(ApplicationMode mode) {
@@ -151,10 +156,43 @@ void AssemblyWorkspaceWindow::set_active_application(ApplicationMode mode) {
     document_application_modes_[workspace_.active_document_id()]=mode;
     application_actions_[index]->setChecked(true);
     rebuild_application_toolbar();
+    update_assembly_group_states();
     // Ordinary priorities read the active workspace. Retire an unconfirmed
     // hover/cycling list while preserving an existing View/Tree selection.
     if(viewer_&&!viewer_->confirmed_candidate())viewer_->set_candidate_filter(viewer_->candidate_filter(),
         viewer_->advances_selection_on_hover());
+}
+
+void AssemblyWorkspaceWindow::activate_assembly_group(QTreeWidgetItem* item) {
+    if(!item||properties_dialog_||tree_edit_dialog_||section_dialog_||!active_sketch_id_.empty())return;
+    const auto role=item->data(0,Qt::UserRole+3).toString();
+    if(role!="assembly-model-group"&&role!="assembly-mechanisms-group")return;
+    // Activation can rebuild the Tree, so retain values rather than its item.
+    const auto path=item->data(0,Qt::UserRole+1).toString().toStdString();
+    const auto owner=item->data(0,Qt::UserRole+2).toString().toStdString();
+    if(workspace_.active_document_id()!=owner||workspace_.active_occurrence_path()!=path) {
+        if(path.empty())deactivate_active_occurrence_for_test();
+        else if(!activate_occurrence_for_test(path))return;
+    }
+    if(workspace_.active_document_id()!=owner||workspace_.active_occurrence_path()!=path)return;
+    set_active_application(role=="assembly-mechanisms-group"?ApplicationMode::Mechanisms:ApplicationMode::Assembly);
+}
+
+void AssemblyWorkspaceWindow::update_assembly_group_states() {
+    if(!tree_)return;
+    const QSignalBlocker block(tree_);
+    for(QTreeWidgetItemIterator it(tree_);*it;++it) {
+        auto* item=*it;
+        const auto role=item->data(0,Qt::UserRole+3).toString();
+        if(role!="assembly-model-group"&&role!="assembly-mechanisms-group")continue;
+        const bool mechanisms=role=="assembly-mechanisms-group";
+        const bool active=item->data(0,Qt::UserRole+2).toString().toStdString()==workspace_.active_document_id()&&
+            item->data(0,Qt::UserRole+1).toString().toStdString()==workspace_.active_occurrence_path()&&
+            active_application_==(mechanisms?ApplicationMode::Mechanisms:ApplicationMode::Assembly);
+        item->setBackground(0,active?QBrush(QColor("#4DD811")):QBrush{});
+        item->setForeground(0,active?QBrush(QColor("#102027")):QBrush{});
+        auto font=item->font(0);font.setBold(active);item->setFont(0,font);
+    }
 }
 
 void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
@@ -247,6 +285,7 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
         : !active_sketch_id_.empty() ? tr("Skica")
         : active_application_ == ApplicationMode::Modeling ? tr("Modelování")
         : active_application_ == ApplicationMode::Assembly ? tr("Sestava")
+        : active_application_ == ApplicationMode::Mechanisms ? tr("Mechanisms")
         : active_application_ == ApplicationMode::SheetMetal ? application_actions_[static_cast<std::size_t>(ApplicationMode::SheetMetal)]->text()
         : active_application_ == ApplicationMode::Surface ? tr("Plochy")
         : active_application_ == ApplicationMode::Mech ? tr("MECH")
@@ -663,6 +702,10 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
         if(!keyway){keyway=new QAction(resource_icon("keyway"),tr("Drážka pro pero"),this);
             keyway->setObjectName("mechKeywayAction");connect(keyway,&QAction::triggered,this,[this]{show_primitive_properties(document::FeatureKind::MechKeyway);});}
         keyway->setEnabled(body&&!body->derived_copy&&!body->suppressed&&!properties_dialog_);add_command(keyway);
+        auto* groove=findChild<QAction*>("mechGrooveAction");
+        if(!groove){groove=new QAction(resource_icon("groove"),tr("Groove"),this);
+            groove->setObjectName("mechGrooveAction");connect(groove,&QAction::triggered,this,[this]{show_primitive_properties(document::FeatureKind::MechGroove);});}
+        groove->setEnabled(body&&!body->derived_copy&&!body->suppressed&&!properties_dialog_);add_command(groove);
         add_group_separator();add_command(mirror_action_);add_command(pattern_action_);add_symbol_group();return;
     }
     if (active_application_ == ApplicationMode::Surface) {
@@ -716,6 +759,19 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
             add_command(pattern_action_);
         }
         add_symbol_group();
+        return;
+    }
+    if (active_application_ == ApplicationMode::Mechanisms) {
+        add_command(selection_action_);
+        auto* placeholder=findChild<QAction*>("mechanismsPlaceholderAction");
+        if(!placeholder) {
+            placeholder=new QAction(this);
+            placeholder->setObjectName("mechanismsPlaceholderAction");
+        }
+        placeholder->setText(tr("In preparation"));
+        placeholder->setToolTip(tr("No mechanisms yet. Motion tools are being prepared."));
+        placeholder->setEnabled(false);
+        add_command(placeholder,false);
         return;
     }
     if (active_application_ == ApplicationMode::Assembly) {

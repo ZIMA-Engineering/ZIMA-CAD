@@ -8918,6 +8918,81 @@
       "language": "ru",
       "kind": "native dialog",
       "sha256": "a3025fc6dae32b2455af4865bc8f02076497ea1916594034ebe2260a1c85530d"
+    },
+    {
+      "path": "commands/cs/mechGrooveAction.png",
+      "language": "cs",
+      "kind": "native command",
+      "sha256": "a68e7249045d205103a6441d6c0937de0bbc03dcf5274e0deae3aabeece2ea4e",
+      "action": "mechGrooveAction",
+      "text": "Zápich",
+      "enabled": true
+    },
+    {
+      "path": "dialogs/cs/groove.png",
+      "language": "cs",
+      "kind": "native dialog",
+      "sha256": "f66884ac990180f7de933a0f515a89b520384616afc3da36fb665566ca5ef115"
+    },
+    {
+      "path": "commands/en/mechGrooveAction.png",
+      "language": "en",
+      "kind": "native command",
+      "sha256": "b0587ea9c8a9c3dafc0a43b5b143cc092245803cb62005eff50ce7c205692e94",
+      "action": "mechGrooveAction",
+      "text": "Groove",
+      "enabled": true
+    },
+    {
+      "path": "dialogs/en/groove.png",
+      "language": "en",
+      "kind": "native dialog",
+      "sha256": "f53e7442ba5888dd6e5f18ce8b95fb68a2e03534b36c2637503f6334280a4cdc"
+    },
+    {
+      "path": "commands/de/mechGrooveAction.png",
+      "language": "de",
+      "kind": "native command",
+      "sha256": "7b2b554933a5b7c6a80ff4439f6f300658bddf91130ddd06584a5306962cd216",
+      "action": "mechGrooveAction",
+      "text": "Einstich",
+      "enabled": true
+    },
+    {
+      "path": "dialogs/de/groove.png",
+      "language": "de",
+      "kind": "native dialog",
+      "sha256": "ad98a93f4ae98e3db0db4c723471cae1e0b87931e2d7ce840d3ee7965e9b2a07"
+    },
+    {
+      "path": "commands/fr/mechGrooveAction.png",
+      "language": "fr",
+      "kind": "native command",
+      "sha256": "498f6db312579b29ec3f153c070e9ad5bc6436929d1699097c2d82c9140be0ae",
+      "action": "mechGrooveAction",
+      "text": "Gorge",
+      "enabled": true
+    },
+    {
+      "path": "dialogs/fr/groove.png",
+      "language": "fr",
+      "kind": "native dialog",
+      "sha256": "f8c261fd84c1f993a1b94d04d9f0f8534f7061242548055ec1b4cb75e74f217b"
+    },
+    {
+      "path": "commands/ru/mechGrooveAction.png",
+      "language": "ru",
+      "kind": "native command",
+      "sha256": "2513ce1d983eb4a7a6cf3acdcb3eb696655eb86d94a64364fb77cef415277fed",
+      "action": "mechGrooveAction",
+      "text": "Канавка",
+      "enabled": true
+    },
+    {
+      "path": "dialogs/ru/groove.png",
+      "language": "ru",
+      "kind": "native dialog",
+      "sha256": "befecfa14db2824a9dbe38d8be963e510e9c2daa6a6dfac40ec74f0c50516644"
     }
   ]
 }

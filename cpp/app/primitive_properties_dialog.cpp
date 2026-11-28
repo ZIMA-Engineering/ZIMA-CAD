@@ -1,6 +1,7 @@
 #include <zima/assembly/assembly_document.hpp>
 #include "feature_parameter_panel.hpp"
 #include "mech_keyway_parameter_panel.hpp"
+#include "mech_groove_parameter_panel.hpp"
 #include <zima/document/container_origin_display.hpp>
 #include "reference_table_style.hpp"
 #include "sketch_button_style.hpp"
@@ -70,7 +71,8 @@ bool uses_container_placement(zima::document::FeatureKind kind) {
         kind == FeatureKind::TwistedSheet || kind == FeatureKind::DerivedCopy ||
         kind == FeatureKind::ImportedStep || kind == FeatureKind::Hole ||
         kind == FeatureKind::Thread || kind == FeatureKind::SheetTransition || kind == FeatureKind::GeneralSurface ||
-        kind == FeatureKind::SheetForm || kind == FeatureKind::Loft || kind == FeatureKind::MechKeyway;
+        kind == FeatureKind::SheetForm || kind == FeatureKind::Loft || kind == FeatureKind::MechKeyway ||
+        kind == FeatureKind::MechGroove;
 }
 
 namespace {
@@ -113,6 +115,7 @@ QString primitive_properties_title(zima::document::FeatureKind kind) {
         case FeatureKind::TwistedSheet: return QObject::tr("Vlastnosti krouceného plechu");
         case FeatureKind::SheetForm: return QObject::tr("Form Properties");
         case FeatureKind::MechKeyway: return QObject::tr("Keyway properties");
+        case FeatureKind::MechGroove: return QObject::tr("Groove properties");
         case FeatureKind::Feature: return QObject::tr("Vlastnosti prvku");
         case FeatureKind::Extrusion: return QObject::tr("Vlastnosti tažení");
         case FeatureKind::Revolution: return QObject::tr("Vlastnosti rotace");
@@ -183,6 +186,7 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
             zima::document::FeatureKind::Thread &&
         initial.feature_kind != zima::document::FeatureKind::DrillPoint &&
         initial.feature_kind != zima::document::FeatureKind::MechKeyway &&
+        initial.feature_kind != zima::document::FeatureKind::MechGroove &&
         initial.feature_kind != zima::document::FeatureKind::SheetForm) {
         operation_ = new QComboBox(this);
         if (!assembly_cut_mode) operation_->addItem(tr("Přičíst"), "add");
@@ -209,8 +213,10 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
             adapter->hide();placement_parent=adapter;placement_layout=new QVBoxLayout(adapter);
         }
         placement_ = std::make_unique<zima::ui::ContainerPlacementSection>(
-            placement_parent, placement_layout, /*with_orientation=*/true,
-            /*position_rows_can_define_rotation=*/true, zima::ui::numeric_decimal_places(this));
+            placement_parent, placement_layout,
+            /*with_orientation=*/initial.feature_kind!=zima::document::FeatureKind::MechGroove,
+            /*position_rows_can_define_rotation=*/initial.feature_kind!=zima::document::FeatureKind::MechGroove,
+            zima::ui::numeric_decimal_places(this));
         placement_->initialize_from_references(initial.placement.references,
             [](const std::string& semantic) {
                 return readable_placement_reference_kind(semantic);
@@ -231,7 +237,7 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         translation_ = placement_->translation_fields();
         rotation_ = placement_->rotation_offset_fields();
         for (auto* input : translation_) input->setObjectName("primitiveTranslation");
-        for (auto* input : rotation_) input->setObjectName("primitiveRotation");
+        for (auto* input : rotation_) if(input) input->setObjectName("primitiveRotation");
         reference_status_ = placement_->reference_status_label();
         dof_label_ = placement_->dof_label();
         placement_->reference_table()->setObjectName(is_sheet_form()?"sheetFormNativeReferenceAdapter":"primitiveReferenceTable");
@@ -1393,7 +1399,8 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         source->setTextInteractionFlags(Qt::TextSelectableByMouse);
         source->setWordWrap(true);
         form->addRow(tr("Zdrojový soubor"), source);
-    } else if(initial.feature_kind!=zima::document::FeatureKind::MechKeyway) {
+    } else if(initial.feature_kind!=zima::document::FeatureKind::MechKeyway &&
+              initial.feature_kind!=zima::document::FeatureKind::MechGroove) {
         const bool fillet =
             initial.feature_kind == zima::document::FeatureKind::Fillet;
         auto* method_row=new QWidget(this);
@@ -1497,6 +1504,12 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         set_edge_groups(initial.edge_treatment.routes);
     }
 
+    if(initial.feature_kind==zima::document::FeatureKind::MechGroove) {
+        setObjectName("mechGroovePropertiesDialog");
+        mech_groove_panel_=new MechGrooveParameterPanel(initial.mech_groove,this);
+        mech_groove_panel_->changed=[this]{notify_preview();};
+        content_layout()->addWidget(mech_groove_panel_);
+    }
     if(initial.feature_kind==zima::document::FeatureKind::MechKeyway) {
         setObjectName("mechKeywayPropertiesDialog");
         mech_keyway_panel_=new MechKeywayParameterPanel(initial.mech_keyway,this);
@@ -1716,6 +1729,7 @@ zima::document::HistoryContainer PrimitivePropertiesDialog::values() const {
     auto result = initial_;
     result.name = name.toStdString();
     if(mech_keyway_panel_)result.mech_keyway=mech_keyway_panel_->parameters();
+    if(mech_groove_panel_)result.mech_groove=mech_groove_panel_->parameters();
     if (operation_ != nullptr) {
         result.combine_mode = operation_->currentData().toString() == "subtract"
             ? zima::document::CombineMode::Subtract
@@ -1896,6 +1910,7 @@ zima::document::HistoryContainer PrimitivePropertiesDialog::values() const {
         result.shell.removed_faces = shell_faces_;
         result.shell.thickness = shell_thickness_?shell_thickness_->value():0.;
     } else if (result.feature_kind != zima::document::FeatureKind::MechKeyway &&
+               result.feature_kind != zima::document::FeatureKind::MechGroove &&
                result.feature_kind != zima::document::FeatureKind::ImportedStep &&
                result.feature_kind != zima::document::FeatureKind::SheetForm) {
         const auto mode = treatment_type_->currentData().toString();
@@ -2530,6 +2545,7 @@ void PrimitivePropertiesDialog::set_preview_callback(
     // its exact input reference packet becomes available. Compare unchanged
     // OK with that initial displayed draft, before any user edit takes place.
     if(initial_setup && edit_mode_ && (initial_.feature_kind==zima::document::FeatureKind::SheetForm||
+            initial_.feature_kind==zima::document::FeatureKind::MechGroove||
             initial_.feature_kind==zima::document::FeatureKind::MechKeyway))
         accepted_baseline_=values();
 }
@@ -2705,6 +2721,16 @@ void PrimitivePropertiesDialog::notify_preview() {
             automatic_work_plane(active_profile_plane));
     if (preview_) preview_(values());
     lock_sheet_form_fields();
+    if(mech_groove_panel_&&placement_) {
+        // The circumferential command consumes only Axis/Surface entry. Keep
+        // the shared placement solver and other commands' modes unchanged.
+        for(auto* mode:placement_->reference_table()->findChildren<QComboBox*>()) {
+            if(!mode->objectName().startsWith("placementReferenceType"))continue;
+            const QSignalBlocker guard(mode);
+            if(const int angle=mode->findData(2);angle>=0)mode->removeItem(angle);
+            mode->setToolTip({});
+        }
+    }
 }
 
 void PrimitivePropertiesDialog::lock_sheet_form_fields() {
@@ -3130,6 +3156,17 @@ bool PrimitivePropertiesDialog::sheet_reference_allowed(std::size_t index,const 
 }
 zima::document::ConstructionReference PrimitivePropertiesDialog::prepare_reference_candidate(
         std::size_t index,zima::document::ConstructionReference reference) const {
+    if(mech_groove_panel_&&!entering_whole_origin()) {
+        const auto& faces=sheet_reference_geometry_.triangle_references;
+        const auto face=std::ranges::find_if(faces,[&](const auto& f){return f.owner_id==reference.owner_id&&
+            f.semantic_key==reference.semantic_key&&f.instance_path==reference.instance_path;});
+        reference.use_axis=face!=faces.end()&&face->surface&&
+            face->surface->kind==zima::kernel::SurfaceGeometry::Kind::Cylinder;
+        reference.use_angle=false;reference.orientation_only=false;
+        reference.orientation_drives_rotation=false;reference.orientation_role="position_only";
+        if(reference.use_axis){reference.offset=0.;reference.supports_offset=false;}
+        return reference;
+    }
     if(mech_keyway_panel_&&index>0&&index<3&&!entering_whole_origin()) {
         const auto& geometry=sheet_reference_geometry_;
         const auto& support=mech_keyway_panel_->parameters().support;
@@ -3405,6 +3442,7 @@ void PrimitivePropertiesDialog::set_remaining_translation_dof(int dof) {
 
 void PrimitivePropertiesDialog::set_remaining_rotation_dof(int dof) {
     if (!placement_) return;
+    if(mech_groove_panel_)dof=0;
     placement_->set_remaining_rotation_dof(dof);
     remaining_rotation_dof_ = placement_->remaining_rotation_dof();
 }
@@ -3412,6 +3450,7 @@ void PrimitivePropertiesDialog::set_remaining_rotation_dof(int dof) {
 void PrimitivePropertiesDialog::set_rotation_constraint_state(
         const zima::document::OrientationConstraintState& state) {
     if (!placement_) return;
+    if(mech_groove_panel_){set_remaining_rotation_dof(0);return;}
     placement_->set_rotation_constraint_state(state);
     remaining_rotation_dof_ = placement_->remaining_rotation_dof();
 }
@@ -3481,6 +3520,12 @@ bool PrimitivePropertiesDialog::set_inline_parameter_value(
         field->setValue(value);
         return true;
     };
+    if(mech_groove_panel_&&key.starts_with("groove_")) {
+        const char* name=key=="groove_width"?"mechGrooveWidth":key=="groove_depth"?"mechGrooveDepth":key=="groove_radius"?"mechGrooveRadius":nullptr;
+        auto* field=name?mech_groove_panel_->findChild<QDoubleSpinBox*>(name):nullptr;
+        if(!field||!std::isfinite(value)||value<field->minimum()||value>field->maximum())return false;
+        return set_field(field);
+    }
     if(mech_keyway_panel_&&key.starts_with("mech_")) {
         const char* name=key=="mech_length"?"mechKeyLength":key=="mech_offset"?"mechKeyOffset":
             key=="mech_forward_length"?"mechKeyLength0":key=="mech_reverse_length"?"mechKeyLength1":

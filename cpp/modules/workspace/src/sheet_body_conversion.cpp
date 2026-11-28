@@ -2132,7 +2132,8 @@ static SheetBodyConversion prepare_sheet_from_body_impl(const document::PartDocu
         const std::vector<kernel::BodyResult>& cache,const Face& selected,
         double thickness,const kernel::OcctKernel& kernel,
         bool thickness_override,std::vector<Face> included_faces,
-        std::vector<std::string> rip_sketches,SheetBodyPreparation preparation) {
+        std::vector<std::string> rip_sketches,SheetBodyPreparation preparation,
+        SheetFromBodySourceCache* reuse) {
     SheetConversionAuthoringScope authoring_scope;
     const auto* target=source.body_history.find(source.body_history.active_body_id());
     if(!target||target->derived_copy)throw std::invalid_argument("Sheet from Body requires an editable active Body.");
@@ -2258,7 +2259,7 @@ static SheetBodyConversion prepare_sheet_from_body_impl(const document::PartDocu
     std::vector<kernel::BodyResult> ripped_cache;
     if(!rip_sources.empty()) {
         ripped_cache=calculate_ripped_source(source,cache,
-            source_owner->scope.id,rip_sources,kernel);
+            source_owner->scope.id,rip_sources,kernel,{},reuse);
         source_cache=&ripped_cache;
     }
     const auto input=source_cache->back().body_outputs.find(
@@ -3393,27 +3394,37 @@ static SheetBodyConversion prepare_sheet_from_body_impl(const document::PartDocu
 }
 
 
-SheetBodyConversion prepare_sheet_from_body(const document::PartDocument& source,
+static SheetBodyConversion prepare_sheet_from_body_cached(const document::PartDocument& source,
         const std::vector<kernel::BodyResult>& cache,const Face& selected,
         double thickness,const kernel::OcctKernel& kernel,bool thickness_override,
         std::vector<Face> included_faces,std::vector<std::string> rip_sketches,
-        SheetBodyPreparation preparation) {
+        SheetBodyPreparation preparation,SheetFromBodySourceCache* reuse) {
     if(preparation!=SheetBodyPreparation::Automatic)
         return prepare_sheet_from_body_impl(source,cache,selected,thickness,kernel,
-            thickness_override,std::move(included_faces),std::move(rip_sketches),preparation);
+            thickness_override,std::move(included_faces),std::move(rip_sketches),preparation,reuse);
     // Both preparations own private drafts and use the same authoring algorithm.
     // If an exact lightweight boundary cannot be obtained or reconciled, retain
     // the established materialized path. Its existing errors remain authoritative;
     // no unsupported optimization diagnostic is exposed in the user interface.
     try {
         return prepare_sheet_from_body_impl(source,cache,selected,thickness,kernel,
-            thickness_override,included_faces,rip_sketches,preparation);
+            thickness_override,included_faces,rip_sketches,preparation,reuse);
     } catch(const std::runtime_error&) {
     } catch(const std::invalid_argument&) {
     }
     return prepare_sheet_from_body_impl(source,cache,selected,thickness,kernel,
         thickness_override,std::move(included_faces),std::move(rip_sketches),
-        SheetBodyPreparation::Materialized);
+        SheetBodyPreparation::Materialized,reuse);
+}
+
+SheetBodyConversion prepare_sheet_from_body(const document::PartDocument& source,
+        const std::vector<kernel::BodyResult>& cache,const Face& selected,
+        double thickness,const kernel::OcctKernel& kernel,bool thickness_override,
+        std::vector<Face> included_faces,std::vector<std::string> rip_sketches,
+        SheetBodyPreparation preparation) {
+    SheetFromBodySourceCache reuse;
+    return prepare_sheet_from_body_cached(source,cache,selected,thickness,kernel,
+        thickness_override,std::move(included_faces),std::move(rip_sketches),preparation,&reuse);
 }
 
 namespace {
@@ -3703,6 +3714,20 @@ sketcher::Sketch* owned_sketch(
 
 #include "sheet_body_edit.inc"
 
+std::optional<std::pair<std::string,std::string>> changed_sheet_from_body_source(
+        const document::PartDocument& source) {
+    if(sheet_conversion_authoring_depth)return {};
+    for(const auto& feature:source.history) {
+        if(feature.feature_kind!=document::FeatureKind::SheetFromBody||feature.suppressed||
+                std::ranges::none_of(feature.sheet_from_body.child_bindings,
+                    [](const auto& binding){return !binding.detached;}))continue;
+        const auto inputs=sheet_boundary_source_inputs(source,feature);
+        if(!inputs.empty()&&inputs!=feature.sheet_from_body.boundary_source_inputs)
+            return std::pair{feature.id,inputs};
+    }
+    return {};
+}
+
 bool refresh_sheet_from_body_associations(
         document::PartDocument& source,
         const std::vector<kernel::BodyResult>& calculated,
@@ -3882,7 +3907,10 @@ bool refresh_sheet_from_body_associations(
         source_policy.reject_errors=true;
         SheetBodyConversion rebuilt;
         try {
-            auto source_cache=calculate_part(kernel,prefix,nullptr,
+            // The settling pass has already calculated this source history.
+            // Reuse only the prefix accepted by the kernel's complete input
+            // fingerprints; changed frames and references still invalidate it.
+            auto source_cache=calculate_part(kernel,prefix,&calculated,
                 source_policy);
             if(source_cache.empty())throw std::runtime_error(
                 "Sheet from Body source prefix has no calculated output");
@@ -3907,10 +3935,10 @@ bool refresh_sheet_from_body_associations(
                     "An included Sheet from Body source face is unavailable");
                 included.push_back(*face);
             }
-            rebuilt=prepare_sheet_from_body(prefix,source_cache,*selected,
+            rebuilt=prepare_sheet_from_body_cached(prefix,source_cache,*selected,
                 old_definition.thickness,kernel,
                 old_definition.thickness_override,std::move(included),
-                old_definition.rip_sketches);
+                old_definition.rip_sketches,SheetBodyPreparation::Automatic,reuse);
         } catch(const std::exception&) {
             // A changed source that can no longer be represented is a broken
             // association, not permission to discard the last valid sheet.

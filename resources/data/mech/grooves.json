@@ -1,0 +1,3859 @@
+{
+  "schema": 1,
+  "catalogues": [
+    {
+      "id": "din471-seeger",
+      "standard": "DIN 471",
+      "source": "https://www.seeger-orbis.com/fileadmin/assets/pdf_datenblaetter/datenblatt_seeger-ringe_471.pdf",
+      "internal": false,
+      "profile": "rectangular",
+      "rows": [
+        {
+          "id": "A3",
+          "diameter": 3.0,
+          "groove_diameter": 2.8,
+          "width_min": 0.5,
+          "width_max": 0.64,
+          "radius": 0
+        },
+        {
+          "id": "A4",
+          "diameter": 4.0,
+          "groove_diameter": 3.8,
+          "width_min": 0.5,
+          "width_max": 0.64,
+          "radius": 0
+        },
+        {
+          "id": "A5",
+          "diameter": 5.0,
+          "groove_diameter": 4.8,
+          "width_min": 0.7,
+          "width_max": 0.84,
+          "radius": 0
+        },
+        {
+          "id": "A6",
+          "diameter": 6.0,
+          "groove_diameter": 5.7,
+          "width_min": 0.8,
+          "width_max": 0.94,
+          "radius": 0
+        },
+        {
+          "id": "A7",
+          "diameter": 7.0,
+          "groove_diameter": 6.7,
+          "width_min": 0.9,
+          "width_max": 1.04,
+          "radius": 0
+        },
+        {
+          "id": "A8",
+          "diameter": 8.0,
+          "groove_diameter": 7.6,
+          "width_min": 0.9,
+          "width_max": 1.04,
+          "radius": 0
+        },
+        {
+          "id": "A9",
+          "diameter": 9.0,
+          "groove_diameter": 8.6,
+          "width_min": 1.1,
+          "width_max": 1.24,
+          "radius": 0
+        },
+        {
+          "id": "A10",
+          "diameter": 10.0,
+          "groove_diameter": 9.6,
+          "width_min": 1.1,
+          "width_max": 1.24,
+          "radius": 0
+        },
+        {
+          "id": "A11",
+          "diameter": 11.0,
+          "groove_diameter": 10.5,
+          "width_min": 1.1,
+          "width_max": 1.24,
+          "radius": 0
+        },
+        {
+          "id": "A12",
+          "diameter": 12.0,
+          "groove_diameter": 11.5,
+          "width_min": 1.1,
+          "width_max": 1.24,
+          "radius": 0
+        },
+        {
+          "id": "A13",
+          "diameter": 13.0,
+          "groove_diameter": 12.4,
+          "width_min": 1.1,
+          "width_max": 1.24,
+          "radius": 0
+        },
+        {
+          "id": "A14",
+          "diameter": 14.0,
+          "groove_diameter": 13.4,
+          "width_min": 1.1,
+          "width_max": 1.24,
+          "radius": 0
+        },
+        {
+          "id": "A15",
+          "diameter": 15.0,
+          "groove_diameter": 14.3,
+          "width_min": 1.1,
+          "width_max": 1.24,
+          "radius": 0
+        },
+        {
+          "id": "A16",
+          "diameter": 16.0,
+          "groove_diameter": 15.2,
+          "width_min": 1.1,
+          "width_max": 1.24,
+          "radius": 0
+        },
+        {
+          "id": "A17",
+          "diameter": 17.0,
+          "groove_diameter": 16.2,
+          "width_min": 1.1,
+          "width_max": 1.24,
+          "radius": 0
+        },
+        {
+          "id": "A18",
+          "diameter": 18.0,
+          "groove_diameter": 17.0,
+          "width_min": 1.3,
+          "width_max": 1.44,
+          "radius": 0
+        },
+        {
+          "id": "A19",
+          "diameter": 19.0,
+          "groove_diameter": 18.0,
+          "width_min": 1.3,
+          "width_max": 1.44,
+          "radius": 0
+        },
+        {
+          "id": "A20",
+          "diameter": 20.0,
+          "groove_diameter": 19.0,
+          "width_min": 1.3,
+          "width_max": 1.44,
+          "radius": 0
+        },
+        {
+          "id": "A21",
+          "diameter": 21.0,
+          "groove_diameter": 20.0,
+          "width_min": 1.3,
+          "width_max": 1.44,
+          "radius": 0
+        },
+        {
+          "id": "A22",
+          "diameter": 22.0,
+          "groove_diameter": 21.0,
+          "width_min": 1.3,
+          "width_max": 1.44,
+          "radius": 0
+        },
+        {
+          "id": "A23",
+          "diameter": 23.0,
+          "groove_diameter": 22.0,
+          "width_min": 1.3,
+          "width_max": 1.44,
+          "radius": 0
+        },
+        {
+          "id": "A24",
+          "diameter": 24.0,
+          "groove_diameter": 22.9,
+          "width_min": 1.3,
+          "width_max": 1.44,
+          "radius": 0
+        },
+        {
+          "id": "A25",
+          "diameter": 25.0,
+          "groove_diameter": 23.9,
+          "width_min": 1.3,
+          "width_max": 1.44,
+          "radius": 0
+        },
+        {
+          "id": "A26",
+          "diameter": 26.0,
+          "groove_diameter": 24.9,
+          "width_min": 1.3,
+          "width_max": 1.44,
+          "radius": 0
+        },
+        {
+          "id": "A27",
+          "diameter": 27.0,
+          "groove_diameter": 25.6,
+          "width_min": 1.3,
+          "width_max": 1.44,
+          "radius": 0
+        },
+        {
+          "id": "A28",
+          "diameter": 28.0,
+          "groove_diameter": 26.6,
+          "width_min": 1.6,
+          "width_max": 1.74,
+          "radius": 0
+        },
+        {
+          "id": "A29",
+          "diameter": 29.0,
+          "groove_diameter": 27.6,
+          "width_min": 1.6,
+          "width_max": 1.74,
+          "radius": 0
+        },
+        {
+          "id": "A30",
+          "diameter": 30.0,
+          "groove_diameter": 28.6,
+          "width_min": 1.6,
+          "width_max": 1.74,
+          "radius": 0
+        },
+        {
+          "id": "A31",
+          "diameter": 31.0,
+          "groove_diameter": 29.3,
+          "width_min": 1.6,
+          "width_max": 1.74,
+          "radius": 0
+        },
+        {
+          "id": "A32",
+          "diameter": 32.0,
+          "groove_diameter": 30.3,
+          "width_min": 1.6,
+          "width_max": 1.74,
+          "radius": 0
+        },
+        {
+          "id": "A33",
+          "diameter": 33.0,
+          "groove_diameter": 31.3,
+          "width_min": 1.6,
+          "width_max": 1.74,
+          "radius": 0
+        },
+        {
+          "id": "A34",
+          "diameter": 34.0,
+          "groove_diameter": 32.3,
+          "width_min": 1.6,
+          "width_max": 1.74,
+          "radius": 0
+        },
+        {
+          "id": "A35",
+          "diameter": 35.0,
+          "groove_diameter": 33.0,
+          "width_min": 1.6,
+          "width_max": 1.74,
+          "radius": 0
+        },
+        {
+          "id": "A36",
+          "diameter": 36.0,
+          "groove_diameter": 34.0,
+          "width_min": 1.85,
+          "width_max": 1.99,
+          "radius": 0
+        },
+        {
+          "id": "A37",
+          "diameter": 37.0,
+          "groove_diameter": 35.0,
+          "width_min": 1.85,
+          "width_max": 1.99,
+          "radius": 0
+        },
+        {
+          "id": "A38",
+          "diameter": 38.0,
+          "groove_diameter": 36.0,
+          "width_min": 1.85,
+          "width_max": 1.99,
+          "radius": 0
+        },
+        {
+          "id": "A39",
+          "diameter": 39.0,
+          "groove_diameter": 37.0,
+          "width_min": 1.85,
+          "width_max": 1.99,
+          "radius": 0
+        },
+        {
+          "id": "A40",
+          "diameter": 40.0,
+          "groove_diameter": 37.5,
+          "width_min": 1.85,
+          "width_max": 1.99,
+          "radius": 0
+        },
+        {
+          "id": "A41",
+          "diameter": 41.0,
+          "groove_diameter": 38.5,
+          "width_min": 1.85,
+          "width_max": 1.99,
+          "radius": 0
+        },
+        {
+          "id": "A42",
+          "diameter": 42.0,
+          "groove_diameter": 39.5,
+          "width_min": 1.85,
+          "width_max": 1.99,
+          "radius": 0
+        },
+        {
+          "id": "A44",
+          "diameter": 44.0,
+          "groove_diameter": 41.5,
+          "width_min": 1.85,
+          "width_max": 1.99,
+          "radius": 0
+        },
+        {
+          "id": "A45",
+          "diameter": 45.0,
+          "groove_diameter": 42.5,
+          "width_min": 1.85,
+          "width_max": 1.99,
+          "radius": 0
+        },
+        {
+          "id": "A46",
+          "diameter": 46.0,
+          "groove_diameter": 43.5,
+          "width_min": 1.85,
+          "width_max": 1.99,
+          "radius": 0
+        },
+        {
+          "id": "A47",
+          "diameter": 47.0,
+          "groove_diameter": 44.5,
+          "width_min": 1.85,
+          "width_max": 1.99,
+          "radius": 0
+        },
+        {
+          "id": "A48",
+          "diameter": 48.0,
+          "groove_diameter": 45.5,
+          "width_min": 1.85,
+          "width_max": 1.99,
+          "radius": 0
+        },
+        {
+          "id": "A50",
+          "diameter": 50.0,
+          "groove_diameter": 47.0,
+          "width_min": 2.15,
+          "width_max": 2.29,
+          "radius": 0
+        },
+        {
+          "id": "A52",
+          "diameter": 52.0,
+          "groove_diameter": 49.0,
+          "width_min": 2.15,
+          "width_max": 2.29,
+          "radius": 0
+        },
+        {
+          "id": "A54",
+          "diameter": 54.0,
+          "groove_diameter": 51.0,
+          "width_min": 2.15,
+          "width_max": 2.29,
+          "radius": 0
+        },
+        {
+          "id": "A55",
+          "diameter": 55.0,
+          "groove_diameter": 52.0,
+          "width_min": 2.15,
+          "width_max": 2.29,
+          "radius": 0
+        },
+        {
+          "id": "A56",
+          "diameter": 56.0,
+          "groove_diameter": 53.0,
+          "width_min": 2.15,
+          "width_max": 2.29,
+          "radius": 0
+        },
+        {
+          "id": "A57",
+          "diameter": 57.0,
+          "groove_diameter": 54.0,
+          "width_min": 2.15,
+          "width_max": 2.29,
+          "radius": 0
+        },
+        {
+          "id": "A58",
+          "diameter": 58.0,
+          "groove_diameter": 55.0,
+          "width_min": 2.15,
+          "width_max": 2.29,
+          "radius": 0
+        },
+        {
+          "id": "A60",
+          "diameter": 60.0,
+          "groove_diameter": 57.0,
+          "width_min": 2.15,
+          "width_max": 2.29,
+          "radius": 0
+        },
+        {
+          "id": "A62",
+          "diameter": 62.0,
+          "groove_diameter": 59.0,
+          "width_min": 2.15,
+          "width_max": 2.29,
+          "radius": 0
+        },
+        {
+          "id": "A63",
+          "diameter": 63.0,
+          "groove_diameter": 60.0,
+          "width_min": 2.15,
+          "width_max": 2.29,
+          "radius": 0
+        },
+        {
+          "id": "A65",
+          "diameter": 65.0,
+          "groove_diameter": 62.0,
+          "width_min": 2.65,
+          "width_max": 2.79,
+          "radius": 0
+        },
+        {
+          "id": "A67",
+          "diameter": 67.0,
+          "groove_diameter": 64.0,
+          "width_min": 2.65,
+          "width_max": 2.79,
+          "radius": 0
+        },
+        {
+          "id": "A68",
+          "diameter": 68.0,
+          "groove_diameter": 65.0,
+          "width_min": 2.65,
+          "width_max": 2.79,
+          "radius": 0
+        },
+        {
+          "id": "A70",
+          "diameter": 70.0,
+          "groove_diameter": 67.0,
+          "width_min": 2.65,
+          "width_max": 2.79,
+          "radius": 0
+        },
+        {
+          "id": "A72",
+          "diameter": 72.0,
+          "groove_diameter": 69.0,
+          "width_min": 2.65,
+          "width_max": 2.79,
+          "radius": 0
+        },
+        {
+          "id": "A75",
+          "diameter": 75.0,
+          "groove_diameter": 72.0,
+          "width_min": 2.65,
+          "width_max": 2.79,
+          "radius": 0
+        },
+        {
+          "id": "A77",
+          "diameter": 77.0,
+          "groove_diameter": 74.0,
+          "width_min": 2.65,
+          "width_max": 2.79,
+          "radius": 0
+        },
+        {
+          "id": "A78",
+          "diameter": 78.0,
+          "groove_diameter": 75.0,
+          "width_min": 2.65,
+          "width_max": 2.79,
+          "radius": 0
+        },
+        {
+          "id": "A80",
+          "diameter": 80.0,
+          "groove_diameter": 76.5,
+          "width_min": 2.65,
+          "width_max": 2.79,
+          "radius": 0
+        },
+        {
+          "id": "A82",
+          "diameter": 82.0,
+          "groove_diameter": 78.5,
+          "width_min": 2.65,
+          "width_max": 2.79,
+          "radius": 0
+        },
+        {
+          "id": "A85",
+          "diameter": 85.0,
+          "groove_diameter": 81.5,
+          "width_min": 3.15,
+          "width_max": 3.33,
+          "radius": 0
+        },
+        {
+          "id": "A87",
+          "diameter": 87.0,
+          "groove_diameter": 83.5,
+          "width_min": 3.15,
+          "width_max": 3.33,
+          "radius": 0
+        },
+        {
+          "id": "A88",
+          "diameter": 88.0,
+          "groove_diameter": 84.5,
+          "width_min": 3.15,
+          "width_max": 3.33,
+          "radius": 0
+        },
+        {
+          "id": "A90",
+          "diameter": 90.0,
+          "groove_diameter": 86.5,
+          "width_min": 3.15,
+          "width_max": 3.33,
+          "radius": 0
+        },
+        {
+          "id": "A92",
+          "diameter": 92.0,
+          "groove_diameter": 88.5,
+          "width_min": 3.15,
+          "width_max": 3.33,
+          "radius": 0
+        },
+        {
+          "id": "A95",
+          "diameter": 95.0,
+          "groove_diameter": 91.5,
+          "width_min": 3.15,
+          "width_max": 3.33,
+          "radius": 0
+        },
+        {
+          "id": "A97",
+          "diameter": 97.0,
+          "groove_diameter": 93.5,
+          "width_min": 3.15,
+          "width_max": 3.33,
+          "radius": 0
+        },
+        {
+          "id": "A98",
+          "diameter": 98.0,
+          "groove_diameter": 94.5,
+          "width_min": 3.15,
+          "width_max": 3.33,
+          "radius": 0
+        },
+        {
+          "id": "A100",
+          "diameter": 100.0,
+          "groove_diameter": 96.5,
+          "width_min": 3.15,
+          "width_max": 3.33,
+          "radius": 0
+        },
+        {
+          "id": "A102",
+          "diameter": 102.0,
+          "groove_diameter": 98.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "A105",
+          "diameter": 105.0,
+          "groove_diameter": 101.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "A107",
+          "diameter": 107.0,
+          "groove_diameter": 103.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "A108",
+          "diameter": 108.0,
+          "groove_diameter": 104.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "A110",
+          "diameter": 110.0,
+          "groove_diameter": 106.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "A112",
+          "diameter": 112.0,
+          "groove_diameter": 108.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "A115",
+          "diameter": 115.0,
+          "groove_diameter": 111.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "A117",
+          "diameter": 117.0,
+          "groove_diameter": 113.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "A118",
+          "diameter": 118.0,
+          "groove_diameter": 114.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "A120",
+          "diameter": 120.0,
+          "groove_diameter": 116.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "A122",
+          "diameter": 122.0,
+          "groove_diameter": 118.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "A125",
+          "diameter": 125.0,
+          "groove_diameter": 121.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "A127",
+          "diameter": 127.0,
+          "groove_diameter": 123.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "A128",
+          "diameter": 128.0,
+          "groove_diameter": 124.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "A130",
+          "diameter": 130.0,
+          "groove_diameter": 126.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "A132",
+          "diameter": 132.0,
+          "groove_diameter": 128.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "A135",
+          "diameter": 135.0,
+          "groove_diameter": 131.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "A137",
+          "diameter": 137.0,
+          "groove_diameter": 133.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "A138",
+          "diameter": 138.0,
+          "groove_diameter": 134.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "A140",
+          "diameter": 140.0,
+          "groove_diameter": 136.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "A142",
+          "diameter": 142.0,
+          "groove_diameter": 138.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "A145",
+          "diameter": 145.0,
+          "groove_diameter": 141.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "A147",
+          "diameter": 147.0,
+          "groove_diameter": 143.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "A148",
+          "diameter": 148.0,
+          "groove_diameter": 144.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "A150",
+          "diameter": 150.0,
+          "groove_diameter": 145.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "A152",
+          "diameter": 152.0,
+          "groove_diameter": 147.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "A155",
+          "diameter": 155.0,
+          "groove_diameter": 150.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "A157",
+          "diameter": 157.0,
+          "groove_diameter": 152.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "A158",
+          "diameter": 158.0,
+          "groove_diameter": 153.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "A160",
+          "diameter": 160.0,
+          "groove_diameter": 155.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "A162",
+          "diameter": 162.0,
+          "groove_diameter": 157.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "A165",
+          "diameter": 165.0,
+          "groove_diameter": 160.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "A167",
+          "diameter": 167.0,
+          "groove_diameter": 162.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "A168",
+          "diameter": 168.0,
+          "groove_diameter": 163.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "A170",
+          "diameter": 170.0,
+          "groove_diameter": 165.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "A172",
+          "diameter": 172.0,
+          "groove_diameter": 167.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "A175",
+          "diameter": 175.0,
+          "groove_diameter": 170.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "A177",
+          "diameter": 177.0,
+          "groove_diameter": 172.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "A178",
+          "diameter": 178.0,
+          "groove_diameter": 173.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "A180",
+          "diameter": 180.0,
+          "groove_diameter": 175.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "A182",
+          "diameter": 182.0,
+          "groove_diameter": 177.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "A185",
+          "diameter": 185.0,
+          "groove_diameter": 180.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "A187",
+          "diameter": 187.0,
+          "groove_diameter": 182.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "A188",
+          "diameter": 188.0,
+          "groove_diameter": 183.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "A190",
+          "diameter": 190.0,
+          "groove_diameter": 185.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "A192",
+          "diameter": 192.0,
+          "groove_diameter": 187.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "A195",
+          "diameter": 195.0,
+          "groove_diameter": 190.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "A197",
+          "diameter": 197.0,
+          "groove_diameter": 192.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "A198",
+          "diameter": 198.0,
+          "groove_diameter": 193.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "A200",
+          "diameter": 200.0,
+          "groove_diameter": 195.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "A202",
+          "diameter": 202.0,
+          "groove_diameter": 196.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "A205",
+          "diameter": 205.0,
+          "groove_diameter": 199.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "A207",
+          "diameter": 207.0,
+          "groove_diameter": 201.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "A208",
+          "diameter": 208.0,
+          "groove_diameter": 202.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "A210",
+          "diameter": 210.0,
+          "groove_diameter": 204.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "A212",
+          "diameter": 212.0,
+          "groove_diameter": 206.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "A215",
+          "diameter": 215.0,
+          "groove_diameter": 209.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "A217",
+          "diameter": 217.0,
+          "groove_diameter": 211.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "A218",
+          "diameter": 218.0,
+          "groove_diameter": 212.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "A220",
+          "diameter": 220.0,
+          "groove_diameter": 214.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "A222",
+          "diameter": 222.0,
+          "groove_diameter": 216.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "A225",
+          "diameter": 225.0,
+          "groove_diameter": 219.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "A227",
+          "diameter": 227.0,
+          "groove_diameter": 221.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "A228",
+          "diameter": 228.0,
+          "groove_diameter": 222.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "A230",
+          "diameter": 230.0,
+          "groove_diameter": 224.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "A232",
+          "diameter": 232.0,
+          "groove_diameter": 226.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "A235",
+          "diameter": 235.0,
+          "groove_diameter": 229.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "A237",
+          "diameter": 237.0,
+          "groove_diameter": 231.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "A238",
+          "diameter": 238.0,
+          "groove_diameter": 232.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "A240",
+          "diameter": 240.0,
+          "groove_diameter": 234.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "A242",
+          "diameter": 242.0,
+          "groove_diameter": 236.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "A245",
+          "diameter": 245.0,
+          "groove_diameter": 239.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "A247",
+          "diameter": 247.0,
+          "groove_diameter": 241.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "A248",
+          "diameter": 248.0,
+          "groove_diameter": 242.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "A250",
+          "diameter": 250.0,
+          "groove_diameter": 244.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "A252",
+          "diameter": 252.0,
+          "groove_diameter": 244.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "A255",
+          "diameter": 255.0,
+          "groove_diameter": 247.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "A257",
+          "diameter": 257.0,
+          "groove_diameter": 249.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "A258",
+          "diameter": 258.0,
+          "groove_diameter": 250.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "A260",
+          "diameter": 260.0,
+          "groove_diameter": 252.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "A262",
+          "diameter": 262.0,
+          "groove_diameter": 254.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "A265",
+          "diameter": 265.0,
+          "groove_diameter": 257.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "A267",
+          "diameter": 267.0,
+          "groove_diameter": 259.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "A268",
+          "diameter": 268.0,
+          "groove_diameter": 260.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "A270",
+          "diameter": 270.0,
+          "groove_diameter": 262.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "A272",
+          "diameter": 272.0,
+          "groove_diameter": 264.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "A275",
+          "diameter": 275.0,
+          "groove_diameter": 267.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "A277",
+          "diameter": 277.0,
+          "groove_diameter": 269.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "A278",
+          "diameter": 278.0,
+          "groove_diameter": 270.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "A280",
+          "diameter": 280.0,
+          "groove_diameter": 272.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "A282",
+          "diameter": 282.0,
+          "groove_diameter": 274.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "A285",
+          "diameter": 285.0,
+          "groove_diameter": 277.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "A287",
+          "diameter": 287.0,
+          "groove_diameter": 279.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "A288",
+          "diameter": 288.0,
+          "groove_diameter": 280.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "A290",
+          "diameter": 290.0,
+          "groove_diameter": 282.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "A292",
+          "diameter": 292.0,
+          "groove_diameter": 284.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "A295",
+          "diameter": 295.0,
+          "groove_diameter": 287.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "A297",
+          "diameter": 297.0,
+          "groove_diameter": 289.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "A298",
+          "diameter": 298.0,
+          "groove_diameter": 290.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "A300",
+          "diameter": 300.0,
+          "groove_diameter": 292.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "A305",
+          "diameter": 305.0,
+          "groove_diameter": 295.0,
+          "width_min": 6.2,
+          "width_max": 6.42,
+          "radius": 0
+        },
+        {
+          "id": "A310",
+          "diameter": 310.0,
+          "groove_diameter": 300.0,
+          "width_min": 6.2,
+          "width_max": 6.42,
+          "radius": 0
+        },
+        {
+          "id": "A315",
+          "diameter": 315.0,
+          "groove_diameter": 305.0,
+          "width_min": 6.2,
+          "width_max": 6.42,
+          "radius": 0
+        },
+        {
+          "id": "A320",
+          "diameter": 320.0,
+          "groove_diameter": 310.0,
+          "width_min": 6.2,
+          "width_max": 6.42,
+          "radius": 0
+        },
+        {
+          "id": "A325",
+          "diameter": 325.0,
+          "groove_diameter": 315.0,
+          "width_min": 6.2,
+          "width_max": 6.42,
+          "radius": 0
+        },
+        {
+          "id": "A330",
+          "diameter": 330.0,
+          "groove_diameter": 320.0,
+          "width_min": 6.2,
+          "width_max": 6.42,
+          "radius": 0
+        },
+        {
+          "id": "A335",
+          "diameter": 335.0,
+          "groove_diameter": 325.0,
+          "width_min": 6.2,
+          "width_max": 6.42,
+          "radius": 0
+        },
+        {
+          "id": "A340",
+          "diameter": 340.0,
+          "groove_diameter": 330.0,
+          "width_min": 6.2,
+          "width_max": 6.42,
+          "radius": 0
+        },
+        {
+          "id": "A345",
+          "diameter": 345.0,
+          "groove_diameter": 335.0,
+          "width_min": 6.2,
+          "width_max": 6.42,
+          "radius": 0
+        },
+        {
+          "id": "A350",
+          "diameter": 350.0,
+          "groove_diameter": 340.0,
+          "width_min": 6.2,
+          "width_max": 6.42,
+          "radius": 0
+        },
+        {
+          "id": "A355",
+          "diameter": 355.0,
+          "groove_diameter": 345.0,
+          "width_min": 6.2,
+          "width_max": 6.42,
+          "radius": 0
+        },
+        {
+          "id": "A360",
+          "diameter": 360.0,
+          "groove_diameter": 350.0,
+          "width_min": 6.2,
+          "width_max": 6.42,
+          "radius": 0
+        },
+        {
+          "id": "A365",
+          "diameter": 365.0,
+          "groove_diameter": 355.0,
+          "width_min": 6.2,
+          "width_max": 6.42,
+          "radius": 0
+        },
+        {
+          "id": "A370",
+          "diameter": 370.0,
+          "groove_diameter": 360.0,
+          "width_min": 6.2,
+          "width_max": 6.42,
+          "radius": 0
+        },
+        {
+          "id": "A375",
+          "diameter": 375.0,
+          "groove_diameter": 365.0,
+          "width_min": 6.2,
+          "width_max": 6.42,
+          "radius": 0
+        },
+        {
+          "id": "A380",
+          "diameter": 380.0,
+          "groove_diameter": 370.0,
+          "width_min": 6.2,
+          "width_max": 6.42,
+          "radius": 0
+        },
+        {
+          "id": "A385",
+          "diameter": 385.0,
+          "groove_diameter": 375.0,
+          "width_min": 6.2,
+          "width_max": 6.42,
+          "radius": 0
+        },
+        {
+          "id": "A390",
+          "diameter": 390.0,
+          "groove_diameter": 380.0,
+          "width_min": 6.2,
+          "width_max": 6.42,
+          "radius": 0
+        },
+        {
+          "id": "A395",
+          "diameter": 395.0,
+          "groove_diameter": 385.0,
+          "width_min": 6.2,
+          "width_max": 6.42,
+          "radius": 0
+        },
+        {
+          "id": "A400",
+          "diameter": 400.0,
+          "groove_diameter": 390.0,
+          "width_min": 6.2,
+          "width_max": 6.42,
+          "radius": 0
+        },
+        {
+          "id": "A410",
+          "diameter": 410.0,
+          "groove_diameter": 398.0,
+          "width_min": 7.2,
+          "width_max": 7.42,
+          "radius": 0
+        },
+        {
+          "id": "A420",
+          "diameter": 420.0,
+          "groove_diameter": 408.0,
+          "width_min": 7.2,
+          "width_max": 7.42,
+          "radius": 0
+        },
+        {
+          "id": "A430",
+          "diameter": 430.0,
+          "groove_diameter": 418.0,
+          "width_min": 7.2,
+          "width_max": 7.42,
+          "radius": 0
+        },
+        {
+          "id": "A440",
+          "diameter": 440.0,
+          "groove_diameter": 428.0,
+          "width_min": 7.2,
+          "width_max": 7.42,
+          "radius": 0
+        },
+        {
+          "id": "A450",
+          "diameter": 450.0,
+          "groove_diameter": 438.0,
+          "width_min": 7.2,
+          "width_max": 7.42,
+          "radius": 0
+        },
+        {
+          "id": "A460",
+          "diameter": 460.0,
+          "groove_diameter": 448.0,
+          "width_min": 7.2,
+          "width_max": 7.42,
+          "radius": 0
+        }
+      ]
+    },
+    {
+      "id": "din472-seeger",
+      "standard": "DIN 472",
+      "source": "https://www.seeger-orbis.com/fileadmin/assets/pdf_datenblaetter/datenblatt_seeger-ringe_472.pdf",
+      "internal": true,
+      "profile": "rectangular",
+      "rows": [
+        {
+          "id": "J8",
+          "diameter": 8.0,
+          "groove_diameter": 8.4,
+          "width_min": 0.9,
+          "width_max": 1.04,
+          "radius": 0
+        },
+        {
+          "id": "J9",
+          "diameter": 9.0,
+          "groove_diameter": 9.4,
+          "width_min": 0.9,
+          "width_max": 1.04,
+          "radius": 0
+        },
+        {
+          "id": "J10",
+          "diameter": 10.0,
+          "groove_diameter": 10.4,
+          "width_min": 1.1,
+          "width_max": 1.24,
+          "radius": 0
+        },
+        {
+          "id": "J11",
+          "diameter": 11.0,
+          "groove_diameter": 11.4,
+          "width_min": 1.1,
+          "width_max": 1.24,
+          "radius": 0
+        },
+        {
+          "id": "J12",
+          "diameter": 12.0,
+          "groove_diameter": 12.5,
+          "width_min": 1.1,
+          "width_max": 1.24,
+          "radius": 0
+        },
+        {
+          "id": "J13",
+          "diameter": 13.0,
+          "groove_diameter": 13.6,
+          "width_min": 1.1,
+          "width_max": 1.24,
+          "radius": 0
+        },
+        {
+          "id": "J14",
+          "diameter": 14.0,
+          "groove_diameter": 14.6,
+          "width_min": 1.1,
+          "width_max": 1.24,
+          "radius": 0
+        },
+        {
+          "id": "J15",
+          "diameter": 15.0,
+          "groove_diameter": 15.7,
+          "width_min": 1.1,
+          "width_max": 1.24,
+          "radius": 0
+        },
+        {
+          "id": "J16",
+          "diameter": 16.0,
+          "groove_diameter": 16.8,
+          "width_min": 1.1,
+          "width_max": 1.24,
+          "radius": 0
+        },
+        {
+          "id": "J17",
+          "diameter": 17.0,
+          "groove_diameter": 17.8,
+          "width_min": 1.1,
+          "width_max": 1.24,
+          "radius": 0
+        },
+        {
+          "id": "J18",
+          "diameter": 18.0,
+          "groove_diameter": 19.0,
+          "width_min": 1.1,
+          "width_max": 1.24,
+          "radius": 0
+        },
+        {
+          "id": "J19",
+          "diameter": 19.0,
+          "groove_diameter": 20.0,
+          "width_min": 1.1,
+          "width_max": 1.24,
+          "radius": 0
+        },
+        {
+          "id": "J20",
+          "diameter": 20.0,
+          "groove_diameter": 21.0,
+          "width_min": 1.1,
+          "width_max": 1.24,
+          "radius": 0
+        },
+        {
+          "id": "J21",
+          "diameter": 21.0,
+          "groove_diameter": 22.0,
+          "width_min": 1.1,
+          "width_max": 1.24,
+          "radius": 0
+        },
+        {
+          "id": "J22",
+          "diameter": 22.0,
+          "groove_diameter": 23.0,
+          "width_min": 1.1,
+          "width_max": 1.24,
+          "radius": 0
+        },
+        {
+          "id": "J23",
+          "diameter": 23.0,
+          "groove_diameter": 24.1,
+          "width_min": 1.3,
+          "width_max": 1.44,
+          "radius": 0
+        },
+        {
+          "id": "J24",
+          "diameter": 24.0,
+          "groove_diameter": 25.2,
+          "width_min": 1.3,
+          "width_max": 1.44,
+          "radius": 0
+        },
+        {
+          "id": "J25",
+          "diameter": 25.0,
+          "groove_diameter": 26.2,
+          "width_min": 1.3,
+          "width_max": 1.44,
+          "radius": 0
+        },
+        {
+          "id": "J26",
+          "diameter": 26.0,
+          "groove_diameter": 27.2,
+          "width_min": 1.3,
+          "width_max": 1.44,
+          "radius": 0
+        },
+        {
+          "id": "J27",
+          "diameter": 27.0,
+          "groove_diameter": 28.4,
+          "width_min": 1.3,
+          "width_max": 1.44,
+          "radius": 0
+        },
+        {
+          "id": "J28",
+          "diameter": 28.0,
+          "groove_diameter": 29.4,
+          "width_min": 1.3,
+          "width_max": 1.44,
+          "radius": 0
+        },
+        {
+          "id": "J29",
+          "diameter": 29.0,
+          "groove_diameter": 30.4,
+          "width_min": 1.3,
+          "width_max": 1.44,
+          "radius": 0
+        },
+        {
+          "id": "J30",
+          "diameter": 30.0,
+          "groove_diameter": 31.4,
+          "width_min": 1.3,
+          "width_max": 1.44,
+          "radius": 0
+        },
+        {
+          "id": "J31",
+          "diameter": 31.0,
+          "groove_diameter": 32.7,
+          "width_min": 1.3,
+          "width_max": 1.44,
+          "radius": 0
+        },
+        {
+          "id": "J32",
+          "diameter": 32.0,
+          "groove_diameter": 33.7,
+          "width_min": 1.3,
+          "width_max": 1.44,
+          "radius": 0
+        },
+        {
+          "id": "J33",
+          "diameter": 33.0,
+          "groove_diameter": 34.7,
+          "width_min": 1.3,
+          "width_max": 1.44,
+          "radius": 0
+        },
+        {
+          "id": "J34",
+          "diameter": 34.0,
+          "groove_diameter": 35.7,
+          "width_min": 1.6,
+          "width_max": 1.74,
+          "radius": 0
+        },
+        {
+          "id": "J35",
+          "diameter": 35.0,
+          "groove_diameter": 37.0,
+          "width_min": 1.6,
+          "width_max": 1.74,
+          "radius": 0
+        },
+        {
+          "id": "J36",
+          "diameter": 36.0,
+          "groove_diameter": 38.0,
+          "width_min": 1.6,
+          "width_max": 1.74,
+          "radius": 0
+        },
+        {
+          "id": "J37",
+          "diameter": 37.0,
+          "groove_diameter": 39.0,
+          "width_min": 1.6,
+          "width_max": 1.74,
+          "radius": 0
+        },
+        {
+          "id": "J38",
+          "diameter": 38.0,
+          "groove_diameter": 40.0,
+          "width_min": 1.6,
+          "width_max": 1.74,
+          "radius": 0
+        },
+        {
+          "id": "J39",
+          "diameter": 39.0,
+          "groove_diameter": 41.0,
+          "width_min": 1.6,
+          "width_max": 1.74,
+          "radius": 0
+        },
+        {
+          "id": "J40",
+          "diameter": 40.0,
+          "groove_diameter": 42.5,
+          "width_min": 1.85,
+          "width_max": 1.99,
+          "radius": 0
+        },
+        {
+          "id": "J41",
+          "diameter": 41.0,
+          "groove_diameter": 43.5,
+          "width_min": 1.85,
+          "width_max": 1.99,
+          "radius": 0
+        },
+        {
+          "id": "J42",
+          "diameter": 42.0,
+          "groove_diameter": 44.5,
+          "width_min": 1.85,
+          "width_max": 1.99,
+          "radius": 0
+        },
+        {
+          "id": "J43",
+          "diameter": 43.0,
+          "groove_diameter": 45.5,
+          "width_min": 1.85,
+          "width_max": 1.99,
+          "radius": 0
+        },
+        {
+          "id": "J44",
+          "diameter": 44.0,
+          "groove_diameter": 46.5,
+          "width_min": 1.85,
+          "width_max": 1.99,
+          "radius": 0
+        },
+        {
+          "id": "J45",
+          "diameter": 45.0,
+          "groove_diameter": 47.5,
+          "width_min": 1.85,
+          "width_max": 1.99,
+          "radius": 0
+        },
+        {
+          "id": "J46",
+          "diameter": 46.0,
+          "groove_diameter": 48.5,
+          "width_min": 1.85,
+          "width_max": 1.99,
+          "radius": 0
+        },
+        {
+          "id": "J47",
+          "diameter": 47.0,
+          "groove_diameter": 49.5,
+          "width_min": 1.85,
+          "width_max": 1.99,
+          "radius": 0
+        },
+        {
+          "id": "J48",
+          "diameter": 48.0,
+          "groove_diameter": 50.5,
+          "width_min": 1.85,
+          "width_max": 1.99,
+          "radius": 0
+        },
+        {
+          "id": "J50",
+          "diameter": 50.0,
+          "groove_diameter": 53.0,
+          "width_min": 2.15,
+          "width_max": 2.29,
+          "radius": 0
+        },
+        {
+          "id": "J51",
+          "diameter": 51.0,
+          "groove_diameter": 54.0,
+          "width_min": 2.15,
+          "width_max": 2.29,
+          "radius": 0
+        },
+        {
+          "id": "J52",
+          "diameter": 52.0,
+          "groove_diameter": 55.0,
+          "width_min": 2.15,
+          "width_max": 2.29,
+          "radius": 0
+        },
+        {
+          "id": "J53",
+          "diameter": 53.0,
+          "groove_diameter": 56.0,
+          "width_min": 2.15,
+          "width_max": 2.29,
+          "radius": 0
+        },
+        {
+          "id": "J54",
+          "diameter": 54.0,
+          "groove_diameter": 57.0,
+          "width_min": 2.15,
+          "width_max": 2.29,
+          "radius": 0
+        },
+        {
+          "id": "J55",
+          "diameter": 55.0,
+          "groove_diameter": 58.0,
+          "width_min": 2.15,
+          "width_max": 2.29,
+          "radius": 0
+        },
+        {
+          "id": "J56",
+          "diameter": 56.0,
+          "groove_diameter": 59.0,
+          "width_min": 2.15,
+          "width_max": 2.29,
+          "radius": 0
+        },
+        {
+          "id": "J57",
+          "diameter": 57.0,
+          "groove_diameter": 60.0,
+          "width_min": 2.15,
+          "width_max": 2.29,
+          "radius": 0
+        },
+        {
+          "id": "J58",
+          "diameter": 58.0,
+          "groove_diameter": 61.0,
+          "width_min": 2.15,
+          "width_max": 2.29,
+          "radius": 0
+        },
+        {
+          "id": "J60",
+          "diameter": 60.0,
+          "groove_diameter": 63.0,
+          "width_min": 2.15,
+          "width_max": 2.29,
+          "radius": 0
+        },
+        {
+          "id": "J62",
+          "diameter": 62.0,
+          "groove_diameter": 65.0,
+          "width_min": 2.15,
+          "width_max": 2.29,
+          "radius": 0
+        },
+        {
+          "id": "J63",
+          "diameter": 63.0,
+          "groove_diameter": 66.0,
+          "width_min": 2.15,
+          "width_max": 2.29,
+          "radius": 0
+        },
+        {
+          "id": "J64",
+          "diameter": 64.0,
+          "groove_diameter": 67.0,
+          "width_min": 2.15,
+          "width_max": 2.29,
+          "radius": 0
+        },
+        {
+          "id": "J65",
+          "diameter": 65.0,
+          "groove_diameter": 68.0,
+          "width_min": 2.65,
+          "width_max": 2.79,
+          "radius": 0
+        },
+        {
+          "id": "J67",
+          "diameter": 67.0,
+          "groove_diameter": 70.0,
+          "width_min": 2.65,
+          "width_max": 2.79,
+          "radius": 0
+        },
+        {
+          "id": "J68",
+          "diameter": 68.0,
+          "groove_diameter": 71.0,
+          "width_min": 2.65,
+          "width_max": 2.79,
+          "radius": 0
+        },
+        {
+          "id": "J70",
+          "diameter": 70.0,
+          "groove_diameter": 73.0,
+          "width_min": 2.65,
+          "width_max": 2.79,
+          "radius": 0
+        },
+        {
+          "id": "J72",
+          "diameter": 72.0,
+          "groove_diameter": 75.0,
+          "width_min": 2.65,
+          "width_max": 2.79,
+          "radius": 0
+        },
+        {
+          "id": "J75",
+          "diameter": 75.0,
+          "groove_diameter": 78.0,
+          "width_min": 2.65,
+          "width_max": 2.79,
+          "radius": 0
+        },
+        {
+          "id": "J77",
+          "diameter": 77.0,
+          "groove_diameter": 80.0,
+          "width_min": 2.65,
+          "width_max": 2.79,
+          "radius": 0
+        },
+        {
+          "id": "J78",
+          "diameter": 78.0,
+          "groove_diameter": 81.0,
+          "width_min": 2.65,
+          "width_max": 2.79,
+          "radius": 0
+        },
+        {
+          "id": "J80",
+          "diameter": 80.0,
+          "groove_diameter": 83.5,
+          "width_min": 2.65,
+          "width_max": 2.79,
+          "radius": 0
+        },
+        {
+          "id": "J81",
+          "diameter": 81.0,
+          "groove_diameter": 84.5,
+          "width_min": 2.65,
+          "width_max": 2.79,
+          "radius": 0
+        },
+        {
+          "id": "J82",
+          "diameter": 82.0,
+          "groove_diameter": 85.5,
+          "width_min": 2.65,
+          "width_max": 2.79,
+          "radius": 0
+        },
+        {
+          "id": "J83",
+          "diameter": 83.0,
+          "groove_diameter": 86.5,
+          "width_min": 2.65,
+          "width_max": 2.79,
+          "radius": 0
+        },
+        {
+          "id": "J85",
+          "diameter": 85.0,
+          "groove_diameter": 88.5,
+          "width_min": 3.15,
+          "width_max": 3.33,
+          "radius": 0
+        },
+        {
+          "id": "J87",
+          "diameter": 87.0,
+          "groove_diameter": 90.5,
+          "width_min": 3.15,
+          "width_max": 3.33,
+          "radius": 0
+        },
+        {
+          "id": "J88",
+          "diameter": 88.0,
+          "groove_diameter": 91.5,
+          "width_min": 3.15,
+          "width_max": 3.33,
+          "radius": 0
+        },
+        {
+          "id": "J90",
+          "diameter": 90.0,
+          "groove_diameter": 93.5,
+          "width_min": 3.15,
+          "width_max": 3.33,
+          "radius": 0
+        },
+        {
+          "id": "J92",
+          "diameter": 92.0,
+          "groove_diameter": 95.5,
+          "width_min": 3.15,
+          "width_max": 3.33,
+          "radius": 0
+        },
+        {
+          "id": "J95",
+          "diameter": 95.0,
+          "groove_diameter": 98.5,
+          "width_min": 3.15,
+          "width_max": 3.33,
+          "radius": 0
+        },
+        {
+          "id": "J97",
+          "diameter": 97.0,
+          "groove_diameter": 100.5,
+          "width_min": 3.15,
+          "width_max": 3.33,
+          "radius": 0
+        },
+        {
+          "id": "J98",
+          "diameter": 98.0,
+          "groove_diameter": 101.5,
+          "width_min": 3.15,
+          "width_max": 3.33,
+          "radius": 0
+        },
+        {
+          "id": "J100",
+          "diameter": 100.0,
+          "groove_diameter": 103.5,
+          "width_min": 3.15,
+          "width_max": 3.33,
+          "radius": 0
+        },
+        {
+          "id": "J102",
+          "diameter": 102.0,
+          "groove_diameter": 106.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "J105",
+          "diameter": 105.0,
+          "groove_diameter": 109.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "J107",
+          "diameter": 107.0,
+          "groove_diameter": 111.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "J108",
+          "diameter": 108.0,
+          "groove_diameter": 112.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "J110",
+          "diameter": 110.0,
+          "groove_diameter": 114.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "J112",
+          "diameter": 112.0,
+          "groove_diameter": 116.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "J115",
+          "diameter": 115.0,
+          "groove_diameter": 119.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "J117",
+          "diameter": 117.0,
+          "groove_diameter": 121.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "J118",
+          "diameter": 118.0,
+          "groove_diameter": 122.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "J120",
+          "diameter": 120.0,
+          "groove_diameter": 124.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "J122",
+          "diameter": 122.0,
+          "groove_diameter": 126.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "J125",
+          "diameter": 125.0,
+          "groove_diameter": 129.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "J127",
+          "diameter": 127.0,
+          "groove_diameter": 131.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "J128",
+          "diameter": 128.0,
+          "groove_diameter": 132.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "J130",
+          "diameter": 130.0,
+          "groove_diameter": 134.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "J132",
+          "diameter": 132.0,
+          "groove_diameter": 136.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "J135",
+          "diameter": 135.0,
+          "groove_diameter": 139.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "J137",
+          "diameter": 137.0,
+          "groove_diameter": 141.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "J138",
+          "diameter": 138.0,
+          "groove_diameter": 142.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "J140",
+          "diameter": 140.0,
+          "groove_diameter": 144.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "J142",
+          "diameter": 142.0,
+          "groove_diameter": 146.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "J145",
+          "diameter": 145.0,
+          "groove_diameter": 149.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "J147",
+          "diameter": 147.0,
+          "groove_diameter": 151.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "J148",
+          "diameter": 148.0,
+          "groove_diameter": 152.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "J150",
+          "diameter": 150.0,
+          "groove_diameter": 155.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "J152",
+          "diameter": 152.0,
+          "groove_diameter": 157.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "J155",
+          "diameter": 155.0,
+          "groove_diameter": 160.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "J157",
+          "diameter": 157.0,
+          "groove_diameter": 162.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "J158",
+          "diameter": 158.0,
+          "groove_diameter": 163.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "J160",
+          "diameter": 160.0,
+          "groove_diameter": 165.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "J162",
+          "diameter": 162.0,
+          "groove_diameter": 167.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "J165",
+          "diameter": 165.0,
+          "groove_diameter": 170.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "J167",
+          "diameter": 167.0,
+          "groove_diameter": 172.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "J168",
+          "diameter": 168.0,
+          "groove_diameter": 173.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "J170",
+          "diameter": 170.0,
+          "groove_diameter": 175.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "J172",
+          "diameter": 172.0,
+          "groove_diameter": 177.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "J175",
+          "diameter": 175.0,
+          "groove_diameter": 180.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "J177",
+          "diameter": 177.0,
+          "groove_diameter": 182.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "J178",
+          "diameter": 178.0,
+          "groove_diameter": 183.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "J180",
+          "diameter": 180.0,
+          "groove_diameter": 185.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "J182",
+          "diameter": 182.0,
+          "groove_diameter": 187.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "J185",
+          "diameter": 185.0,
+          "groove_diameter": 190.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "J187",
+          "diameter": 187.0,
+          "groove_diameter": 192.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "J188",
+          "diameter": 188.0,
+          "groove_diameter": 193.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "J190",
+          "diameter": 190.0,
+          "groove_diameter": 195.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "J192",
+          "diameter": 192.0,
+          "groove_diameter": 197.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "J195",
+          "diameter": 195.0,
+          "groove_diameter": 200.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "J197",
+          "diameter": 197.0,
+          "groove_diameter": 202.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "J198",
+          "diameter": 198.0,
+          "groove_diameter": 203.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "J200",
+          "diameter": 200.0,
+          "groove_diameter": 205.0,
+          "width_min": 4.15,
+          "width_max": 4.33,
+          "radius": 0
+        },
+        {
+          "id": "J202",
+          "diameter": 202.0,
+          "groove_diameter": 208.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "J205",
+          "diameter": 205.0,
+          "groove_diameter": 211.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "J207",
+          "diameter": 207.0,
+          "groove_diameter": 213.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "J208",
+          "diameter": 208.0,
+          "groove_diameter": 214.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "J210",
+          "diameter": 210.0,
+          "groove_diameter": 216.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "J212",
+          "diameter": 212.0,
+          "groove_diameter": 218.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "J215",
+          "diameter": 215.0,
+          "groove_diameter": 221.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "J217",
+          "diameter": 217.0,
+          "groove_diameter": 223.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "J218",
+          "diameter": 218.0,
+          "groove_diameter": 224.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "J220",
+          "diameter": 220.0,
+          "groove_diameter": 226.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "J222",
+          "diameter": 222.0,
+          "groove_diameter": 228.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "J225",
+          "diameter": 225.0,
+          "groove_diameter": 231.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "J227",
+          "diameter": 227.0,
+          "groove_diameter": 233.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "J228",
+          "diameter": 228.0,
+          "groove_diameter": 234.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "J230",
+          "diameter": 230.0,
+          "groove_diameter": 236.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "J232",
+          "diameter": 232.0,
+          "groove_diameter": 238.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "J235",
+          "diameter": 235.0,
+          "groove_diameter": 241.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "J237",
+          "diameter": 237.0,
+          "groove_diameter": 243.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "J238",
+          "diameter": 238.0,
+          "groove_diameter": 244.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "J240",
+          "diameter": 240.0,
+          "groove_diameter": 246.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "J242",
+          "diameter": 242.0,
+          "groove_diameter": 248.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "J245",
+          "diameter": 245.0,
+          "groove_diameter": 251.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "J247",
+          "diameter": 247.0,
+          "groove_diameter": 253.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "J248",
+          "diameter": 248.0,
+          "groove_diameter": 254.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "J250",
+          "diameter": 250.0,
+          "groove_diameter": 256.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "J252",
+          "diameter": 252.0,
+          "groove_diameter": 260.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "J255",
+          "diameter": 255.0,
+          "groove_diameter": 263.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "J257",
+          "diameter": 257.0,
+          "groove_diameter": 265.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "J258",
+          "diameter": 258.0,
+          "groove_diameter": 266.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "J260",
+          "diameter": 260.0,
+          "groove_diameter": 268.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "J262",
+          "diameter": 262.0,
+          "groove_diameter": 270.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "J265",
+          "diameter": 265.0,
+          "groove_diameter": 273.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "J267",
+          "diameter": 267.0,
+          "groove_diameter": 275.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "J268",
+          "diameter": 268.0,
+          "groove_diameter": 276.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "J270",
+          "diameter": 270.0,
+          "groove_diameter": 278.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "J272",
+          "diameter": 272.0,
+          "groove_diameter": 280.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "J275",
+          "diameter": 275.0,
+          "groove_diameter": 283.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "J277",
+          "diameter": 277.0,
+          "groove_diameter": 285.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "J278",
+          "diameter": 278.0,
+          "groove_diameter": 286.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "J280",
+          "diameter": 280.0,
+          "groove_diameter": 288.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "J282",
+          "diameter": 282.0,
+          "groove_diameter": 290.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "J285",
+          "diameter": 285.0,
+          "groove_diameter": 293.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "J287",
+          "diameter": 287.0,
+          "groove_diameter": 295.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "J288",
+          "diameter": 288.0,
+          "groove_diameter": 296.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "J290",
+          "diameter": 290.0,
+          "groove_diameter": 298.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "J292",
+          "diameter": 292.0,
+          "groove_diameter": 300.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "J295",
+          "diameter": 295.0,
+          "groove_diameter": 303.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "J297",
+          "diameter": 297.0,
+          "groove_diameter": 305.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "J298",
+          "diameter": 298.0,
+          "groove_diameter": 306.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "J300",
+          "diameter": 300.0,
+          "groove_diameter": 308.0,
+          "width_min": 5.15,
+          "width_max": 5.33,
+          "radius": 0
+        },
+        {
+          "id": "J305",
+          "diameter": 305.0,
+          "groove_diameter": 315.0,
+          "width_min": 6.2,
+          "width_max": 6.42,
+          "radius": 0
+        },
+        {
+          "id": "J310",
+          "diameter": 310.0,
+          "groove_diameter": 320.0,
+          "width_min": 6.2,
+          "width_max": 6.42,
+          "radius": 0
+        },
+        {
+          "id": "J315",
+          "diameter": 315.0,
+          "groove_diameter": 325.0,
+          "width_min": 6.2,
+          "width_max": 6.42,
+          "radius": 0
+        },
+        {
+          "id": "J320",
+          "diameter": 320.0,
+          "groove_diameter": 330.0,
+          "width_min": 6.2,
+          "width_max": 6.42,
+          "radius": 0
+        },
+        {
+          "id": "J325",
+          "diameter": 325.0,
+          "groove_diameter": 335.0,
+          "width_min": 6.2,
+          "width_max": 6.42,
+          "radius": 0
+        },
+        {
+          "id": "J330",
+          "diameter": 330.0,
+          "groove_diameter": 340.0,
+          "width_min": 6.2,
+          "width_max": 6.42,
+          "radius": 0
+        },
+        {
+          "id": "J335",
+          "diameter": 335.0,
+          "groove_diameter": 345.0,
+          "width_min": 6.2,
+          "width_max": 6.42,
+          "radius": 0
+        },
+        {
+          "id": "J340",
+          "diameter": 340.0,
+          "groove_diameter": 350.0,
+          "width_min": 6.2,
+          "width_max": 6.42,
+          "radius": 0
+        },
+        {
+          "id": "J345",
+          "diameter": 345.0,
+          "groove_diameter": 355.0,
+          "width_min": 6.2,
+          "width_max": 6.42,
+          "radius": 0
+        },
+        {
+          "id": "J350",
+          "diameter": 350.0,
+          "groove_diameter": 360.0,
+          "width_min": 6.2,
+          "width_max": 6.42,
+          "radius": 0
+        },
+        {
+          "id": "J355",
+          "diameter": 355.0,
+          "groove_diameter": 365.0,
+          "width_min": 6.2,
+          "width_max": 6.42,
+          "radius": 0
+        },
+        {
+          "id": "J360",
+          "diameter": 360.0,
+          "groove_diameter": 370.0,
+          "width_min": 6.2,
+          "width_max": 6.42,
+          "radius": 0
+        },
+        {
+          "id": "J365",
+          "diameter": 365.0,
+          "groove_diameter": 375.0,
+          "width_min": 6.2,
+          "width_max": 6.42,
+          "radius": 0
+        },
+        {
+          "id": "J370",
+          "diameter": 370.0,
+          "groove_diameter": 380.0,
+          "width_min": 6.2,
+          "width_max": 6.42,
+          "radius": 0
+        },
+        {
+          "id": "J375",
+          "diameter": 375.0,
+          "groove_diameter": 385.0,
+          "width_min": 6.2,
+          "width_max": 6.42,
+          "radius": 0
+        },
+        {
+          "id": "J380",
+          "diameter": 380.0,
+          "groove_diameter": 390.0,
+          "width_min": 6.2,
+          "width_max": 6.42,
+          "radius": 0
+        },
+        {
+          "id": "J385",
+          "diameter": 385.0,
+          "groove_diameter": 395.0,
+          "width_min": 6.2,
+          "width_max": 6.42,
+          "radius": 0
+        },
+        {
+          "id": "J390",
+          "diameter": 390.0,
+          "groove_diameter": 400.0,
+          "width_min": 6.2,
+          "width_max": 6.42,
+          "radius": 0
+        },
+        {
+          "id": "J395",
+          "diameter": 395.0,
+          "groove_diameter": 405.0,
+          "width_min": 6.2,
+          "width_max": 6.42,
+          "radius": 0
+        },
+        {
+          "id": "J400",
+          "diameter": 400.0,
+          "groove_diameter": 410.0,
+          "width_min": 6.2,
+          "width_max": 6.42,
+          "radius": 0
+        },
+        {
+          "id": "J410",
+          "diameter": 410.0,
+          "groove_diameter": 422.0,
+          "width_min": 7.2,
+          "width_max": 7.42,
+          "radius": 0
+        },
+        {
+          "id": "J420",
+          "diameter": 420.0,
+          "groove_diameter": 432.0,
+          "width_min": 7.2,
+          "width_max": 7.42,
+          "radius": 0
+        },
+        {
+          "id": "J430",
+          "diameter": 430.0,
+          "groove_diameter": 442.0,
+          "width_min": 7.2,
+          "width_max": 7.42,
+          "radius": 0
+        },
+        {
+          "id": "J440",
+          "diameter": 440.0,
+          "groove_diameter": 452.0,
+          "width_min": 7.2,
+          "width_max": 7.42,
+          "radius": 0
+        },
+        {
+          "id": "J450",
+          "diameter": 450.0,
+          "groove_diameter": 462.0,
+          "width_min": 7.2,
+          "width_max": 7.42,
+          "radius": 0
+        }
+      ]
+    },
+    {
+      "id": "din9925-seeger",
+      "standard": "DIN 9925",
+      "source": "https://www.seeger-orbis.com/fileadmin/assets/pdf_datenblaetter/datenblatt_seeger-ringe_Sprengringe_9925_9926_Wellen.pdf",
+      "internal": false,
+      "profile": "circular",
+      "rows": [
+        {
+          "id": "RW4",
+          "diameter": 4.0,
+          "groove_diameter": 3.5,
+          "width_min": 0.5916079783099616,
+          "width_max": 0.5916079783099616,
+          "radius": 0.3
+        },
+        {
+          "id": "RW5",
+          "diameter": 5.0,
+          "groove_diameter": 4.5,
+          "width_min": 0.5916079783099616,
+          "width_max": 0.5916079783099616,
+          "radius": 0.3
+        },
+        {
+          "id": "RW6",
+          "diameter": 6.0,
+          "groove_diameter": 5.4,
+          "width_min": 0.7745966692414833,
+          "width_max": 0.7745966692414833,
+          "radius": 0.4
+        },
+        {
+          "id": "RW7",
+          "diameter": 7.0,
+          "groove_diameter": 6.4,
+          "width_min": 0.7745966692414833,
+          "width_max": 0.7745966692414833,
+          "radius": 0.4
+        },
+        {
+          "id": "RW8",
+          "diameter": 8.0,
+          "groove_diameter": 7.2,
+          "width_min": 0.9797958971132712,
+          "width_max": 0.9797958971132712,
+          "radius": 0.5
+        },
+        {
+          "id": "RW10",
+          "diameter": 10.0,
+          "groove_diameter": 9.2,
+          "width_min": 0.9797958971132714,
+          "width_max": 0.9797958971132714,
+          "radius": 0.5
+        },
+        {
+          "id": "RW12",
+          "diameter": 12.0,
+          "groove_diameter": 11.0,
+          "width_min": 1.1832159566199232,
+          "width_max": 1.1832159566199232,
+          "radius": 0.6
+        },
+        {
+          "id": "RW14",
+          "diameter": 14.0,
+          "groove_diameter": 13.0,
+          "width_min": 1.1832159566199232,
+          "width_max": 1.1832159566199232,
+          "radius": 0.6
+        },
+        {
+          "id": "RW16",
+          "diameter": 16.0,
+          "groove_diameter": 14.4,
+          "width_min": 1.7888543819998317,
+          "width_max": 1.7888543819998317,
+          "radius": 0.9
+        },
+        {
+          "id": "RW18",
+          "diameter": 18.0,
+          "groove_diameter": 16.4,
+          "width_min": 1.788854381999832,
+          "width_max": 1.788854381999832,
+          "radius": 0.9
+        },
+        {
+          "id": "RW20",
+          "diameter": 20.0,
+          "groove_diameter": 18.0,
+          "width_min": 2.1908902300206647,
+          "width_max": 2.1908902300206647,
+          "radius": 1.1
+        },
+        {
+          "id": "RW22",
+          "diameter": 22.0,
+          "groove_diameter": 20.0,
+          "width_min": 2.1908902300206647,
+          "width_max": 2.1908902300206647,
+          "radius": 1.1
+        },
+        {
+          "id": "RW24",
+          "diameter": 24.0,
+          "groove_diameter": 22.0,
+          "width_min": 2.1908902300206647,
+          "width_max": 2.1908902300206647,
+          "radius": 1.1
+        },
+        {
+          "id": "RW25",
+          "diameter": 25.0,
+          "groove_diameter": 23.0,
+          "width_min": 2.1908902300206647,
+          "width_max": 2.1908902300206647,
+          "radius": 1.1
+        },
+        {
+          "id": "RW26",
+          "diameter": 26.0,
+          "groove_diameter": 24.0,
+          "width_min": 2.1908902300206647,
+          "width_max": 2.1908902300206647,
+          "radius": 1.1
+        },
+        {
+          "id": "RW28",
+          "diameter": 28.0,
+          "groove_diameter": 26.0,
+          "width_min": 2.1908902300206647,
+          "width_max": 2.1908902300206647,
+          "radius": 1.1
+        },
+        {
+          "id": "RW30",
+          "diameter": 30.0,
+          "groove_diameter": 28.0,
+          "width_min": 2.1908902300206647,
+          "width_max": 2.1908902300206647,
+          "radius": 1.1
+        },
+        {
+          "id": "RW32",
+          "diameter": 32.0,
+          "groove_diameter": 29.5,
+          "width_min": 2.7838821814150108,
+          "width_max": 2.7838821814150108,
+          "radius": 1.4
+        },
+        {
+          "id": "RW35",
+          "diameter": 35.0,
+          "groove_diameter": 32.5,
+          "width_min": 2.7838821814150108,
+          "width_max": 2.7838821814150108,
+          "radius": 1.4
+        },
+        {
+          "id": "RW38",
+          "diameter": 38.0,
+          "groove_diameter": 35.5,
+          "width_min": 2.7838821814150108,
+          "width_max": 2.7838821814150108,
+          "radius": 1.4
+        },
+        {
+          "id": "RW40",
+          "diameter": 40.0,
+          "groove_diameter": 37.5,
+          "width_min": 2.7838821814150108,
+          "width_max": 2.7838821814150108,
+          "radius": 1.4
+        },
+        {
+          "id": "RW42",
+          "diameter": 42.0,
+          "groove_diameter": 39.5,
+          "width_min": 2.7838821814150108,
+          "width_max": 2.7838821814150108,
+          "radius": 1.4
+        },
+        {
+          "id": "RW45",
+          "diameter": 45.0,
+          "groove_diameter": 42.5,
+          "width_min": 2.7838821814150108,
+          "width_max": 2.7838821814150108,
+          "radius": 1.4
+        },
+        {
+          "id": "RW48",
+          "diameter": 48.0,
+          "groove_diameter": 45.5,
+          "width_min": 2.7838821814150108,
+          "width_max": 2.7838821814150108,
+          "radius": 1.4
+        },
+        {
+          "id": "RW50",
+          "diameter": 50.0,
+          "groove_diameter": 47.5,
+          "width_min": 2.7838821814150108,
+          "width_max": 2.7838821814150108,
+          "radius": 1.4
+        },
+        {
+          "id": "RW55",
+          "diameter": 55.0,
+          "groove_diameter": 51.8,
+          "width_min": 3.577708763999664,
+          "width_max": 3.577708763999664,
+          "radius": 1.8
+        },
+        {
+          "id": "RW60",
+          "diameter": 60.0,
+          "groove_diameter": 56.8,
+          "width_min": 3.577708763999664,
+          "width_max": 3.577708763999664,
+          "radius": 1.8
+        },
+        {
+          "id": "RW65",
+          "diameter": 65.0,
+          "groove_diameter": 61.8,
+          "width_min": 3.577708763999664,
+          "width_max": 3.577708763999664,
+          "radius": 1.8
+        },
+        {
+          "id": "RW70",
+          "diameter": 70.0,
+          "groove_diameter": 66.8,
+          "width_min": 3.577708763999664,
+          "width_max": 3.577708763999664,
+          "radius": 1.8
+        },
+        {
+          "id": "RW75",
+          "diameter": 75.0,
+          "groove_diameter": 71.8,
+          "width_min": 3.577708763999664,
+          "width_max": 3.577708763999664,
+          "radius": 1.8
+        },
+        {
+          "id": "RW80",
+          "diameter": 80.0,
+          "groove_diameter": 76.8,
+          "width_min": 3.577708763999664,
+          "width_max": 3.577708763999664,
+          "radius": 1.8
+        },
+        {
+          "id": "RW85",
+          "diameter": 85.0,
+          "groove_diameter": 81.8,
+          "width_min": 3.577708763999664,
+          "width_max": 3.577708763999664,
+          "radius": 1.8
+        },
+        {
+          "id": "RW90",
+          "diameter": 90.0,
+          "groove_diameter": 86.8,
+          "width_min": 3.577708763999664,
+          "width_max": 3.577708763999664,
+          "radius": 1.8
+        },
+        {
+          "id": "RW95",
+          "diameter": 95.0,
+          "groove_diameter": 91.8,
+          "width_min": 3.577708763999664,
+          "width_max": 3.577708763999664,
+          "radius": 1.8
+        },
+        {
+          "id": "RW100",
+          "diameter": 100.0,
+          "groove_diameter": 96.8,
+          "width_min": 3.577708763999664,
+          "width_max": 3.577708763999664,
+          "radius": 1.8
+        },
+        {
+          "id": "RW105",
+          "diameter": 105.0,
+          "groove_diameter": 101.8,
+          "width_min": 3.577708763999664,
+          "width_max": 3.577708763999664,
+          "radius": 1.8
+        },
+        {
+          "id": "RW110",
+          "diameter": 110.0,
+          "groove_diameter": 106.8,
+          "width_min": 3.577708763999664,
+          "width_max": 3.577708763999664,
+          "radius": 1.8
+        },
+        {
+          "id": "RW115",
+          "diameter": 115.0,
+          "groove_diameter": 111.8,
+          "width_min": 3.577708763999664,
+          "width_max": 3.577708763999664,
+          "radius": 1.8
+        },
+        {
+          "id": "RW120",
+          "diameter": 120.0,
+          "groove_diameter": 116.8,
+          "width_min": 3.577708763999664,
+          "width_max": 3.577708763999664,
+          "radius": 1.8
+        },
+        {
+          "id": "RW125",
+          "diameter": 125.0,
+          "groove_diameter": 121.8,
+          "width_min": 3.577708763999664,
+          "width_max": 3.577708763999664,
+          "radius": 1.8
+        }
+      ]
+    },
+    {
+      "id": "din9926-seeger",
+      "standard": "DIN 9926",
+      "source": "https://www.seeger-orbis.com/fileadmin/assets/pdf_datenblaetter/datenblatt_seeger-ringe_Sprengringe_9925_9926_Bohrungen.pdf",
+      "internal": true,
+      "profile": "circular",
+      "rows": [
+        {
+          "id": "RB7",
+          "diameter": 7.0,
+          "groove_diameter": 7.6,
+          "width_min": 0.7745966692414833,
+          "width_max": 0.7745966692414833,
+          "radius": 0.4
+        },
+        {
+          "id": "RB8",
+          "diameter": 8.0,
+          "groove_diameter": 8.6,
+          "width_min": 0.7745966692414833,
+          "width_max": 0.7745966692414833,
+          "radius": 0.4
+        },
+        {
+          "id": "RB10",
+          "diameter": 10.0,
+          "groove_diameter": 10.8,
+          "width_min": 0.9797958971132714,
+          "width_max": 0.9797958971132714,
+          "radius": 0.5
+        },
+        {
+          "id": "RB12",
+          "diameter": 12.0,
+          "groove_diameter": 13.0,
+          "width_min": 1.1832159566199232,
+          "width_max": 1.1832159566199232,
+          "radius": 0.6
+        },
+        {
+          "id": "RB14",
+          "diameter": 14.0,
+          "groove_diameter": 15.0,
+          "width_min": 1.1832159566199232,
+          "width_max": 1.1832159566199232,
+          "radius": 0.6
+        },
+        {
+          "id": "RB16",
+          "diameter": 16.0,
+          "groove_diameter": 17.6,
+          "width_min": 1.788854381999832,
+          "width_max": 1.788854381999832,
+          "radius": 0.9
+        },
+        {
+          "id": "RB18",
+          "diameter": 18.0,
+          "groove_diameter": 19.6,
+          "width_min": 1.788854381999832,
+          "width_max": 1.788854381999832,
+          "radius": 0.9
+        },
+        {
+          "id": "RB20",
+          "diameter": 20.0,
+          "groove_diameter": 22.0,
+          "width_min": 2.1908902300206647,
+          "width_max": 2.1908902300206647,
+          "radius": 1.1
+        },
+        {
+          "id": "RB22",
+          "diameter": 22.0,
+          "groove_diameter": 24.0,
+          "width_min": 2.1908902300206647,
+          "width_max": 2.1908902300206647,
+          "radius": 1.1
+        },
+        {
+          "id": "RB24",
+          "diameter": 24.0,
+          "groove_diameter": 26.0,
+          "width_min": 2.1908902300206647,
+          "width_max": 2.1908902300206647,
+          "radius": 1.1
+        },
+        {
+          "id": "RB25",
+          "diameter": 25.0,
+          "groove_diameter": 27.0,
+          "width_min": 2.1908902300206647,
+          "width_max": 2.1908902300206647,
+          "radius": 1.1
+        },
+        {
+          "id": "RB26",
+          "diameter": 26.0,
+          "groove_diameter": 28.0,
+          "width_min": 2.1908902300206647,
+          "width_max": 2.1908902300206647,
+          "radius": 1.1
+        },
+        {
+          "id": "RB28",
+          "diameter": 28.0,
+          "groove_diameter": 30.0,
+          "width_min": 2.1908902300206647,
+          "width_max": 2.1908902300206647,
+          "radius": 1.1
+        },
+        {
+          "id": "RB30",
+          "diameter": 30.0,
+          "groove_diameter": 32.0,
+          "width_min": 2.1908902300206647,
+          "width_max": 2.1908902300206647,
+          "radius": 1.1
+        },
+        {
+          "id": "RB32",
+          "diameter": 32.0,
+          "groove_diameter": 34.5,
+          "width_min": 2.7838821814150108,
+          "width_max": 2.7838821814150108,
+          "radius": 1.4
+        },
+        {
+          "id": "RB35",
+          "diameter": 35.0,
+          "groove_diameter": 37.5,
+          "width_min": 2.7838821814150108,
+          "width_max": 2.7838821814150108,
+          "radius": 1.4
+        },
+        {
+          "id": "RB38",
+          "diameter": 38.0,
+          "groove_diameter": 40.5,
+          "width_min": 2.7838821814150108,
+          "width_max": 2.7838821814150108,
+          "radius": 1.4
+        },
+        {
+          "id": "RB40",
+          "diameter": 40.0,
+          "groove_diameter": 42.5,
+          "width_min": 2.7838821814150108,
+          "width_max": 2.7838821814150108,
+          "radius": 1.4
+        },
+        {
+          "id": "RB42",
+          "diameter": 42.0,
+          "groove_diameter": 44.5,
+          "width_min": 2.7838821814150108,
+          "width_max": 2.7838821814150108,
+          "radius": 1.4
+        },
+        {
+          "id": "RB45",
+          "diameter": 45.0,
+          "groove_diameter": 47.5,
+          "width_min": 2.7838821814150108,
+          "width_max": 2.7838821814150108,
+          "radius": 1.4
+        },
+        {
+          "id": "RB48",
+          "diameter": 48.0,
+          "groove_diameter": 50.5,
+          "width_min": 2.7838821814150108,
+          "width_max": 2.7838821814150108,
+          "radius": 1.4
+        },
+        {
+          "id": "RB50",
+          "diameter": 50.0,
+          "groove_diameter": 52.5,
+          "width_min": 2.7838821814150108,
+          "width_max": 2.7838821814150108,
+          "radius": 1.4
+        },
+        {
+          "id": "RB55",
+          "diameter": 55.0,
+          "groove_diameter": 58.2,
+          "width_min": 3.577708763999664,
+          "width_max": 3.577708763999664,
+          "radius": 1.8
+        },
+        {
+          "id": "RB60",
+          "diameter": 60.0,
+          "groove_diameter": 63.2,
+          "width_min": 3.577708763999664,
+          "width_max": 3.577708763999664,
+          "radius": 1.8
+        },
+        {
+          "id": "RB65",
+          "diameter": 65.0,
+          "groove_diameter": 68.2,
+          "width_min": 3.577708763999664,
+          "width_max": 3.577708763999664,
+          "radius": 1.8
+        },
+        {
+          "id": "RB70",
+          "diameter": 70.0,
+          "groove_diameter": 73.2,
+          "width_min": 3.577708763999664,
+          "width_max": 3.577708763999664,
+          "radius": 1.8
+        },
+        {
+          "id": "RB75",
+          "diameter": 75.0,
+          "groove_diameter": 78.2,
+          "width_min": 3.577708763999664,
+          "width_max": 3.577708763999664,
+          "radius": 1.8
+        },
+        {
+          "id": "RB80",
+          "diameter": 80.0,
+          "groove_diameter": 83.2,
+          "width_min": 3.577708763999664,
+          "width_max": 3.577708763999664,
+          "radius": 1.8
+        },
+        {
+          "id": "RB85",
+          "diameter": 85.0,
+          "groove_diameter": 88.2,
+          "width_min": 3.577708763999664,
+          "width_max": 3.577708763999664,
+          "radius": 1.8
+        },
+        {
+          "id": "RB90",
+          "diameter": 90.0,
+          "groove_diameter": 93.2,
+          "width_min": 3.577708763999664,
+          "width_max": 3.577708763999664,
+          "radius": 1.8
+        },
+        {
+          "id": "RB95",
+          "diameter": 95.0,
+          "groove_diameter": 98.2,
+          "width_min": 3.577708763999664,
+          "width_max": 3.577708763999664,
+          "radius": 1.8
+        },
+        {
+          "id": "RB100",
+          "diameter": 100.0,
+          "groove_diameter": 103.2,
+          "width_min": 3.577708763999664,
+          "width_max": 3.577708763999664,
+          "radius": 1.8
+        },
+        {
+          "id": "RB105",
+          "diameter": 105.0,
+          "groove_diameter": 108.2,
+          "width_min": 3.577708763999664,
+          "width_max": 3.577708763999664,
+          "radius": 1.8
+        },
+        {
+          "id": "RB110",
+          "diameter": 110.0,
+          "groove_diameter": 113.2,
+          "width_min": 3.577708763999664,
+          "width_max": 3.577708763999664,
+          "radius": 1.8
+        },
+        {
+          "id": "RB115",
+          "diameter": 115.0,
+          "groove_diameter": 118.2,
+          "width_min": 3.577708763999664,
+          "width_max": 3.577708763999664,
+          "radius": 1.8
+        },
+        {
+          "id": "RB120",
+          "diameter": 120.0,
+          "groove_diameter": 123.2,
+          "width_min": 3.577708763999664,
+          "width_max": 3.577708763999664,
+          "radius": 1.8
+        },
+        {
+          "id": "RB125",
+          "diameter": 125.0,
+          "groove_diameter": 128.2,
+          "width_min": 3.5777087639996625,
+          "width_max": 3.5777087639996625,
+          "radius": 1.8
+        }
+      ]
+    }
+  ],
+  "review": "Supplier geometry, reviewed 2026-11-28; not a certification of the current DIN editions. Rectangular width uses nominal minimum plus selectable H13 tolerance. Circular opening width is derived.",
+  "width_tolerance_source": "https://www.schaeffler.com/remotemedien/media/_shared_media/08_media_library/01_publications/schaeffler_2/catalogue_1/downloads_6/stt_de_de.pdf"
+}

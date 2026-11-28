@@ -559,7 +559,8 @@ void apply_application_appearance(QApplication& application,const ApplicationSet
     // Reapply the existing rules so open strips and Properties adopt the theme.
     for(auto* widget:application.allWidgets())
         if(!widget->styleSheet().isEmpty()&&
-           (qobject_cast<QToolBar*>(widget)||widget->property("zimaPropertiesSubWindow").toBool()))
+           (qobject_cast<QToolBar*>(widget)||widget->property("zimaPropertiesSubWindow").toBool()||
+            widget->objectName()==QStringLiteral("applicationModeSelector")))
             widget->setStyleSheet(widget->styleSheet());
 }
 

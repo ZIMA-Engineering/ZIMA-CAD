@@ -238,7 +238,15 @@ int verify_new_document_options(QApplication& application) {
                 !properties->findChild<QLineEdit*>("componentName"),"Component properties must show the immutable source filename");
             properties->buttons()->button(QDialogButtonBox::Ok)->click();flush();
             auto* tree=window.findChild<QTreeWidget*>();
-            check(tree&&tree->topLevelItem(0)->child(1)->text(0).startsWith("reference_skeleton.prtz"),"Skeleton is not immediately after the Assembly Origin");
+            QTreeWidgetItem* assembly_group=nullptr;
+            if(tree&&tree->topLevelItem(0))for(int i=0;i<tree->topLevelItem(0)->childCount();++i) {
+                auto* child=tree->topLevelItem(0)->child(i);
+                if(child->data(0,Qt::UserRole+3)=="assembly-model-group")assembly_group=child;
+            }
+            check(assembly_group&&assembly_group->childCount()>=2&&
+                assembly_group->child(0)->data(0,Qt::UserRole+3)=="document-origin"&&
+                assembly_group->child(1)->text(0).startsWith("reference_skeleton.prtz"),
+                "Skeleton is not immediately after the Origin inside the Assembly group");
             insert_menu->aboutToShow();
             for(auto* action:insert_menu->actions())if(action->objectName()=="insertSkeletonAction")
                 check(!action->isEnabled(),"A second Skeleton insertion remained enabled");

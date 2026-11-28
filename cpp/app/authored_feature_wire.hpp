@@ -177,6 +177,7 @@ inline std::vector<kernel::ViewerEdge> authored_feature_wire(
         return place(std::move(wire));
     }
     case FeatureKind::Hole:
+    case FeatureKind::MechGroove:
     case FeatureKind::TwistedSheet:
         wire.edges=doc.primitive_preview_edges(*feature,input_mesh);return place(std::move(wire));
     case FeatureKind::Thread:

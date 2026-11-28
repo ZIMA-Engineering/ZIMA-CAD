@@ -85,6 +85,7 @@ class AssemblyWorkspaceWindow final : public QMainWindow {
     friend int verify_cam_body(QApplication&,AssemblyWorkspaceWindow&,const std::filesystem::path&);
     friend int verify_fem_body(QApplication&,AssemblyWorkspaceWindow&,const std::filesystem::path&);
     friend int verify_render_body(QApplication&,AssemblyWorkspaceWindow&,const std::filesystem::path&);
+    friend int verify_assembly_modes_ui(QApplication&,AssemblyWorkspaceWindow&,const std::filesystem::path&);
 public:
     explicit AssemblyWorkspaceWindow(
         const QString& working_directory = {}, const QString& settings_directory = {});
@@ -221,6 +222,7 @@ private:
         Render,
         Cam,
         Mech,
+        Mechanisms,
     };
 
     void create_command_console();
@@ -288,6 +290,7 @@ private:
     QWidget* application_mode_selector_{};
     QToolButton* modeling_mode_button_{};
     QToolButton* assembly_mode_button_{};
+    QToolButton* mechanisms_mode_button_{};
     QToolButton* sheet_metal_mode_button_{};
     QToolButton* surface_mode_button_{};
     QToolButton* mech_mode_button_{};
@@ -334,7 +337,7 @@ private:
     QActionGroup* display_mode_group_{};
     QActionGroup* camera_projection_group_{};
     QActionGroup* application_group_{};
-    std::array<QAction*, 10> application_actions_{};
+    std::array<QAction*, 11> application_actions_{};
     ApplicationMode active_application_{ApplicationMode::Modeling};
     std::map<std::string,ApplicationMode> document_application_modes_;
     QMenu* command_insert_menu_{};
@@ -922,6 +925,8 @@ private:
     [[nodiscard]] bool sketch_command_active() const;
     void update_application_actions();
     void set_active_application(ApplicationMode mode);
+    void activate_assembly_group(QTreeWidgetItem* item);
+    void update_assembly_group_states();
     void update_document_area_visibility();
     void regenerate_active_document();
     [[nodiscard]] const zima::sketcher::Sketch* active_sketch() const;

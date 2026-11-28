@@ -22,6 +22,12 @@ Verification on Windows:
 - Desktop and 390 × 844 mobile layouts were inspected in Light and Dark themes.
   The title stays below the video and remains readable without covering the CAD.
 
+Published to the existing website on 2026-11-28 from commit `cc65ab24f`.
+Anonymous HTTPS retrieval verified all 1,944 public files against the committed
+SHA-256 manifest, with no mismatches. The live homepage decoded the complete
+235.033333-second video at 1920 × 1044, played it, and displayed the Czech caption
+below the recording. A verified local backup of the preceding website is retained.
+
 Delivery SHA-256:
 `c7c6de569badcd68b6d14d89916388bf9bb967be500536b0f6c0967531121707`.
 

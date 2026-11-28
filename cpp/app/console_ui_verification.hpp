@@ -14,6 +14,8 @@ int verify_surface_trim_ui(QApplication&,AssemblyWorkspaceWindow&,const std::fil
 int verify_projection_ui(QApplication&,AssemblyWorkspaceWindow&,const std::filesystem::path&);
 int verify_wrapping_ui(QApplication&,AssemblyWorkspaceWindow&,const std::filesystem::path&);
 int verify_mech_keyway_workspace_ui(QApplication&,AssemblyWorkspaceWindow&,const std::filesystem::path&);
+int verify_mech_groove_workspace_ui(QApplication&,AssemblyWorkspaceWindow&,const std::filesystem::path&);
+int verify_assembly_modes_ui(QApplication&,AssemblyWorkspaceWindow&,const std::filesystem::path&);
 int verify_command_console(QApplication&,AssemblyWorkspaceWindow&,const std::filesystem::path&);
 int verify_work_plane_ui(QApplication&,AssemblyWorkspaceWindow&,const std::filesystem::path&);
 int verify_rotation_handle_ui(QApplication&,AssemblyWorkspaceWindow&,const std::filesystem::path&);

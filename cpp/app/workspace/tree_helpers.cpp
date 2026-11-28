@@ -78,6 +78,7 @@ QString feature_icon_name(zima::document::FeatureKind kind) {
         case FeatureKind::SheetFromBody: return QStringLiteral("sheet-from-body");
         case FeatureKind::SheetProfile: return QStringLiteral("sheet-profile");
         case FeatureKind::MechKeyway: return QStringLiteral("keyway");
+        case FeatureKind::MechGroove: return QStringLiteral("groove");
         case FeatureKind::TwistedSheet: return QStringLiteral("sheet-twist");
         case FeatureKind::SheetForm: return QStringLiteral("sheet-form");
         case FeatureKind::BoundarySurface: return QStringLiteral("boundary-surface");

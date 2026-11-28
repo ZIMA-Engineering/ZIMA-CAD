@@ -355,15 +355,15 @@ void AssemblyWorkspaceWindow::create_actions() {
     auto* applications = menuBar()->addMenu(t("menu.applications", "Aplikace"));
     application_group_ = new QActionGroup(this);
     application_group_->setExclusive(true);
-    const std::array<QString, 10> application_names{
+    const std::array<QString, 11> application_names{
         t("application.modeling", "Modelování"),
         t("application.assembly", "Sestava"),
         t("application.sheet_metal", "Plechy"),
         t("application.surface", "Plochy"),
         t("application.piping", "Potrubí"),
-        t("application.drawing", "Výkres"),tr("FEM"),tr("Render"),tr("CAM"),tr("MECH")};
-    const std::array<const char*, 10> application_icons{
-        "part", "assembly", "bend", "surface", "sweep", "drawing", "result-body", "template-image", "result-body", "mech"};
+        t("application.drawing", "Výkres"),tr("FEM"),tr("Render"),tr("CAM"),tr("MECH"),tr("Mechanisms")};
+    const std::array<const char*, 11> application_icons{
+        "part", "assembly", "bend", "surface", "sweep", "drawing", "result-body", "template-image", "result-body", "mech", "mech"};
     for (std::size_t index = 0; index < application_actions_.size(); ++index) {
         auto* action = new QAction(application_names[index],this);
         action->setIcon(resource_icon(QString::fromLatin1(application_icons[index])));
@@ -381,6 +381,7 @@ void AssemblyWorkspaceWindow::create_actions() {
     }
     for(const auto mode:{ApplicationMode::Modeling,ApplicationMode::Surface,
             ApplicationMode::SheetMetal,ApplicationMode::Mech,ApplicationMode::Assembly,
+            ApplicationMode::Mechanisms,
             ApplicationMode::Drawing,ApplicationMode::Fem,ApplicationMode::Render,ApplicationMode::Cam})
         applications->addAction(application_actions_[static_cast<std::size_t>(mode)]);
     application_actions_[0]->setChecked(true);

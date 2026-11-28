@@ -1,5 +1,6 @@
 #include "sketch_fillet_helpers.hpp"
 #include "../mech_keyway_view_cues.hpp"
+#include "../mech_groove_view_cues.hpp"
 #include "../parameter_value_labels.hpp"
 #include "../tree_expansion_state.hpp"
 #include <zima/document/loft.hpp>
@@ -987,6 +988,12 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                             *container,thread_reference_geometry);
                         mesh.dimensions.insert(mesh.dimensions.end(),preview.dimensions.begin(),preview.dimensions.end());
                     } catch (const std::exception&) { /* Incomplete reference entry has no dimension. */ }
+                } else if (container->feature_kind == FeatureKind::MechGroove) {
+                    kernel::ViewerMesh display;display.dimensions=mech_groove_view_dimensions(*container);
+                    if(const auto* body=document.body_owner_for_object(container->id))display=document.place_body_mesh(std::move(display),body->scope.id);
+                    else if(parameter_dimension_preview_&&!document.body_history.active_body_id().empty())
+                        display=document.place_body_mesh(std::move(display),document.body_history.active_body_id());
+                    mesh.dimensions.insert(mesh.dimensions.end(),display.dimensions.begin(),display.dimensions.end());
                 } else if (container->feature_kind == FeatureKind::MechKeyway) {
                     try {
                         auto draft=workspace::resolve_mech_keyway_draft(*container,container->id+":preview",placement_reference_geometry);

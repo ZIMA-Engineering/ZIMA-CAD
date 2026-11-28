@@ -18,6 +18,7 @@
 #include <zima/workspace/sheet_exchange_operations.hpp>
 #include <zima/workspace/sheet_profile_operations.hpp>
 #include <zima/workspace/mech_keyway_operations.hpp>
+#include <zima/workspace/mech_groove_operations.hpp>
 #include <zima/workspace/history_policy.hpp>
 #include <zima/document/viewer_packet_json.hpp>
 #include <zima/document/feature_material_wire.hpp>
@@ -948,6 +949,7 @@ calculate_part_reference_state(
     refresh_cached_external_profile_target_frames(document);
     std::vector<zima::kernel::BodyResult> calculated;
     SheetFromBodySourceCache sheet_source_cache;
+    std::set<std::pair<std::string,std::string>> prepared_sheet_sources;
     const auto* incremental_source = previous;
     bool may_reuse_local_sketch_references=
         policy.reuse_unchanged_local_sketch_references;
@@ -998,6 +1000,20 @@ calculate_part_reference_state(
         // without a real calculation dependency are completed only when a
         // later history editor explicitly requests that rollback boundary.
         calculation_policy.edited_history_limit=policy.edited_history_limit;
+        bool preparing_sheet_source{};
+        if(const auto changed=changed_sheet_from_body_source(document);
+                changed&&!prepared_sheet_sources.contains(*changed)) {
+            const auto operations=group_solid_state_cached_operations(document,incremental_source);
+            const auto boundary=std::ranges::find(operations,changed->first,&kernel::HistoryOperation::owner_id);
+            if(boundary!=operations.end()&&boundary!=operations.begin()) {
+                // Old generated sheet geometry is not an input to its own
+                // source/RIP refresh. Publish only the real source prefix,
+                // then use the ordinary settling path for the refreshed sheet.
+                calculation_policy.calculation_operation_limit=static_cast<std::size_t>(boundary-operations.begin());
+                prepared_sheet_sources.insert(*changed);
+                preparing_sheet_source=true;
+            }
+        }
         calculated = calculate_part(kernel, document, incremental_source, calculation_policy);
         phase("calculation");
         for(const auto& boundary:calculated)for(const auto& region:boundary.resolved_projection_regions)
@@ -1071,14 +1087,19 @@ calculate_part_reference_state(
         const bool has_mech_keyways=std::ranges::any_of(document.history,[](const auto& feature){
             return feature.feature_kind==document::FeatureKind::MechKeyway&&!feature.suppressed;
         });
+        const bool has_mech_grooves=std::ranges::any_of(document.history,[](const auto& feature){
+            return feature.feature_kind==document::FeatureKind::MechGroove&&!feature.suppressed;
+        });
         document::HistoryReferenceViews state_views;
-        if(!reuse_reference_resolution||has_sheet_profiles||has_mech_keyways) {
+        if(!reuse_reference_resolution||has_sheet_profiles||has_mech_keyways||has_mech_grooves) {
             auto reference_geometry=construction_resolution_geometry(document,calculated);
             state_views=calculated.empty()?document::HistoryReferenceViews{}:
                 document::solid_state_reference_views(document,calculated.back(),reference_geometry);
             if(!calculated.empty()) {
-                const auto resolved_operations=
+                auto resolved_operations=
                     group_solid_state_cached_operations(document,&calculated);
+                if(preparing_sheet_source&&resolved_operations.size()>=calculated.size())
+                    resolved_operations.resize(calculated.size());
                 if(resolved_operations.size()!=calculated.size())
                     throw std::runtime_error(
                         "Calculated history reference plan is inconsistent");
@@ -1095,11 +1116,13 @@ calculate_part_reference_state(
         }
         const bool sheet_from_body_changed=
             refresh_sheet_from_body_associations(document,calculated,kernel,&sheet_source_cache);
+        const bool mech_grooves_changed=has_mech_grooves&&refresh_mech_grooves(
+            document,construction_resolution_geometry(document,calculated),state_views);
         phase("Sheet from Body associations");
         // A changed placement describes the next geometry pass. Projecting
         // this pass's old source mesh into that new Sketch frame can create
         // a false constraint conflict while the dependency chain is settling.
-        if(sheet_from_body_changed||document.history!=history_before||document.constructions!=constructions_before||
+        if(sheet_from_body_changed||mech_grooves_changed||document.history!=history_before||document.constructions!=constructions_before||
             document.body_history.bodies()!=bodies_before||attached_flat_profiles()!=flat_profiles_before||
             sketch_frames()!=sketch_frames_before) {
             if(std::getenv("ZIMA_CPP_PROFILE_COMMAND"))std::fprintf(stderr,
@@ -1131,6 +1154,12 @@ calculate_part_reference_state(
                         static_cast<std::size_t>(
                             conversion-operations.begin())));
             }
+            incremental_source=&calculated;continue;
+        }
+        if(preparing_sheet_source) {
+            // An invalid RIP may retain the last valid boundary without
+            // changing any definition. Still complete ordinary material and
+            // diagnostics; never publish a source-only calculation as final.
             incremental_source=&calculated;continue;
         }
         const bool reuse_local_sketch_references=

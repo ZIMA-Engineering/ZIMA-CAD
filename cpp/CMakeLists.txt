@@ -271,6 +271,13 @@ add_library(zima_transition_core research/transition_surface.cpp research/transi
 target_include_directories(zima_transition_core PUBLIC research)
 target_link_libraries(zima_transition_core PUBLIC zima_sketcher)
 
+set(ZIMA_GROOVE_CATALOG_PATH "${CMAKE_SOURCE_DIR}/../resources/data/mech/grooves.json")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${ZIMA_GROOVE_CATALOG_PATH}")
+file(READ "${ZIMA_GROOVE_CATALOG_PATH}" ZIMA_GROOVE_CATALOG_HEX HEX)
+string(REGEX REPLACE "(..)" "0x\\1," ZIMA_GROOVE_CATALOG_BYTES "${ZIMA_GROOVE_CATALOG_HEX}")
+set(ZIMA_GROOVE_CATALOG_SOURCE "${CMAKE_CURRENT_BINARY_DIR}/groove_catalog_data.cpp")
+file(WRITE "${ZIMA_GROOVE_CATALOG_SOURCE}" "#include <string_view>\nnamespace zima::document { std::string_view bundled_groove_catalog() { static const unsigned char bytes[]={${ZIMA_GROOVE_CATALOG_BYTES}}; return {reinterpret_cast<const char*>(bytes),sizeof(bytes)}; } }\n")
+
 add_library(zima_document_core
     modules/document_core/src/versioned_file.cpp
     modules/document_core/src/sheet_transition.cpp
@@ -288,6 +295,9 @@ add_library(zima_document_core
     modules/document_core/src/sheet_rip.cpp
     modules/document_core/src/sheet_profile.cpp
     modules/document_core/src/mech_keyway.cpp
+    modules/document_core/src/mech_groove.cpp
+    modules/document_core/src/groove_catalog.cpp
+    "${ZIMA_GROOVE_CATALOG_SOURCE}"
     modules/document_core/src/keyway_catalog.cpp
     "${ZIMA_KEYWAY_CATALOG_SOURCE}"
     modules/document_core/src/sheet_state.cpp
@@ -445,6 +455,7 @@ add_library(zima_workspace modules/workspace/src/workspace.cpp
     modules/workspace/src/bend_operations.cpp
     modules/workspace/src/sheet_profile_operations.cpp
     modules/workspace/src/mech_keyway_operations.cpp
+    modules/workspace/src/mech_groove_operations.cpp
     modules/workspace/src/sheet_state_operations.cpp
     modules/workspace/src/solid_state_operations.cpp
     modules/workspace/src/sheet_exchange_operations.cpp
@@ -713,6 +724,8 @@ add_executable(zima-cad-cpp
     app/cam_body_command.cpp app/cam_body_ui_verification.cpp
     app/render_body_command.cpp app/render_job.cpp app/render_ui_verification.cpp
     app/body_link_ui_verification.cpp
+    app/mech_groove_ui_verification.cpp
+    app/assembly_modes_ui_verification.cpp
     ${ZIMA_WORKSPACE_SOURCES}
     app/command_console.cpp app/console_ui_verification.cpp app/holes_ui_verification.cpp app/edge_treatment_ui_verification.cpp app/rotation_handle_ui_verification.cpp
     app/main_workspace.cpp app/appearance_dialog.cpp app/appearance_command.cpp app/section_command.cpp app/section_ui_verification.cpp app/assembly_workspace_window.cpp app/template_command.cpp app/symbol_command.cpp app/numeric_value_lock_command.cpp app/shaft_thread_command.cpp app/derived_copy_command.cpp app/body_scale_command.cpp app/body_scale_ui_verification.cpp
@@ -3053,7 +3066,24 @@ if(ZIMA_BUILD_TESTS)
     add_executable(zima_cpp_bend_command_tests tests/bend_command_tests.cpp)
     add_executable(zima_cpp_sheet_profile_tests tests/sheet_profile_tests.cpp)
     add_executable(zima_cpp_mech_keyway_tests tests/mech_keyway_tests.cpp)
+    add_executable(zima_cpp_mech_groove_tests tests/mech_groove_tests.cpp)
+    target_link_libraries(zima_cpp_mech_groove_tests PRIVATE zima_workspace TKTopAlgo Qt6::Core)
+    add_test(NAME zima_cpp_mech_groove_tests COMMAND zima_cpp_mech_groove_tests)
+    set_tests_properties(zima_cpp_mech_groove_tests PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." LABELS "mandatory;mechanics")
+    file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/mech-groove-ui-contract")
+    add_test(NAME zima_cpp_mech_groove_ui_contract COMMAND zima-cad-cpp --verify-startup
+        "--working-directory=${CMAKE_BINARY_DIR}/mech-groove-ui-contract")
+    set_tests_properties(zima_cpp_mech_groove_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_MECH_GROOVE_WORKSPACE=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." RUN_SERIAL TRUE TIMEOUT 240 LABELS "mandatory;mechanics;gui")
     target_link_libraries(zima_cpp_mech_keyway_tests PRIVATE zima_workspace TKTopAlgo)
+    file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/assembly-modes-ui-contract")
+    add_test(NAME zima_cpp_assembly_modes_ui_contract COMMAND zima-cad-cpp --verify-startup
+        "--working-directory=${CMAKE_BINARY_DIR}/assembly-modes-ui-contract")
+    set_tests_properties(zima_cpp_assembly_modes_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_ASSEMBLY_MODES=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." RUN_SERIAL TRUE TIMEOUT 240 LABELS "mandatory;assembly;gui")
     add_test(NAME zima_cpp_mech_keyway_tests COMMAND zima_cpp_mech_keyway_tests)
     target_link_libraries(zima_cpp_sheet_profile_tests PRIVATE zima_workspace)
     target_link_options(zima_cpp_sheet_profile_tests PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/STACK:8388608>)
@@ -3555,7 +3585,7 @@ endif()
 
 # These focused verification tools own an isolated runtime so native library and
 # presentation checks do not replace DLLs used by the running development app.
-foreach(fastener_check_target zima_cpp_fastener_library_contract_tests zima_file_manager_ui_tests zima_cpp_ui_contract_tests zima_cpp_feature_direction_command_tests zima_cpp_mech_keyway_tests zima_cpp_modeling_confirmation_tests)
+foreach(fastener_check_target zima_cpp_fastener_library_contract_tests zima_file_manager_ui_tests zima_cpp_ui_contract_tests zima_cpp_feature_direction_command_tests zima_cpp_mech_keyway_tests zima_cpp_mech_groove_tests zima_cpp_modeling_confirmation_tests)
     if(TARGET ${fastener_check_target})
         set_target_properties(${fastener_check_target} PROPERTIES
             RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/fastener-runtime")
