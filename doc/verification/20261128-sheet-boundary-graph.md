@@ -1,8 +1,11 @@
 # Sheet from Body: independent exact attachment boundaries
 
-Status: local native and complex-box GUI verification passed. Windows candidate,
-packaged GUI and publication checks remain separate release gates; native Linux
-execution is unavailable on this host.
+Status: local native and complex-box GUI verification passed. Signed Windows
+[2026112802](../releases/2026112802.md) is published. Its clean candidate passed
+all twelve sheet gates and seventeen packaged scenarios; anonymous download,
+signature, extraction and trusted/current updater checks passed. Native Linux
+execution is unavailable on this host. The subsequent skeleton-first experiment
+is separate from this immutable release.
 
 ## Scope and native data
 

@@ -1,5 +1,14 @@
 # Native versioned distribution
 
+Signed Windows [2026112802](releases/2026112802.md#distribution-verification) was
+published at `2026-11-28T09:06:15Z` from immutable source `e77cc6cf31a576163aae223b89f2defcd0c3539c`.
+It adds independent converted-sheet corrections, placement-owned keyway rotation,
+3D controller support and the requested website contact. Candidate/signed smoke,
+factory loads, twelve sheet gates and seventeen packaged scenarios pass. Anonymous
+downloads, signatures, safe extraction and trusted/current updater checks pass.
+[Publication evidence](verification/20261128-windows-2802-publication.json) records
+native format changes, finite coverage and the Linux verification gap.
+
 Signed Windows [2026112801](releases/2026112801.md#distribution-verification) was
 published at `2026-11-28T00:36:57Z` from immutable source
 `210adf731c2d6e4ea0891b24ce6cbb0bb2b5969b`. It adds shared visual guides for all right-toolbar
