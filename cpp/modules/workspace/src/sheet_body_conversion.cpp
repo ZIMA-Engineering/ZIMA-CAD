@@ -47,7 +47,8 @@ std::vector<kernel::BodyResult> calculate_ripped_source(
         const std::vector<kernel::BodyResult>& cache,
         const std::string& source_body,
         const std::vector<const sketcher::Sketch*>& rip_sources,
-        const kernel::OcctKernel& kernel,const std::string& before={}) {
+        const kernel::OcctKernel& kernel,const std::string& before={},
+        SheetFromBodySourceCache* reuse=nullptr) {
     if(rip_sources.empty())return {};
     auto operations=source.kernel_operations();
     if(!before.empty()) {
@@ -90,9 +91,15 @@ std::vector<kernel::BodyResult> calculate_ripped_source(
     rip.mesh_deflection=source_operation->mesh_deflection;
     rip.body=source_operation->body;
     operations.insert(insertion,std::move(rip));
+    // Include the complete source history and transformed RIP definition.
+    // The conversion marker alone omits these geometry inputs.
+    const auto key=reuse?kernel::history_fingerprint(operations,operations.size()):std::string{};
+    if(reuse)if(const auto retained=reuse->ripped_sources.find(key);
+            retained!=reuse->ripped_sources.end())return retained->second;
     auto result=kernel.evaluate_history_incremental(operations,cache);
     if(result.empty())throw std::runtime_error(
         "RIP preprocessing produced no calculated source boundary.");
+    if(reuse)reuse->ripped_sources.emplace(key,result);
     return result;
 }
 std::string key(const Face& face){return face.owner_id+":"+face.semantic_key;}
@@ -3588,7 +3595,7 @@ sketcher::Sketch* owned_sketch(
 bool refresh_sheet_from_body_associations(
         document::PartDocument& source,
         const std::vector<kernel::BodyResult>& calculated,
-        const kernel::OcctKernel& kernel) {
+        const kernel::OcctKernel& kernel,SheetFromBodySourceCache* reuse) {
     if(calculated.empty()||sheet_conversion_authoring_depth)return false;
     bool document_changed{};
     // Work from stable parent IDs because a successful refresh replaces the
@@ -3655,7 +3662,7 @@ bool refresh_sheet_from_body_associations(
             try {
                 ripped_source=calculate_ripped_source(source,calculated,
                     conversion->sheet_from_body.source_body_id,rip_sources,
-                    kernel,conversion_id);
+                    kernel,conversion_id,reuse);
             } catch(const std::exception&) {
                 for(auto& binding:conversion->sheet_from_body.child_bindings)
                     if(!binding.detached&&binding.references_valid) {

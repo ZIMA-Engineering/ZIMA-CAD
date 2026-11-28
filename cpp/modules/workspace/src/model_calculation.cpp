@@ -943,6 +943,7 @@ calculate_part_reference_state(
     document.synchronize_derived_copy_sources();
     refresh_cached_external_profile_target_frames(document);
     std::vector<zima::kernel::BodyResult> calculated;
+    SheetFromBodySourceCache sheet_source_cache;
     const auto* incremental_source = previous;
     bool may_reuse_local_sketch_references=
         policy.reuse_unchanged_local_sketch_references;
@@ -1088,7 +1089,7 @@ calculate_part_reference_state(
             phase("reference resolution");
         }
         const bool sheet_from_body_changed=
-            refresh_sheet_from_body_associations(document,calculated,kernel);
+            refresh_sheet_from_body_associations(document,calculated,kernel,&sheet_source_cache);
         phase("Sheet from Body associations");
         // A changed placement describes the next geometry pass. Projecting
         // this pass's old source mesh into that new Sketch frame can create

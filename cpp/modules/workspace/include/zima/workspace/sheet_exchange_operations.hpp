@@ -48,9 +48,13 @@ void stage_unresolved_sheet_from_body(document::PartDocument&,
 // Refreshes only bound, non-detached native Flat/Bend children whose stable
 // source regions changed. Missing source topology keeps the last valid child
 // geometry and marks its binding invalid for later repair.
+// Owned by one explicit calculation, across its reference-settling passes.
+struct SheetFromBodySourceCache {
+    std::map<std::string,std::vector<kernel::BodyResult>> ripped_sources;
+};
 [[nodiscard]] bool refresh_sheet_from_body_associations(
     document::PartDocument&,const std::vector<kernel::BodyResult>&,
-    const kernel::OcctKernel&);
+    const kernel::OcctKernel&,SheetFromBodySourceCache* = nullptr);
 // Prepare the ordinary full release in a caller-owned transaction. Retains
 // the conversion boundary and freezes each child's last valid native frame.
 [[nodiscard]] bool release_sheet_from_body_bindings(

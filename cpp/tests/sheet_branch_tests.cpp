@@ -339,6 +339,65 @@ void run_fork(std::filesystem::path directory) {
     const auto source=state->session.document();const auto source_boundaries=state->session.calculated_boundaries();
     source.save(directory/"fork-overlap.prtz",source_boundaries);
     {
+        // Reference settling revisits the direct block after only one branch
+        // changed. Compare retained independent tools against a fresh kernel,
+        // including a changed tolerance/mesh demand and returning to old values.
+        kernel::OcctKernel retained;
+        auto probe=source;
+        static_cast<void>(workspace::calculate_part_with_resolved_references(retained,probe));
+        for(double radius:{1.25,1.5,1.}) {
+            auto* bend=probe.find_container(bends.front());
+            bend->bend.radius=radius;
+            auto sketch=std::ranges::find(probe.sketches,bend->bend.sketch_id,&sketcher::Sketch::id);
+            require(sketch!=probe.sketches.end(),"Reuse probe lost its Bend Sketch");
+            document::prepare_bend_sketches(*bend,*sketch,document::sheet_metal_defaults(probe));
+            const auto reused=kernel::direct_sheet_tool_reuse_count.load();
+            auto warm=workspace::calculate_part_with_resolved_references(retained,probe);
+            require(kernel::direct_sheet_tool_reuse_count.load()>reused,
+                "A branch edit recalculated every independent sheet tool");
+            auto fresh_document=probe;kernel::OcctKernel fresh;
+            auto cold=workspace::calculate_part_with_resolved_references(fresh,fresh_document);
+            references_valid(probe,warm);references_valid(fresh_document,cold);
+            require(fresh_document.serialized()==probe.serialized(),
+                "Tool reuse changed the settled native definition");
+            retained.ensure_body_properties(warm.back());fresh.ensure_body_properties(cold.back());
+            near(warm.back().volume,cold.back().volume,"Tool reuse changed exact material volume");
+            near(warm.back().surface_area,cold.back().surface_area,"Tool reuse changed exact material area");
+            const auto& a=warm.back().mesh.original_references;
+            const auto& b=cold.back().mesh.original_references;
+            require(a.points.size()==b.points.size(),"Tool reuse changed reference point count");
+            for(const auto& point:a.points) {
+                const auto found=std::ranges::find_if(b.points,[&](const auto& other){return other.reference==point.reference;});
+                require(found!=b.points.end(),"Tool reuse changed a reference point identity");
+                near(point.position.x,found->position.x,"Tool reuse moved a reference point X");
+                near(point.position.y,found->position.y,"Tool reuse moved a reference point Y");
+                near(point.position.z,found->position.z,"Tool reuse moved a reference point Z");
+            }
+            const auto identities=[](const auto& geometry) {
+                std::set<std::tuple<std::string,std::string,std::string,int>> result;
+                for(const auto& face:geometry.triangle_references)
+                    result.emplace(face.owner_id,face.semantic_key,face.sheet_owner,int(face.sheet_role));
+                return result;
+            };
+            require(identities(a)==identities(b),"Tool reuse changed original face/branch/side identities");
+        }
+        auto operations=probe.kernel_operations();
+        for(auto& operation:operations)operation.body={};
+        kernel::HistoryOutputPolicy output;output.final_boundary_first=true;
+        kernel::AggregatePropertyScope deferred(kernel::AggregatePropertyDemand::Deferred);
+        static_cast<void>(retained.evaluate_history_recovering(operations,{},output));
+        for(bool mesh:{true,false}) {
+            for(auto& operation:operations)
+                (mesh?operation.mesh_deflection:operation.boolean_tolerance)*=.5;
+            const auto before=kernel::direct_sheet_tool_calculation_count.load();
+            const auto changed=retained.evaluate_history_recovering(operations,{},output);
+            require(changed.back().calculation_errors.empty(),"Changed tool calculation settings failed");
+            require(kernel::direct_sheet_tool_calculation_count.load()>before,
+                mesh?"Changed mesh demand reused stale independent tools":
+                     "Changed Boolean tolerance reused stale independent tools");
+        }
+    }
+    {
         std::vector<TopoDS_Shape> solids;
         const auto shape=kernel::read_calculated_body_shape(source_boundaries.back());
         for(TopExp_Explorer it(shape,TopAbs_SOLID);it.More();it.Next())solids.push_back(it.Current());

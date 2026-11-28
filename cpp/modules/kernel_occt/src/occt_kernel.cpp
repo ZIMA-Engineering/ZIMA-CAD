@@ -8146,6 +8146,15 @@ struct OcctKernel::LiveCache {
     std::deque<std::string> copy_reference_order;
     std::unordered_map<std::string, ViewerMesh> reference_meshes;
     std::deque<std::string> reference_insertion_order;
+    // Independent sheet tools are calculated in short-lived worker kernels.
+    // Retain their immutable packets by the complete standalone operation,
+    // rather than rebuilding every unaffected tool after an earlier edit.
+    std::unordered_map<std::string, BodyResult> direct_sheet_tools;
+    std::deque<std::string> direct_sheet_tool_order;
+    // Native archives keep retained material independent of mutable OCCT
+    // shapes passed to later Boolean/state calculations.
+    std::unordered_map<std::string, BodyResult> direct_sheet_material;
+    std::deque<std::string> direct_sheet_material_order;
 };
 
 struct OcctKernel::HistoryContext {
@@ -11845,6 +11854,9 @@ OcctKernel::evaluate_flat_history_batched(
 
         const auto& input=boundaries.back();
         const auto block_start=std::chrono::steady_clock::now();
+        const auto tools_calculated_before=direct_sheet_tool_calculation_count.load();
+        const auto tools_reused_before=direct_sheet_tool_reuse_count.load();
+        const auto materials_reused_before=direct_sheet_material_reuse_count.load();
         std::map<std::string,BodyResult> source_tools;
         std::vector<BodyResult> tools;
         std::vector<std::size_t> tool_indices;
@@ -11920,6 +11932,23 @@ OcctKernel::evaluate_flat_history_batched(
                 });
         if(parallel_sheet_tools) {
             std::vector<std::optional<BodyResult>> ready(end-index);
+            std::vector<std::string> tool_keys(end-index);
+            for(std::size_t tool_index=index;tool_index<end;++tool_index) {
+                auto standalone=operations[tool_index];
+                const bool group=std::holds_alternative<FeatureGroupRequest>(standalone.primitive);
+                if(group&&input.source_fingerprint.empty())continue;
+                standalone.body={};
+                standalone.operation=BooleanOperation::Add;
+                standalone.suppressed=false;
+                standalone.feature_copy.reset();
+                tool_keys[tool_index-index]=history_fingerprint({standalone},1);
+                // Parallel jobs receive no sibling tools. A group's complete
+                // reference set and local input are therefore exactly this
+                // prefix, with the same index discriminator as calculate_tool.
+                if(group)tool_keys[tool_index-index]+=":group-input:"+
+                    input.source_fingerprint+":index:"+std::to_string(tool_index);
+            }
+            const auto& retained_tools=live_cache_->direct_sheet_tools;
             std::atomic_size_t next_tool{index};
             const auto workers=std::min<std::size_t>(8,
                 std::min<std::size_t>(end-index,
@@ -11936,6 +11965,13 @@ OcctKernel::evaluate_flat_history_batched(
                     while(true) {
                         const auto tool_index=next_tool.fetch_add(1);
                         if(tool_index>=end)break;
+                        const auto retained=retained_tools.find(tool_keys[tool_index-index]);
+                        if(retained!=retained_tools.end()) {
+                            ready[tool_index-index]=retained->second;
+                            direct_sheet_tool_reuse_count.fetch_add(1,std::memory_order_relaxed);
+                            continue;
+                        }
+                        direct_sheet_tool_calculation_count.fetch_add(1,std::memory_order_relaxed);
                         ready[tool_index-index]=calculate_tool(
                             isolated,tool_index,none);
                     }
@@ -11943,6 +11979,16 @@ OcctKernel::evaluate_flat_history_batched(
             for(auto& job:jobs)job.get();
             for(std::size_t tool_index=index;tool_index<end;++tool_index) {
                 auto tool=std::move(*ready[tool_index-index]);
+                const auto& key=tool_keys[tool_index-index];
+                if(!key.empty()) {
+                    live_cache_->direct_sheet_tools.insert_or_assign(key,tool);
+                    std::erase(live_cache_->direct_sheet_tool_order,key);
+                    live_cache_->direct_sheet_tool_order.push_back(key);
+                    while(live_cache_->direct_sheet_tool_order.size()>kLiveShapeCacheLimit) {
+                        live_cache_->direct_sheet_tools.erase(live_cache_->direct_sheet_tool_order.front());
+                        live_cache_->direct_sheet_tool_order.pop_front();
+                    }
+                }
                 source_tools.emplace(operations[tool_index].owner_id,tool);
                 tools.push_back(std::move(tool));
                 tool_indices.push_back(tool_index);
@@ -12043,10 +12089,33 @@ OcctKernel::evaluate_flat_history_batched(
                         parent_branch->second==definition.branch_owner_id) {
                     const auto parent=authored_owners.find(
                         definition.parent_owner_id);
-                    if(parent!=authored_owners.end())
-                        material=sheet_state_sources::difference(material,
-                            authored_tools[parent->second],
-                            operations[operation_index].owner_id);
+                    if(parent!=authored_owners.end()) {
+                        // Both operands have complete standalone fingerprints;
+                        // their difference cannot depend on an unrelated branch
+                        // or on their position in cumulative Body history.
+                        const auto key=tools[tool].source_fingerprint+":minus:"+
+                            tools[parent->second].source_fingerprint;
+                        const bool reusable=parallel_sheet_tools&&
+                            !tools[tool].source_fingerprint.empty()&&
+                            !tools[parent->second].source_fingerprint.empty()&&
+                            !std::getenv("ZIMA_CPP_FORCE_MATERIAL_DIFFERENCE");
+                        const auto retained=live_cache_->direct_sheet_material.find(key);
+                        if(reusable&&retained!=live_cache_->direct_sheet_material.end()) {
+                            material=restore_native_history_data(retained->second);
+                            direct_sheet_material_reuse_count.fetch_add(1,std::memory_order_relaxed);
+                        } else {
+                            material=sheet_state_sources::difference(material,
+                                authored_tools[parent->second],operations[operation_index].owner_id);
+                            if(reusable) {
+                                live_cache_->direct_sheet_material.insert_or_assign(key,snapshot_native_history_data(material));
+                                live_cache_->direct_sheet_material_order.push_back(key);
+                                while(live_cache_->direct_sheet_material_order.size()>kLiveShapeCacheLimit) {
+                                    live_cache_->direct_sheet_material.erase(live_cache_->direct_sheet_material_order.front());
+                                    live_cache_->direct_sheet_material_order.pop_front();
+                                }
+                            }
+                        }
+                    }
                     else if(!input_geometry.shape.IsNull()) {
                         const auto partitions=sheet_branch_geometry::partition(input_geometry,branch_owners);
                         const auto branch=partitions.find(definition.branch_owner_id);
@@ -12208,6 +12277,9 @@ OcctKernel::evaluate_flat_history_batched(
                 <<" block] first="<<index
                 <<" count="<<(end-index)<<" publish="<<publish
                 <<" union_ms="<<union_ms
+                <<" tools_calculated="<<direct_sheet_tool_calculation_count.load()-tools_calculated_before
+                <<" tools_reused="<<direct_sheet_tool_reuse_count.load()-tools_reused_before
+                <<" materials_reused="<<direct_sheet_material_reuse_count.load()-materials_reused_before
                 <<" total_ms="<<elapsed_ms(block_start)<<'\n';
         index=end;
     }
