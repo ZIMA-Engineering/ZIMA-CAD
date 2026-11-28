@@ -1,0 +1,287 @@
+{
+  "version": "2026112804",
+  "commit": "aa24aa112af7ae19b306bed514d4eca2d21d5e66",
+  "release_url": "https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026112804",
+  "published_at": "2026-11-28T20:08:33Z",
+  "verified_utc": "2026-11-28T20:16:40.295552+00:00",
+  "assets": [
+    {
+      "name": "ZIMA-CAD-2026112804.zip",
+      "size": 1121115600,
+      "sha256": "4790a66b2a6429aa9f5fb221959044093f11e51cbbd31955f88cc65deac9fcff",
+      "github_digest_matches": true,
+      "anonymous_download_matches": true
+    },
+    {
+      "name": "update-manifest.json",
+      "size": 704,
+      "sha256": "39ff2776794be36edf39587b8523e9c1f67851cc243d82bdf9b1c76a06d67385",
+      "github_digest_matches": true,
+      "anonymous_download_matches": true
+    },
+    {
+      "name": "update-manifest.sig",
+      "size": 176,
+      "sha256": "8df1f9adc2c7f6ac3ef1f45b61af8a9cab969fcdea067882197882fe36e10818",
+      "github_digest_matches": true,
+      "anonymous_download_matches": true
+    }
+  ],
+  "publisher_signature": {
+    "key_id": "zcp-8fa1f825cbde5d81",
+    "verification": "passed"
+  },
+  "local_signature_verification": {
+    "commit": "aa24aa112af7ae19b306bed514d4eca2d21d5e66",
+    "version": "2026112804",
+    "signature_verified": true,
+    "key_id": "zcp-8fa1f825cbde5d81",
+    "manifest_sha256": "39ff2776794be36edf39587b8523e9c1f67851cc243d82bdf9b1c76a06d67385",
+    "archive_sha256": "4790a66b2a6429aa9f5fb221959044093f11e51cbbd31955f88cc65deac9fcff",
+    "archive_bytes": 1121115600
+  },
+  "safe_extraction": "passed",
+  "signed_windows_smoke": "passed",
+  "linux_execution": "not verified; no Linux host available",
+  "mandatory_sheet_branch_tests": {
+    "log_sha256": "ab2ee38dd51098c1aca062270dc8f362576265a1f74c1048f36e317ae7db6493",
+    "result": "passed",
+    "tests": [
+      "zima_cpp_bend_end_constraints_contract",
+      "zima_cpp_sheet_boundary_skeleton_contract",
+      "zima_cpp_sheet_branch_common-parent",
+      "zima_cpp_sheet_branch_contained",
+      "zima_cpp_sheet_branch_edge-contact",
+      "zima_cpp_sheet_branch_face-contact",
+      "zima_cpp_sheet_branch_gui",
+      "zima_cpp_sheet_branch_line-bend",
+      "zima_cpp_sheet_branch_overlap",
+      "zima_cpp_sheet_branch_point-contact",
+      "zima_cpp_sheet_branch_separated",
+      "zima_cpp_sheet_exchange_tests",
+      "zima_cpp_sheet_transition_command_tests"
+    ]
+  },
+  "additional_committed_contracts": {
+    "exit_code": 0,
+    "tests": [
+      "mech_groove_tests",
+      "mech_keyway_tests",
+      "modeling_confirmation_tests",
+      "translations_contract"
+    ],
+    "harness_setup": "The unchanged Keyway persistence test initially lacked its expected build/ output directory in the fresh CTest working directory. After creating that scratch directory, all four unchanged tests were rerun successfully; Ninja reported no compilation work.",
+    "initial_log_sha256": "dbbc42ae6a854fdd20e94a2466b27b4a65c427e8939f7493955e7c9fbd9692bf",
+    "final_log_sha256": "a080acfcf55c40161ae93b2915c5736274800408a22b6d58e3494e58c341fd7b"
+  },
+  "packaged_gui_cases": [
+    {
+      "name": "templates-mm",
+      "exit_code": 0,
+      "seconds": 41.441,
+      "log_sha256": "69ebd01be3949866b32a6ef80cbc62a92b9c28038751ae319b7db30bc814e8df"
+    },
+    {
+      "name": "templates-in",
+      "exit_code": 0,
+      "seconds": 41.95,
+      "log_sha256": "69ebd01be3949866b32a6ef80cbc62a92b9c28038751ae319b7db30bc814e8df"
+    },
+    {
+      "name": "mech-keyway",
+      "exit_code": 0,
+      "seconds": 12.378,
+      "log_sha256": "eca754544cdf5c960824ea6b0aac5345f008243c6bbab74b31b1d077a02d0c14"
+    },
+    {
+      "name": "flat-corrections",
+      "exit_code": 0,
+      "seconds": 21.545,
+      "log_sha256": "2f60c1c68ffa587c290273b50b17e9c5147412b4b9869f1b434b65363c41e217"
+    },
+    {
+      "name": "converted-box-corrections",
+      "exit_code": 0,
+      "seconds": 103.846,
+      "log_sha256": "8947d0c94bd87db3d8fedce6f069d0b3fddc9183abe706cdaceec72c2bf99511"
+    },
+    {
+      "name": "sheet-material-defaults",
+      "exit_code": 0,
+      "seconds": 36.548,
+      "log_sha256": "e627c2979a0d814e1d442c20cd2cdefb7ab12ec371d763f0a555df926b0bf5be"
+    },
+    {
+      "name": "controllers",
+      "exit_code": 0,
+      "seconds": 3.865,
+      "log_sha256": "6f282a7d7cac7d4782beb589a35c59cf132e918e167161e41168f54a8df62a14"
+    },
+    {
+      "name": "groove",
+      "exit_code": 0,
+      "seconds": 25.038,
+      "log_sha256": "748719775c924d0d4a7e8ec808686426e7177fa37d39ca6c51b0d6a134476828"
+    },
+    {
+      "name": "assembly-modes",
+      "exit_code": 0,
+      "seconds": 11.318,
+      "log_sha256": "3d5bcf130fc4d007977f10f639c1dfcec158b103829ba8cc4935ceb18b7017a9"
+    },
+    {
+      "name": "sheet-source-edits",
+      "exit_code": 0,
+      "seconds": 34.364,
+      "log_sha256": "678a36b94c9704694deb3b1de76ecc76e593507e4b4eca0a7ebd41311d0f4e16"
+    },
+    {
+      "name": "sheet-exchange",
+      "exit_code": 0,
+      "seconds": 16.205,
+      "log_sha256": "ee6555094f28ec761cc304254b180371128d7077d1ef34571f945f1d2b13f07e"
+    },
+    {
+      "name": "sheet-same-body",
+      "exit_code": 0,
+      "seconds": 17.229,
+      "log_sha256": "c236bde55e8d3d1e26b9badbb18c36eb201da1306adf89cdbe65cfcc6ddd510c"
+    },
+    {
+      "name": "converted-selection",
+      "exit_code": 0,
+      "seconds": 43.199,
+      "log_sha256": "021a6438ec67cc8fa00384b29a890e34e3080642201b079a6a6f401b8e6bad71"
+    },
+    {
+      "name": "sheet-profile",
+      "exit_code": 0,
+      "seconds": 11.465,
+      "log_sha256": "9466257e7b70dc630b24f70145f342077fadd023dbaa38012b0031f76a65366b"
+    },
+    {
+      "name": "sweep2d",
+      "exit_code": 0,
+      "seconds": 20.87,
+      "log_sha256": "3961e8ef15c2f679a2c75dc21c7947faf6367d1185094fd75b0805b23fec71f5"
+    },
+    {
+      "name": "file-manager",
+      "exit_code": 0,
+      "seconds": 12.476,
+      "log_sha256": "e3901d395b207d40884d1fba86d6398fb0c8a86603173d100e4cf472fa579b6b"
+    },
+    {
+      "name": "curved-point",
+      "exit_code": 0,
+      "seconds": 26.577,
+      "log_sha256": "4438e9e0bd21ba9ebd362dbca082727814a5cea8f7db56615b72fc8f5789ac36"
+    },
+    {
+      "name": "wrap",
+      "exit_code": 0,
+      "seconds": 21.861,
+      "log_sha256": "6ad1f0c4f13c7b04bea9e0d562a1e268a2eac08fae406863ff664eb3319a87da"
+    },
+    {
+      "name": "edge-treatment",
+      "exit_code": 0,
+      "seconds": 41.6,
+      "log_sha256": "04cf538139ae9c89a9ec8215119941238114a6e7dca0e24460db0bc7179141ce"
+    },
+    {
+      "name": "helical",
+      "exit_code": 0,
+      "seconds": 30.146,
+      "log_sha256": "39b9abfc7370973e811e4d2b8eb76428c5ce9ae038787f591c6249f61f73ad03"
+    },
+    {
+      "name": "loft",
+      "exit_code": 0,
+      "seconds": 28.142,
+      "log_sha256": "d55ef64f38ec96aebe978526891167b31d373d3880966a8280790f572ce01352"
+    },
+    {
+      "name": "documentation",
+      "exit_code": 0,
+      "seconds": 11.987,
+      "log_sha256": "5acf44f5a328443354e5d73de1bbf91c3f75b72d0335c5c10c2598c3aaf05628"
+    },
+    {
+      "name": "browser",
+      "exit_code": 0,
+      "seconds": 6.734,
+      "log_sha256": "42c916d9275ae134e9337f61e161203c785703c9da9a65919c9ec93a00c948fe"
+    }
+  ],
+  "packaged_build_identities": {
+    "zima-cad-cpp.exe": {
+      "product": "ZIMA-CAD",
+      "version": "2026112804",
+      "commit": "aa24aa112af7ae19b306bed514d4eca2d21d5e66",
+      "source_modified": false,
+      "platform": "windows-x64",
+      "qt": "6.11.0",
+      "occt": "8.0.1",
+      "compiler": "MSVC 19.51.36248.0",
+      "configuration": "Release"
+    },
+    "zima-cad-cli.exe": {
+      "product": "ZIMA-CAD",
+      "version": "2026112804",
+      "commit": "aa24aa112af7ae19b306bed514d4eca2d21d5e66",
+      "source_modified": false,
+      "platform": "windows-x64",
+      "qt": "6.11.0",
+      "occt": "8.0.1",
+      "compiler": "MSVC 19.51.36248.0",
+      "configuration": "Release"
+    }
+  },
+  "packaged_executable_sha256": {
+    "zima-cad-cpp.exe": "56ff6262140002920e536e5ecc6f68eec972d09430b40ea97a639ee22b31d4bf",
+    "zima-cad-cli.exe": "c230b86a91eb9ba5d5b8b421ad736893c672093adf6fb91bd308bdeb0e4e03c7",
+    "zima-cad-update.exe": "730be321bc7e4fbfa80dddd9ed34f351fb8697d1f571d5fbeacba37d642bf537"
+  },
+  "factory_assets": {
+    "version": "2026112804",
+    "commit": "aa24aa112af7ae19b306bed514d4eca2d21d5e66",
+    "affected_factory_assets": 75,
+    "exact_verified_hashes": true,
+    "packaged_native_assets": 1250,
+    "packaged_native_loads_passed": true
+  },
+  "packaged_documentation": {
+    "commit": "aa24aa112af7ae19b306bed514d4eca2d21d5e66",
+    "version": "2026112804",
+    "public_files": 1960,
+    "exact_web_copy": true,
+    "five_language_context_ui": "passed",
+    "private_browser_tree_absent": true
+  },
+  "website": {
+    "status": "completed",
+    "commit": "aa24aa112af7ae19b306bed514d4eca2d21d5e66",
+    "completed_utc": "2026-11-28T18:45:21.317784+01:00",
+    "public_files": 1960,
+    "http_hash_failures": 0,
+    "url": "https://zima-cad.org/"
+  },
+  "updater": {
+    "status": {
+      "installed_version": "2026112804",
+      "trusted": true
+    },
+    "check": {
+      "installed_version": "2026112804",
+      "status": "current"
+    }
+  },
+  "private_connection_scan": {
+    "source_commit": "aa24aa112af7ae19b306bed514d4eca2d21d5e66",
+    "source_files": 13524,
+    "matches": 0,
+    "connection_values_logged": false
+  },
+  "known_limit": "The additional Default Origin nested GUI gate stops at a selected-Point color assertion also reproduced on unchanged release 2026112803; its later cases are not claimed as verified. The independent Assembly Modes gate covers the affected nested ownership and activation."
+}
