@@ -223,8 +223,11 @@ SheetBodyConversion prepare_edited_sheet_from_body(
             } else next.flat=generated->flat;
             auto sketch=*generated_sketch;
             if(!binding.bend)retain_converted_flat_corrections(sketch,*retained_sketch);
-            if(binding.bend)document::prepare_bend_sketches(next,sketch,
-                document::sheet_metal_defaults(result.document));
+            if(binding.bend) {
+                retain_converted_bend_start(sketch,*retained_sketch);
+                document::prepare_bend_sketches(next,sketch,
+                    document::sheet_metal_defaults(result.document));
+            }
             *retained=std::move(next);
             *retained_sketch=std::move(sketch);
         } else {

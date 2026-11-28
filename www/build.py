@@ -113,6 +113,7 @@ def build(check=False):
     commands = load_command_catalogs(docs, languages)
     links = dict(config["Links"])
     canonical = config["Website"]["Canonical"].rstrip("/")
+    contact_email = config["Website"]["ContactEmail"]
     for url in [canonical, *links.values()]:
         assert urlsplit(url).scheme == "https", "Public links must use HTTPS"
     annotations_path = ROOT / "doc/guides/annotations.json"
@@ -209,7 +210,7 @@ def build(check=False):
 <button class="menu-toggle" aria-expanded="false" aria-controls="main-nav" aria-label="{escape(t['menu'])}">☰</button><nav id="main-nav" aria-label="{escape(t['menu'])}">{navigation}</nav>
 <div class="header-tools"><button class="theme-toggle" aria-label="{escape(t['theme'])}" title="{escape(t['theme'])}">◐</button><details class="languages"><summary aria-label="{escape(t['language'])}"><span aria-hidden="true">◎</span> {language.upper()}<span class="chevron"></span></summary><div>{language_links}</div></details></div></div></header>
 <main id="content"{' class="guide-page"' if article else ''}>{content}</main>
-<footer><div><a class="footer-brand" href="{local(route('home', language), page)}">ZIMA-CAD</a><span>{escape(t['footer'])}</span></div><div class="socials"><a href="{links['YouTube']}" rel="noopener">YouTube</a><a href="{links['Facebook']}" rel="noopener">Facebook</a><a href="{links['Repository']}" rel="noopener">GitHub</a></div><small>© 2026 ZIMA-Engineering · GPL-3.0-or-later</small></footer>
+<footer><div><a class="footer-brand" href="{local(route('home', language), page)}">ZIMA-CAD</a><span>{escape(t['footer'])}</span></div><div class="socials"><a href="{links['YouTube']}" rel="noopener">YouTube</a><a href="{links['Facebook']}" rel="noopener">Facebook</a><a href="{links['Repository']}" rel="noopener">GitHub</a></div><p class="footer-contact"><span>{escape(t['contact'])}</span><a href="mailto:{escape(contact_email)}">{escape(contact_email)}</a></p><small>© 2026 ZIMA-Engineering · GPL-3.0-or-later</small></footer>
 <dialog class="lightbox" aria-label="{escape(t['fullscreen'])}" data-actual-size="false"><div class="lightbox-toolbar"><button type="button" class="lightbox-zoom" aria-controls="lightbox-image-viewport" data-actual="{escape(t['actualSize'])}" data-fit="{escape(t['fitImage'])}">{escape(t['actualSize'])}</button><button type="button" class="lightbox-close" aria-label="{escape(t['close'])}" autofocus>×</button></div><div class="lightbox-viewport" id="lightbox-image-viewport" role="region" tabindex="0" aria-label="{escape(t['imageViewport'])}"><img alt=""></div><p></p></dialog></body></html>'''
 
     def caption(path, t):

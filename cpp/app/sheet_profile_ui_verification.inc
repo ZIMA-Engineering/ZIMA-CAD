@@ -1942,9 +1942,43 @@ static int verify_converted_sheet_selection_ui(QApplication& application,
         check(original_bend&&original_bend->bend.conversion_base_extensions.has_value(),"Converted correction basis is missing");
         const auto basis=*original_bend->bend.conversion_base_extensions;
         sheet_mode->click();window.show_parameter_dimensions(bend_id);flush();
-        for(const auto& dimension:view->mesh().dimensions)
-            check(dimension.reference.semantic_key.find(":position:")==std::string::npos,
-                "Bound Bend exposes its source attachment as an editable correction");
+        for(bool last:{false,true})for(double delta:{.25,-.5,0.}) {
+            const auto suffix=last?":position:last":":position:first";
+            const auto before_edit=document::PartDocument::load(path);
+            const auto before_start=std::ranges::find(before_edit.sketches,original_bend->bend.sketch_id,&sketcher::Sketch::id);
+            const auto before_dimension=std::ranges::find(before_start->dimensions,before_start->id+suffix,&sketcher::SketchDimension::id);
+            const auto expected=sketcher::dimension_value_from_input(*before_dimension,delta,before_start->plane);
+            const auto& dimensions=view->mesh().dimensions;
+            const auto found=std::ranges::find_if(dimensions,[&](const auto& value){return value.reference.semantic_key.ends_with(suffix);});
+            check(found!=dimensions.end(),"Converted first Sketch correction is absent from View");
+            viewer::ViewerCandidate candidate;candidate.kind=viewer::CandidateKind::Dimension;
+            candidate.owner_id=found->reference.owner_id;candidate.semantic_key=found->reference.semantic_key;
+            candidate.instance_path=found->reference.instance_path;candidate.geometry_index=std::distance(dimensions.begin(),found);
+            window.edit_dimension_inline(candidate);flush();
+            QPointer<QLineEdit> editor=view->findChild<QLineEdit*>("inlineDimensionValueEdit");
+            check(editor&&editor->isVisible(),"Converted first Sketch correction cannot be edited in View");
+            editor->setText(QString::number(delta));
+            QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);QApplication::sendEvent(editor,&enter);flush();
+            check(!editor||!editor->isVisible(),"Converted first Sketch correction edit was rejected");
+            window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+            const auto saved=document::PartDocument::load(path);
+            const auto start=std::ranges::find(saved.sketches,original_bend->bend.sketch_id,&sketcher::Sketch::id);
+            const auto d=std::ranges::find(start->dimensions,start->id+suffix,&sketcher::SketchDimension::id);
+            const auto support=std::ranges::find(start->external_references,d->first_point_id,&sketcher::SketchExternalReference::id);
+            check(support!=start->external_references.end()&&support->cached_points.size()==1,
+                "First Sketch correction lost its source point");
+            check(std::abs(start->find_point(d->second_point_id)->x-support->cached_points.front()[0]-expected)<1e-7,
+                "First Sketch correction violates its exact endpoint equation");
+            const auto end=sketcher::Sketch::from_serialized(saved.find_container(bend_id)->bend.auxiliary_sketches[1]);
+            for(const auto& dimension:end.dimensions)
+                if(dimension.id.ends_with(":difference:first")||dimension.id.ends_with(":difference:last"))
+                    check(std::abs(dimension.value)<1e-9,"First Sketch edit changed a second Sketch correction");
+            window.findChild<QAction*>("undoAction")->trigger();flush();
+            window.findChild<QAction*>("redoAction")->trigger();flush();
+            window.show_parameter_dimensions(bend_id);flush();
+        }
+        view->grab().save(QString::fromStdWString((parent/"converted-bend-first-corrections.png").wstring()));
+        std::cout<<"Converted Bend first Sketch View corrections, persistence and Undo/Redo passed\n";
         for(bool last:{false,true})for(double delta:{.25,-.5,0.}) {
             const auto suffix=last?":difference:last":":difference:first";
             const auto& dimensions=view->mesh().dimensions;

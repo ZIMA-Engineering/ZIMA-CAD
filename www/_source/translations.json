@@ -85,7 +85,8 @@
     "commandGroup_cam": "CAM",
     "actualSize": "Skutečná velikost",
     "fitImage": "Přizpůsobit obrázek",
-    "imageViewport": "Obrázek"
+    "imageViewport": "Obrázek",
+    "contact": "Kontakt"
   },
   "en": {
     "home": "Home",
@@ -173,7 +174,8 @@
     "commandGroup_cam": "CAM",
     "actualSize": "Actual size",
     "fitImage": "Fit image",
-    "imageViewport": "Image"
+    "imageViewport": "Image",
+    "contact": "Contact"
   },
   "de": {
     "home": "Start",
@@ -261,7 +263,8 @@
     "commandGroup_cam": "CAM",
     "actualSize": "Originalgröße",
     "fitImage": "Bild einpassen",
-    "imageViewport": "Bild"
+    "imageViewport": "Bild",
+    "contact": "Kontakt"
   },
   "fr": {
     "home": "Accueil",
@@ -349,7 +352,8 @@
     "commandGroup_cam": "FAO",
     "actualSize": "Taille réelle",
     "fitImage": "Adapter l’image",
-    "imageViewport": "Image"
+    "imageViewport": "Image",
+    "contact": "Contact"
   },
   "ru": {
     "home": "Главная",
@@ -437,6 +441,7 @@
     "commandGroup_cam": "CAM",
     "actualSize": "Фактический размер",
     "fitImage": "Вписать изображение",
-    "imageViewport": "Изображение"
+    "imageViewport": "Изображение",
+    "contact": "Контакты"
   }
 }

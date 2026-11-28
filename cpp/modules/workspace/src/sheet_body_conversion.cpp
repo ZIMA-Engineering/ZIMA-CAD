@@ -852,6 +852,31 @@ void capture_conversion_allowances(SheetBodyConversion& result) {
     }
 }
 
+void retain_converted_bend_start(sketcher::Sketch& generated,const sketcher::Sketch& authored) {
+    // The source owns the attachment frame and exact endpoint references;
+    // the native Sketch retains its authored equations and topology IDs.
+    auto draft=authored;
+    draft.plane=generated.plane;draft.plane_auto=generated.plane_auto;
+    draft.plane_offset=generated.plane_offset;
+    draft.plane_reference_owner_id=generated.plane_reference_owner_id;
+    draft.resolved_origin=generated.resolved_origin;
+    draft.resolved_x_axis=generated.resolved_x_axis;
+    draft.resolved_y_axis=generated.resolved_y_axis;
+    draft.resolved_normal=generated.resolved_normal;
+    for(const auto suffix:{":attachment:first",":attachment:last"}) {
+        const auto id=generated.id+suffix;
+        const auto next=std::ranges::find(generated.external_references,id,&sketcher::SketchExternalReference::id);
+        const auto old=std::ranges::find(draft.external_references,id,&sketcher::SketchExternalReference::id);
+        if(next==generated.external_references.end()||old==draft.external_references.end())
+            throw std::invalid_argument("Incomplete Bend sheet attachment.");
+        *old=*next;
+    }
+    const auto status=draft.solve().status;
+    if(status==sketcher::SolveStatus::Conflicting||status==sketcher::SolveStatus::Invalid)
+        throw std::invalid_argument("Bend endpoint offsets leave no profile width.");
+    generated=std::move(draft);
+}
+
 struct ContinuationBend {
     // The source Flat owns the Bend attachment. The target Flat is split into
     // one region per incoming branch; edges use the same source/target order.
@@ -3851,8 +3876,10 @@ bool refresh_sheet_from_body_associations(
             auto next_sketch=sketcher::Sketch::from_serialized(sketch_data);
             if(next.feature_kind==document::FeatureKind::Flat)
                 retain_converted_flat_corrections(next_sketch,*current_sketch);
-            if(next.feature_kind==document::FeatureKind::Bend)
+            if(next.feature_kind==document::FeatureKind::Bend) {
+                retain_converted_bend_start(next_sketch,*current_sketch);
                 document::prepare_bend_sketches(next,next_sketch,document::sheet_metal_defaults(source));
+            }
             if(next!=*current) {
                 *current=std::move(next);
                 document_changed=true;

@@ -3213,6 +3213,7 @@ void contract(bool include_oblique_corners = true) {
             auto radius_linked=converted;
             const auto generated_ids=radius_linked.created;
             bool user_corrections{};
+            std::map<std::string,std::vector<std::string>> start_identities;
             std::vector<std::string> sketch_ids;
             for(const auto& id:generated_ids) {
                 const auto* child=radius_linked.document.find_container(id);
@@ -3261,6 +3262,14 @@ void contract(bool include_oblique_corners = true) {
                         near(child->bend.radius,radius,.001);
                         check(child->bend.conversion_base_extensions.has_value(),"Converted Bend lost its allowance basis");
                         const auto end=sketcher::Sketch::from_serialized(child->bend.auxiliary_sketches[1]);
+                        const auto start=std::ranges::find(radius_linked.document.sketches,
+                            child->bend.sketch_id,&sketcher::Sketch::id);
+                        std::vector<std::string> identities;
+                        for(const auto& point:start->points)identities.push_back(point.id);
+                        for(const auto& segment:start->segments)identities.push_back(segment.id);
+                        if(start_identities.contains(child->id))
+                            check(identities==start_identities.at(child->id),"Source edit changed corrected start topology");
+                        else start_identities.emplace(child->id,identities);
                         for(bool last:{false,true}) {
                             const auto dimension=std::ranges::find(end.dimensions,end.id+
                                 (last?":difference:last":":difference:first"),&sketcher::SketchDimension::id);
@@ -3268,6 +3277,15 @@ void contract(bool include_oblique_corners = true) {
                             const auto* point=end.find_point(end.id+(last?":endpoint:last":":endpoint:first"));
                             const auto* reference=end.find_point(end.id+(last?":reference:last":":reference:first"));
                             near(point->x-reference->x,dimension->value*dimension->solution_side,1e-8);
+                            const auto position=std::ranges::find(start->dimensions,start->id+
+                                (last?":position:last":":position:first"),&sketcher::SketchDimension::id);
+                            const auto support=std::ranges::find(start->external_references,position->first_point_id,
+                                &sketcher::SketchExternalReference::id);
+                            check(support!=start->external_references.end()&&support->cached_points.size()==1,
+                                "Converted first Sketch lost its exact source endpoint");
+                            near(position->value,user_corrections?(last?-.75:.5):0.,1e-9);
+                            near(start->find_point(position->second_point_id)->x-support->cached_points.front()[0],
+                                position->value,1e-8);
                         }
                         checked_bend=true;
                     }
@@ -3320,6 +3338,42 @@ void contract(bool include_oblique_corners = true) {
                 check(end.set_dimension_value(end.id+":difference:first",1.25)&&
                     end.set_dimension_value(end.id+":difference:last",2.5),"Cannot edit conversion-relative corrections");
                 const auto start=std::ranges::find(radius_linked.document.sketches,child->bend.sketch_id,&sketcher::Sketch::id);
+                const auto supports=start->external_references;
+                for(bool last:{false,true})for(double value:{.25,-.5,0.,-0.}) {
+                    const auto id=start->id+(last?":position:last":":position:first");
+                    const auto prior=std::ranges::find(start->dimensions,id,&sketcher::SketchDimension::id);
+                    const auto expected=sketcher::dimension_value_from_input(*prior,value,start->plane);
+                    check(start->set_dimension_value(id,value),"Converted first Sketch correction rejected");
+                    const auto d=std::ranges::find(start->dimensions,id,&sketcher::SketchDimension::id);
+                    const auto support=std::ranges::find(start->external_references,d->first_point_id,
+                        &sketcher::SketchExternalReference::id);
+                    const auto* point=start->find_point(d->second_point_id);
+                    near(point->x-support->cached_points.front()[0],expected,1e-8);
+                    const auto x=point->x,stored_value=d->value;
+                    const auto point_id=point->id;const auto side=d->solution_side;
+                    for(int mode:{0,1,2}) {
+                        auto dragged=*start;
+                        auto& edited=*std::ranges::find(dragged.dimensions,id,&sketcher::SketchDimension::id);
+                        edited.locked=mode==1;edited.driving=mode!=2;
+                        for(double displacement:{.1,.2,-.1}) {
+                            static_cast<void>(dragged.move_point(point_id,x+displacement,3));
+                            near(dragged.find_point(point_id)->x,mode==1?x:x+displacement,1e-8);
+                            near(dragged.find_point(point_id)->y,0.,1e-8);
+                            check(dragged.external_references==supports,"First Sketch drag changed its read-only source");
+                        }
+                    }
+                    check(start->external_references==supports,"First Sketch correction changed its read-only source");
+                    const auto reopened=sketcher::Sketch::from_serialized(start->serialized());
+                    const auto saved=std::ranges::find(reopened.dimensions,id,&sketcher::SketchDimension::id);
+                    check(std::signbit(saved->value)==std::signbit(stored_value)&&saved->solution_side==side,
+                        "First Sketch persistence changed the signed correction side");
+                }
+                for(bool last:{false,true}) {
+                    const auto id=start->id+(last?":position:last":":position:first");
+                    auto dimension=*std::ranges::find(start->dimensions,id,&sketcher::SketchDimension::id);
+                    dimension.value=last?-.75:.5;dimension.solution_side=last?-1:1;
+                    start->apply_dimension(std::move(dimension));
+                }
                 document::accept_bend_sketch(*child,*start,1,end,document::sheet_metal_defaults(radius_linked.document));
             }
             user_corrections=true;

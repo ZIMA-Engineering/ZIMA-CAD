@@ -3052,7 +3052,7 @@
           "Ověřte tloušťku, K faktor a koncové korekce a potvrďte OK."
         ],
         "result": "Ohyb sleduje kruhovou dráhu a zachovanou materiálovou stranu.",
-        "note": "Rovné pokračování patří do připojené tabule; dráha přijímá kruhový oblouk, nikoli elipsu."
+        "note": "Rovné pokračování patří do připojené tabule; dráha přijímá kruhový oblouk, nikoli elipsu. U ohybů vytvořených příkazem Plech z tělesa můžete korigovat oba konce první i druhé skici. Poklepejte na ohyb a potom na příslušnou kótu; korekce první skici je vztažena ke konci zdrojové hrany a zůstává zachována při přepočtu."
       },
       "en": {
         "title": "Bend",
@@ -3064,7 +3064,7 @@
           "Review thickness, K factor and end corrections, then confirm OK."
         ],
         "result": "The Bend follows its circular trajectory and retained material side.",
-        "note": "Straight continuation belongs in an attached Flat; the trajectory accepts a circular arc, not an ellipse."
+        "note": "Straight continuation belongs in an attached Flat; the trajectory accepts a circular arc, not an ellipse. For Bends created by Sheet from Body, you can correct both endpoints of the first and second Sketches. Double-click the Bend, then the relevant dimension; the first Sketch correction is relative to its source-edge endpoint and survives regeneration."
       },
       "de": {
         "title": "Biegung",
@@ -3076,7 +3076,7 @@
           "Prüfen Sie Dicke, K-Faktor und Endkorrekturen und bestätigen Sie OK."
         ],
         "result": "Die Biegung folgt ihrer Kreisbahn und der beibehaltenen Materialseite.",
-        "note": "Gerade Fortsetzungen gehören in ein angebundenes Flachblech; die Bahn akzeptiert einen Kreisbogen, keine Ellipse."
+        "note": "Gerade Fortsetzungen gehören in ein angebundenes Flachblech; die Bahn akzeptiert einen Kreisbogen, keine Ellipse. Bei Biegungen aus Blech aus Körper können Sie beide Endpunkte der ersten und zweiten Skizze korrigieren. Doppelklicken Sie auf die Biegung und dann auf das entsprechende Maß. Die Korrektur der ersten Skizze bezieht sich auf den Endpunkt der Quellkante und bleibt beim Neuberechnen erhalten."
       },
       "fr": {
         "title": "Pli",
@@ -3088,7 +3088,7 @@
           "Vérifiez épaisseur, facteur K et corrections terminales, puis validez par OK."
         ],
         "result": "Le pli suit son trajet circulaire et le côté matière conservé.",
-        "note": "Une continuation droite relève d’un plat attaché ; le trajet accepte un arc de cercle, pas une ellipse."
+        "note": "Une continuation droite relève d’un plat attaché ; le trajet accepte un arc de cercle, pas une ellipse. Pour les plis créés par Tôle depuis un corps, vous pouvez corriger les deux extrémités de la première et de la deuxième esquisse. Double-cliquez sur le pli, puis sur la cote voulue. La correction de la première esquisse est relative à l’extrémité de l’arête source et est conservée lors du recalcul."
       },
       "ru": {
         "title": "Сгиб",
@@ -3100,7 +3100,7 @@
           "Проверьте толщину, K-фактор и концевые коррекции, затем нажмите OK."
         ],
         "result": "Гиб следует круговой траектории и сохранённой стороне материала.",
-        "note": "Прямое продолжение создаётся присоединённым плоским листом; траектория допускает дугу окружности, но не эллипс."
+        "note": "Прямое продолжение создаётся присоединённым плоским листом; траектория допускает дугу окружности, но не эллипс. Для сгибов, созданных командой Лист из тела, можно корректировать оба конца первого и второго эскизов. Дважды щёлкните сгиб, затем нужный размер. Коррекция первого эскиза задаётся относительно конца исходного ребра и сохраняется при пересчёте."
       }
     },
     "dialogCapture": "bend"

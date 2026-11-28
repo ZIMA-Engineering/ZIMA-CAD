@@ -744,6 +744,66 @@ int verify_sheet_exchange_ui(QApplication& application,const std::filesystem::pa
             window.finish_parameter_dimensions();flush();
         }
         }
+        const auto corrected_bend=std::find_if(saved.history.begin()+original,saved.history.end(),[&](const auto& feature) {
+            return feature.feature_kind==document::FeatureKind::Bend&&
+                saved.body_owner_for_object(feature.id)->scope.id==target_id&&saved.sheet_from_body_child_bound(feature.id);
+        });
+        if(corrected_bend!=saved.history.end()) {
+            const auto owner=corrected_bend->id,sketch_id=corrected_bend->bend.sketch_id;
+            const auto& initial=*std::ranges::find(saved.sketches,sketch_id,&sketcher::Sketch::id);
+            view->set_view_direction(initial.resolved_normal);view->fit_all();flush();
+            QEventLoop settle;QTimer::singleShot(950,&settle,&QEventLoop::quit);settle.exec();
+            const auto baseline=save().serialized();
+            for(const auto suffix:{":first",":last"})for(double value:{.5,-.25,0.}) {
+                const auto id=sketch_id+":position"+suffix,key="dimension:"+id;
+                const auto& original_dimension=*std::ranges::find(initial.dimensions,id,&sketcher::SketchDimension::id);
+                const auto expected=sketcher::dimension_value_from_input(original_dimension,value,initial.plane);
+                auto* row=tree_row(owner);check(row,"Converted Bend Tree row missing");
+                const auto inspection=window.execute_console_command("documents").data;
+                tree->setCurrentItem(row);tree->itemClicked(row,0);flush();
+                check(std::ranges::none_of(view->mesh().dimensions,[&](const auto& d){return d.reference.owner_id==sketch_id;}),
+                    "Single Bend selection exposed first Sketch corrections");
+                row=tree_row(owner);tree->itemDoubleClicked(row,0);flush();
+                check(window.execute_console_command("documents").data==inspection,"Bend inspection modified the document");
+                const auto shown=std::ranges::find_if(view->mesh().dimensions,[&](const auto& d){return d.reference.owner_id==sketch_id&&d.reference.semantic_key==key;});
+                check(shown!=view->mesh().dimensions.end(),"Converted first Sketch zero correction is hidden");
+                viewer::ViewerCandidate candidate;candidate.kind=viewer::CandidateKind::Dimension;
+                candidate.owner_id=sketch_id;candidate.semantic_key=key;
+                candidate.geometry_index=std::size_t(shown-view->mesh().dimensions.begin());
+                const auto pixel=view->candidate_dimension_label_position(candidate);
+                check(pixel.has_value(),"First Sketch correction has no screen label");
+                for(auto type:{QEvent::MouseMove,QEvent::MouseButtonPress,QEvent::MouseButtonRelease,QEvent::MouseButtonDblClick,QEvent::MouseButtonRelease}) {
+                    QMouseEvent mouse(type,*pixel,QPointF(view->mapToGlobal(*pixel)),type==QEvent::MouseMove?Qt::NoButton:Qt::LeftButton,
+                        type==QEvent::MouseButtonPress||type==QEvent::MouseButtonDblClick?Qt::LeftButton:Qt::NoButton,Qt::NoModifier);
+                    QApplication::sendEvent(view,&mouse);flush();
+                }
+                auto* editor=view->findChild<QLineEdit*>("inlineDimensionValueEdit");
+                check(editor&&editor->isVisible(),"First Sketch correction double-click did not open the editor");
+                check(editor->property("dimensionIdentifier").toString().toStdString()==saved.dimension_identifiers.identifier(sketch_id,key),
+                    "First Sketch correction mouse click picked another dimension");
+                editor->setText(QString::number(value));QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);
+                QApplication::sendEvent(editor,&enter);flush();
+                const auto changed=save();
+                const auto& profile=*std::ranges::find(changed.sketches,sketch_id,&sketcher::Sketch::id);
+                const auto d=std::ranges::find(profile.dimensions,id,&sketcher::SketchDimension::id);
+                const auto support=std::ranges::find(profile.external_references,d->first_point_id,&sketcher::SketchExternalReference::id);
+                check(support!=profile.external_references.end()&&support->cached_points.size()==1,
+                    "Corrected first Sketch lost its exact endpoint");
+                check(std::abs(d->value-expected)<1e-7&&
+                    std::abs(profile.find_point(d->second_point_id)->x-support->cached_points.front()[0]-expected)<1e-7,
+                    "First Sketch GUI correction violates the endpoint equation");
+                window.grab().save(QString::fromStdWString((directory/"bend-first-correction-after-edit.png").wstring()));
+                if(changed.serialized()!=baseline) {
+                    window.findChild<QAction*>("undoAction")->trigger();flush();
+                    check(save().serialized()==baseline,"First Sketch Undo changed its source");
+                    window.findChild<QAction*>("redoAction")->trigger();flush();
+                    check(save().serialized()==changed.serialized(),"First Sketch Redo changed identity");
+                    window.findChild<QAction*>("undoAction")->trigger();flush();
+                }
+                window.finish_parameter_dimensions();flush();
+            }
+            std::cout<<"Converted box first Sketch actual mouse correction, equations and Undo/Redo passed\n";
+        }
         const auto before=save().serialized();dxf=window.findChild<QAction*>("sheetDxfAction");dxf->trigger();flush();
         const auto directory_name=app::ApplicationSettings::load().drawing_dxf_directory;
         const auto output=path.parent_path()/std::filesystem::path(directory_name.toStdWString())/"sheet-exchange.dxf";

@@ -1342,16 +1342,7 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                         mesh.edges.insert(mesh.edges.end(),sketch_mesh.edges.begin(),sketch_mesh.edges.end());
                         mesh.images.insert(mesh.images.end(),sketch_mesh.images.begin(),sketch_mesh.images.end());
                     }
-                bool bound_bend_start{};
-                if constexpr(requires { document.sheet_from_body_child_bound(shown.owner_container_id); })
-                    if(const auto* owner=document.find_container(shown.owner_container_id))
-                        bound_bend_start=owner->feature_kind==zima::document::FeatureKind::Bend&&
-                            owner->bend.sketch_id==shown.id&&
-                            document.sheet_from_body_child_bound(owner->id);
-                // The converted Bend starts on its source edge. Its owned
-                // start Sketch defines attachment, not an editable correction.
-                // Output-profile dimensions above remain available at +/-0.
-                if(!bound_bend_start)mesh.dimensions.insert(mesh.dimensions.end(),
+                mesh.dimensions.insert(mesh.dimensions.end(),
                     sketch_mesh.dimensions.begin(), sketch_mesh.dimensions.end());
                 const auto base = zima::kernel::Vec3{
                     sketch->resolved_origin.x - sketch->resolved_normal.x *
