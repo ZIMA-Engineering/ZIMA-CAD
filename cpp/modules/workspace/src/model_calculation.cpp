@@ -118,6 +118,7 @@ history_boundary_reference_demands(
         if (feature.feature_kind == document::FeatureKind::Sweep3D)
             sweep_trajectories.register_construction(feature.sweep3d.path, feature.id);
     for(const auto& [consumer,path,owner,key]:graph.references) {
+        if(path.empty()&&key.starts_with("generated:sheet-boundary:"))continue;
         // A 2D Sweep owns an ordinary native path Sketch. Ordered resolution
         // publishes it before the Point; calculated material is not its source.
         if(path.empty()&&planar_path_owners.contains(owner)&&

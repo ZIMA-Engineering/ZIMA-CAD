@@ -1,4 +1,7 @@
 {
+  "The calculated sheet boundary is unavailable. Regenerate the model.": "Vypočtená hranice plechu není dostupná. Přegenerujte model.",
+  "Sheet from Body cannot restore its attachments without changing the geometry.": "Plech z tělesa nemůže obnovit připojení bez změny geometrie.",
+  "Sheet from Body requires exact straight attachment boundaries.": "Plech z tělesa vyžaduje přesné přímé hranice pro připojení.",
   "Hloubka": "Hloubka",
   "Žádné": "Žádné",
   "Unsupported keyway definition version": "Nepodporovaná verze definice drážky pro pero",

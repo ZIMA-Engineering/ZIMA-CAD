@@ -1,4 +1,7 @@
 {
+  "The calculated sheet boundary is unavailable. Regenerate the model.": "La limite de tôle calculée est indisponible. Régénérez le modèle.",
+  "Sheet from Body cannot restore its attachments without changing the geometry.": "Tôle depuis un corps ne peut pas rétablir ses raccordements sans modifier la géométrie.",
+  "Sheet from Body requires exact straight attachment boundaries.": "Tôle depuis un corps nécessite des limites de raccordement droites et exactes.",
   "Hloubka": "Profondeur",
   "Žádné": "Aucune",
   "Unsupported keyway definition version": "Version non prise en charge de la définition de rainure de clavette",

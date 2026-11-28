@@ -79,7 +79,7 @@ gates before publication. Native Linux execution is not verified.
 
 Localization review: the change introduces no user-visible text.
 
-## Proposed shared boundary graph (not implemented here)
+## Subsequent shared boundary graph work
 
 The user proposed a further architectural direction on 2026-11-28: derive an
 exact boundary graph from the source Body, including RIP seams, gaps and Bend
@@ -94,11 +94,12 @@ ordinary feature-to-feature attachments without changing geometry, frames,
 corrections, side choices or identities. Source topology changes and missing
 references must retain the existing repair and last-valid-frame behavior.
 
-Current generated children are ordinary linked Flats/Bends, and the preview
-wire contains sampled display curves with preview identities. It cannot serve
-as this mathematical graph. The proposal needs exact authored/native curves,
-surfaces, explicit branch incidence and stable source identities. It would change
-the required reference/persistence model and the current release operation;
-implementation therefore needs a concrete format, affected-asset conversion and
-verification agreement under AGENTS.md. Shared placement remains protected.
-This idea is recorded separately from the measured cache optimization above.
+The original generated children followed ordinary linked Flats/Bends. Their
+sampled preview wire cannot define the mathematical graph. The implementation
+therefore retains exact native boundaries, analytic supports and logical branch
+parents in the conversion, with stable source identities. The user authorized
+the required native data change; the shared placement solver remains unchanged.
+This work is recorded separately from the measured cache optimization above. The
+[implementation and verification record](../verification/20261128-sheet-boundary-graph.md)
+tracks that work and its acceptance status; the measurements above describe the
+cache-only baseline, not the later graph implementation.

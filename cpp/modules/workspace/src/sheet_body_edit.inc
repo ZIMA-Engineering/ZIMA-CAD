@@ -178,6 +178,8 @@ SheetBodyConversion prepare_edited_sheet_from_body(
         const auto* retained_sketch=owned_sketch(source,retained->id);
         if(generated_sketch&&retained_sketch)
             replacements.emplace_back(generated_sketch->id,retained_sketch->id);
+        if(generated_sketch&&retained_sketch&&binding.bend)
+            retain_bend_start_identities(*generated_sketch,*retained_sketch,replacements);
     }
     auto encoded_document=rebuilt.document.serialized();
     // Temporary generated owners must not collide with removed owners' old

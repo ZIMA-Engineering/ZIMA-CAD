@@ -312,8 +312,12 @@ void delete_part_history(Workspace& live,const std::string& document_id,
             }
             if(source_lost)release.push_back(conversion.id);
         }
-        for(const auto& conversion:release)
-            rebuild_sheet_union|=release_sheet_from_body_bindings(next,conversion);
+        if(!release.empty()) {
+            kernel::OcctKernel inputs;
+            const auto complete=sheet_from_body_release_inputs(next,inputs);
+            for(const auto& conversion:release)
+                rebuild_sheet_union|=release_sheet_from_body_bindings(next,conversion,&complete);
+        }
         // Released children no longer depend on the removed source. Rebuild
         // the plan before ordinary lost-reference handling sees those links.
         if(!release.empty())deletion=plan_history_deletion(next,id);

@@ -4,6 +4,7 @@
 #include <zima/document/flat.hpp>
 #include <zima/document/metadata.hpp>
 #include <zima/document/sheet_profile.hpp>
+#include <zima/document/viewer_packet_json.hpp>
 #include <zima/document/sketch_placement.hpp>
 #include <zima/document/profile_targets.hpp>
 #include <zima/workspace/part_transactions.hpp>
@@ -843,7 +844,14 @@ void resolve_sheet_feature_drafts(document::PartDocument& next,
     carrier.physical_parameters=next.physical_parameters;
     carrier.document_units=next.document_units;
     carrier.document_precision=next.document_precision;
+    std::set<std::string> boundary_providers;
     for(const auto& id:ids)if(const auto* feature=next.find_container(id)) {
+        const document::HistoryContainer* parent{};
+        if(next.sheet_from_body_binding_for_child(id,&parent)&&parent&&
+                !parent->sheet_from_body.boundary_graph.empty()&&
+                boundary_providers.insert(parent->id).second)
+            append_reference_geometry(references,document::load_viewer_reference_geometry(
+                nlohmann::json::parse(parent->sheet_from_body.boundary_graph)));
         carrier.history.push_back(*feature);
         carrier.history_order.push_back({document::PartHistoryKind::Feature,id});
         for(const auto& sketch:next.sketches)if(sketch.owner_container_id==id)

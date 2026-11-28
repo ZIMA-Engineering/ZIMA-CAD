@@ -14,6 +14,12 @@ bool commit_bend(Workspace& live,const kernel::OcctKernel& kernel,const std::str
     auto* state=live.open_part(id);
     if(!state)throw std::invalid_argument("Bend is available only in a Part.");
     const auto& before=state->session.document();const auto* existing=before.find_container(feature.id);
+    if(existing&&before.sheet_from_body_child_bound(feature.id)&&
+            (feature.bend.radius!=existing->bend.radius||
+             feature.bend.angle_degrees!=existing->bend.angle_degrees||
+             feature.bend.radius_follows_thickness!=existing->bend.radius_follows_thickness||
+             feature.placement.references!=existing->placement.references))
+        throw std::invalid_argument("Detach this Sheet from Body part before editing it independently.");
     if(existing&&!existing->sheet_profile_binding.parent_id.empty())
         return commit_sheet_profile_master_edit(live,kernel,id,
             std::move(feature),std::move(sketch));

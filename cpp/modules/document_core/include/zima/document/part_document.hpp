@@ -713,6 +713,10 @@ struct SheetFromBodyChildBinding {
     bool root{};
     bool detached{};
     bool references_valid{true};
+    // Nominal attachment belongs to the conversion boundary graph. Keep the
+    // ordinary material ancestry separately from the graph reference owner.
+    std::string parent_feature_id;
+    std::vector<ConstructionReference> ordinary_attachment;
     std::vector<SheetFromBodyFaceBinding> faces;
     std::vector<SheetFromBodyEdgeBinding> edges;
     bool operator==(const SheetFromBodyChildBinding&) const = default;
@@ -727,6 +731,12 @@ struct SheetFromBodyParameters {
     // paths. Binding identity is stored independently in child_bindings.
     std::vector<std::string> generated_features;
     std::vector<SheetFromBodyChildBinding> child_bindings;
+    // Exact native reference packet (analytic supports and native endpoints),
+    // authored once per source/RIP generation, never reconstructed from pixels.
+    std::string boundary_graph;
+    // Exact source-operation fingerprint and authored RIP/frame inputs.
+    // Compact packet ordering is not a source geometry change.
+    std::string boundary_source_inputs;
     std::string source_body_id;
     SheetFromBodyFaceBinding source_face;
     // Empty keeps the complete connected-sheet behavior. Otherwise these

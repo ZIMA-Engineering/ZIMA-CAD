@@ -2012,12 +2012,25 @@ static int verify_converted_sheet_selection_ui(QApplication& application,
         // endpoint axis: binding to their finite curves must rightly fail.
         auto contact_model=document::PartDocument::load(path);
         const auto contact_body=contact_model.body_history.active_body_id();
+        const auto contact_end=sketcher::Sketch::from_serialized(
+            contact_model.find_container(bend_id)->bend.auxiliary_sketches[1]);
+        const auto contact_line=std::ranges::find_if(contact_end.segments,[](const auto& line){return !line.construction;});
+        check(contact_line!=contact_end.segments.end(),"Converted contact fixture has no endpoint line");
+        const auto* contact_point=contact_end.find_point(contact_line->first_point_id);
+        check(contact_point,"Converted contact fixture has no endpoint");
+        kernel::ViewerMesh contact_position;
+        contact_position.vertices.push_back(contact_end.world_point(contact_point->x+5.,contact_point->y));
+        const auto support_center=contact_model.place_body_mesh(std::move(contact_position),contact_body).vertices.front();
         const auto support_body=contact_model.body_history.create_body("Intersection support");
         contact_model.body_history.activate(support_body);
         auto support_sketch=sketcher::Sketch::create_default();
-        static_cast<void>(support_sketch.add_rectangle(140.,-5.,145.,8.));
+        // Place a finite native support across the actual endpoint axis. The
+        // old absolute coordinates only intersected the original small fixture.
+        static_cast<void>(support_sketch.add_rectangle(support_center.x-3.,support_center.y-3.,
+            support_center.x+3.,support_center.y+3.));
         auto contact_support=document::PartDocument::create_feature_container(support_sketch.id);
-        support_sketch.owner_container_id=contact_support.id;contact_support.feature.sides[0].length=12.;
+        support_sketch.owner_container_id=contact_support.id;contact_support.feature.sides[0].length=6.;
+        contact_support.placement.z=support_center.z-3.;
         contact_model.sketches.push_back(support_sketch);
         contact_model.insert_history_entry(document::PartHistoryKind::Feature,contact_support.id);
         contact_model.history.push_back(contact_support);

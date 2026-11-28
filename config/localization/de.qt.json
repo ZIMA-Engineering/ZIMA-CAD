@@ -1,4 +1,7 @@
 {
+  "The calculated sheet boundary is unavailable. Regenerate the model.": "Die berechnete Blechgrenze ist nicht verfügbar. Regenerieren Sie das Modell.",
+  "Sheet from Body cannot restore its attachments without changing the geometry.": "Blech aus Körper kann seine Anbindungen nicht wiederherstellen, ohne die Geometrie zu ändern.",
+  "Sheet from Body requires exact straight attachment boundaries.": "Blech aus Körper erfordert exakte gerade Anbindungsgrenzen.",
   "Hloubka": "Tiefe",
   "Žádné": "Keine",
   "Unsupported keyway definition version": "Nicht unterstützte Version der Passfedernutdefinition",

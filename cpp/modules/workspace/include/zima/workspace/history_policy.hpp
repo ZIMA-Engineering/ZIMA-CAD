@@ -208,6 +208,10 @@ inline HistoryDependencyCollector part_history_dependency_graph(const document::
     for (const auto& sketch : document.sketches)
         graph.alias(sketch.id,sketch.owner_container_id.empty() ? sketch.id : sketch.owner_container_id);
     for (const auto& feature : document.history) graph.feature(feature);
+    for(const auto& feature:document.history)
+        if(feature.feature_kind==document::FeatureKind::SheetFromBody)
+            for(const auto& binding:feature.sheet_from_body.child_bindings)
+                if(!binding.detached)graph.use(binding.feature_id,binding.parent_feature_id);
     for (const auto& object : document.constructions) graph.construction(object,object.id);
     for (const auto& sketch : document.sketches)
         graph.sketch(sketch,sketch.owner_container_id.empty() ? sketch.id : sketch.owner_container_id);

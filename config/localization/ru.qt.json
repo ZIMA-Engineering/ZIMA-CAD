@@ -1,4 +1,7 @@
 {
+  "The calculated sheet boundary is unavailable. Regenerate the model.": "Вычисленная граница листа недоступна. Перестройте модель.",
+  "Sheet from Body cannot restore its attachments without changing the geometry.": "Лист из тела не может восстановить присоединения без изменения геометрии.",
+  "Sheet from Body requires exact straight attachment boundaries.": "Для операции «Лист из тела» требуются точные прямые границы присоединения.",
   "Hloubka": "Глубина",
   "Žádné": "Нет",
   "Unsupported keyway definition version": "Неподдерживаемая версия определения шпоночного паза",

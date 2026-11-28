@@ -2,6 +2,7 @@
 #include <zima/document/part_document.hpp>
 #include <zima/kernel/occt_kernel.hpp>
 #include <zima/kernel/calculated_body_shape.hpp>
+#include <zima/kernel/calculation_diagnostics.hpp>
 #include <zima/workspace/sheet_exchange_operations.hpp>
 #include <zima/interchange/dxf.hpp>
 #include <zima/interchange/step_model.hpp>
@@ -23,6 +24,7 @@
 #include <zima/workspace/history_policy.hpp>
 #include <zima/workspace/part_transactions.hpp>
 #include <zima/workspace/flat_operations.hpp>
+#include <zima/workspace/bend_operations.hpp>
 #include <zima/workspace/sheet_state_operations.hpp>
 #include <zima/workspace/line_bend_operations.hpp>
 #include <zima/kernel/sheet_material.hpp>
@@ -36,6 +38,7 @@
 #include <chrono>
 #include <numbers>
 #include <iomanip>
+#include <fstream>
 #include "profile_solid_fixture.hpp"
 
 namespace {
@@ -347,7 +350,7 @@ void owned_rip_contract(kernel::OcctKernel& engine) {
         check(unsplit.calculated.back().calculation_errors.empty(),"Removing owned RIP broke conversion Properties");
         near(measured_volume(engine,unsplit.calculated.back().body_outputs.at(target)),8000,.01);
         auto released=reopened;
-        check(workspace::release_sheet_from_body_bindings(released,converted.container_id),"Owned RIP release failed");
+        check(workspace::release_sheet_from_body_bindings(released,converted.container_id,&cold),"Owned RIP release failed");
         check(!document::sheet_from_body_rip_owner(released,sketch.id),"Released RIP is still owned");
         auto released_cache=workspace::calculate_part_with_resolved_references(engine,released);
         check(released_cache.back().calculation_errors.empty(),"Released RIP failed regeneration");
@@ -873,6 +876,8 @@ void empty_conversion_contract(kernel::OcctKernel& kernel) {
     }
 }
 
+void bent_conversion_contract(kernel::OcctKernel&);
+void boundary_graph_correction_contract(const workspace::SheetBodyConversion&,kernel::OcctKernel&);
 void contract(bool include_oblique_corners = true) {
     kernel::OcctKernel kernel;
     empty_conversion_contract(kernel);
@@ -2970,6 +2975,11 @@ void contract(bool include_oblique_corners = true) {
         near(persisted.resolved_origin.x,0);near(persisted.resolved_origin.y,0);
         near(persisted.resolved_x_axis.x,root.resolved_x_axis.x);near(persisted.resolved_x_axis.y,root.resolved_x_axis.y);
     }
+    bent_conversion_contract(kernel);
+    std::cout << "Sheet exchange contracts passed"
+              << (include_oblique_corners ? "" : " (excluding oblique corners)") << '\n';
+}
+void bent_conversion_contract(kernel::OcctKernel& kernel) {
     {
         auto part=document::PartDocument::create_default();const auto source=part.body_history.create_body("Bent source");
         auto flat=document::PartDocument::create_sketch_container();flat.feature_kind=document::FeatureKind::Flat;
@@ -3026,10 +3036,14 @@ void contract(bool include_oblique_corners = true) {
         }
         {
             auto same=workspace::prepare_sheet_from_body(part,cache,*seed,2,kernel);
+            const auto original_definition=same.document.serialized();
             check(same.created.size()==3&&same.skipped==0,"Same-Body conversion lost a connected wall or bend");
             near(measured_volume(kernel,same.calculated.back().body_outputs.at(source)),
                 measured_volume(kernel,cache.back().body_outputs.at(source)),.01);
             auto cold=workspace::calculate_part_with_resolved_references(kernel,same.document);
+            check(same.document.serialized()==original_definition,
+                "Unchanged cold conversion rewrote its native identities or boundary graph");
+            boundary_graph_correction_contract(same,kernel);
             near(measured_volume(kernel,cold.back().body_outputs.at(source)),
                 measured_volume(kernel,cache.back().body_outputs.at(source)),.01);
             const auto dxf=workspace::prepare_sheet_dxf(same.document,cold,kernel);
@@ -3428,8 +3442,131 @@ void contract(bool include_oblique_corners = true) {
         near(cut_dxf.volume,folded_volume-50,.05);
         check(cut_dxf.contour.segments.size()==dxf.contour.segments.size()+4,"DXF omitted the Sheet Cut opening");
     }
-    std::cout << "Sheet exchange contracts passed"
-              << (include_oblique_corners ? "" : " (excluding oblique corners)") << '\n';
+}
+void boundary_graph_correction_contract(const workspace::SheetBodyConversion& source,
+        kernel::OcctKernel& engine) {
+    auto part=source.document;
+    auto cache=source.calculated;
+    const auto original=part.serialized();
+    const auto definition=part.find_container(source.container_id)->sheet_from_body;
+    check(!definition.boundary_graph.empty()&&!definition.boundary_source_inputs.empty(),
+        "Converted branch has no exact boundary/source definition");
+    const auto binding=std::ranges::find_if(definition.child_bindings,[](const auto& value){return value.bend;});
+    check(binding!=definition.child_bindings.end(),"Boundary edit fixture has no Bend");
+    const auto owner=binding->feature_id;
+    const auto body=part.body_owner_for_object(owner)->scope.id;
+    const auto original_volume=measured_volume(engine,cache.back().body_outputs.at(body));
+    for(int stage:{0,1})for(bool last:{false,true})for(double value:{.25,-.5,0.,-0.}) {
+        auto* feature=part.find_container(owner);
+        auto start=std::ranges::find(part.sketches,feature->bend.sketch_id,&sketcher::Sketch::id);
+        auto edit=stage?sketcher::Sketch::from_serialized(feature->bend.auxiliary_sketches[1]):*start;
+        const auto key=edit.id+(stage?(last?":difference:last":":difference:first"):
+            (last?":position:last":":position:first"));
+        check(edit.set_dimension_value(key,value),"Boundary correction could not be edited");
+        if(stage)document::accept_bend_sketch(*feature,*start,1,edit,document::sheet_metal_defaults(part));
+        else {*start=std::move(edit);document::prepare_bend_sketches(*feature,*start,document::sheet_metal_defaults(part));}
+        const auto calculations=kernel::body_calculation_count.load();
+        cache=workspace::calculate_part_with_resolved_references(engine,part,&cache);
+        check(cache.back().calculation_errors.empty(),"Boundary correction failed material calculation");
+        check(kernel::body_calculation_count.load()-calculations<=1,
+            "Independent boundary correction repeated material calculation");
+        check(part.find_container(source.container_id)->sheet_from_body==definition,
+            "Local correction rebuilt or changed its shared source graph");
+        for(const auto& before:source.document.sketches) {
+            if(before.owner_container_id==owner)continue;
+            const auto current=std::ranges::find(part.sketches,before.id,&sketcher::Sketch::id);
+            check(current!=part.sketches.end()&&current->serialized()==before.serialized(),
+                "Independent correction changed another authored Sketch");
+        }
+        feature=part.find_container(owner);
+        start=std::ranges::find(part.sketches,feature->bend.sketch_id,&sketcher::Sketch::id);
+        const auto resolved=stage?sketcher::Sketch::from_serialized(feature->bend.auxiliary_sketches[1]):*start;
+        const auto dimension=std::ranges::find(resolved.dimensions,key,&sketcher::SketchDimension::id);
+        check(dimension!=resolved.dimensions.end(),"Correction lost its dimension identity");
+        if(stage) {
+            const auto* point=resolved.find_point(resolved.id+(last?":endpoint:last":":endpoint:first"));
+            const auto* reference=resolved.find_point(resolved.id+(last?":reference:last":":reference:first"));
+            near(point->x-reference->x,dimension->value*dimension->solution_side,1e-8);
+        } else {
+            const auto reference=std::ranges::find(resolved.external_references,dimension->first_point_id,
+                &sketcher::SketchExternalReference::id);
+            check(reference!=resolved.external_references.end()&&reference->cached_points.size()==1,
+                "Boundary correction lost its exact endpoint");
+            near(resolved.find_point(dimension->second_point_id)->x-reference->cached_points.front()[0],
+                dimension->value,1e-8);
+        }
+    }
+    near(measured_volume(engine,cache.back().body_outputs.at(body)),original_volume,1e-6);
+    {
+        auto* feature=part.find_container(owner);
+        auto start=std::ranges::find(part.sketches,feature->bend.sketch_id,&sketcher::Sketch::id);
+        check(start->set_dimension_value(start->id+":position:first",.3),"Corrected release start edit failed");
+        auto end=sketcher::Sketch::from_serialized(feature->bend.auxiliary_sketches[1]);
+        check(end.set_dimension_value(end.id+":difference:last",.2),"Corrected release end edit failed");
+        document::accept_bend_sketch(*feature,*start,1,end,document::sheet_metal_defaults(part));
+        cache=workspace::calculate_part_with_resolved_references(engine,part,&cache);
+    }
+    const auto corrected_volume=measured_volume(engine,cache.back().body_outputs.at(body));
+    near(workspace::prepare_sheet_dxf(part,cache,engine).volume,corrected_volume,.05);
+    QTemporaryDir temporary("build/sheet-boundary-native-XXXXXX");
+    check(temporary.isValid(),"Boundary persistence directory is unavailable");
+    const auto path=std::filesystem::path(temporary.path().toStdString())/"boundary.prtz";
+    part.save(path,cache);
+    std::vector<kernel::BodyResult> stored;
+    const auto calculations=kernel::body_calculation_count.load();
+    auto reopened=document::PartDocument::load(path,&stored);
+    check(kernel::body_calculation_count.load()==calculations&&!stored.empty(),
+        "Boundary reopen needed a geometry calculation");
+    check(reopened.serialized()==part.serialized(),"Boundary native reopen changed the authored definition");
+    kernel::OcctKernel fresh;
+    const auto regenerated=workspace::calculate_part_with_resolved_references(fresh,reopened);
+    near(measured_volume(fresh,regenerated.back().body_outputs.at(body)),corrected_volume,1e-6);
+    check(reopened.serialized()==part.serialized(),"Boundary cold reopen changed authored identities");
+    workspace::Workspace live;live.add_part(source.document);
+    auto* state=live.open_part(part.document_id);state->session.update_calculated_boundaries(source.calculated);
+    for(bool change_radius:{false,true}) {
+        const auto before=state->session.document().serialized();
+        const auto revision=state->session.revision(),calculations=kernel::body_calculation_count.load();
+        auto draft=*state->session.document().find_container(owner);
+        auto sketch=*std::ranges::find(state->session.document().sketches,draft.bend.sketch_id,&sketcher::Sketch::id);
+        if(change_radius)draft.bend.radius+=1;else draft.bend.angle_degrees+=5;
+        bool rejected{};
+        try {static_cast<void>(workspace::commit_bend(live,engine,part.document_id,std::move(draft),std::move(sketch)));}
+        catch(const std::invalid_argument& error) {
+            rejected=std::string_view(error.what())=="Detach this Sheet from Body part before editing it independently.";
+        }
+        check(rejected&&state->session.revision()==revision&&state->session.document().serialized()==before&&
+                kernel::body_calculation_count.load()==calculations,
+            "Bound source radius/angle edit bypassed the ordinary conversion ownership contract");
+    }
+    workspace::commit_part_document(live,part.document_id,part,cache);
+    check(state->session.undo()&&state->session.document().serialized()==original,
+        "Boundary correction Undo did not restore the exact definition");
+    check(state->session.redo()&&state->session.document().serialized()==part.serialized(),
+        "Boundary correction Redo did not restore the exact definition");
+    check(workspace::explode_sheet_from_body(live,engine,part.document_id,source.container_id,owner),
+        "Corrected branch could not be released");
+    near(measured_volume(engine,state->session.calculated_boundaries().back().body_outputs.at(body)),
+        corrected_volume,1e-6);
+    check(workspace::explode_sheet_from_body(live,engine,part.document_id,source.container_id),
+        "Partial release could not be followed by full release");
+    near(measured_volume(engine,state->session.calculated_boundaries().back().body_outputs.at(body)),
+        corrected_volume,1e-6);
+    near(workspace::prepare_sheet_dxf(state->session.document(),state->session.calculated_boundaries(),engine).volume,
+        corrected_volume,.05);
+    {
+        auto draft=*state->session.document().find_container(owner);
+        auto sketch=*std::ranges::find(state->session.document().sketches,draft.bend.sketch_id,&sketcher::Sketch::id);
+        const auto radius=draft.bend.radius+1;draft.bend.radius=radius;
+        check(workspace::commit_bend(live,engine,part.document_id,std::move(draft),std::move(sketch)),
+            "Released Bend did not allow ordinary radius editing");
+        near(state->session.document().find_container(owner)->bend.radius,radius,1e-9);
+        check(state->session.calculated_boundaries().back().calculation_errors.empty(),
+            "Released radius edit broke an ordinary dependent attachment");
+        check(state->session.undo(),"Released radius edit has no Undo");
+        near(measured_volume(engine,state->session.calculated_boundaries().back().body_outputs.at(body)),
+            corrected_volume,1e-6);
+    }
 }
 }
 
@@ -3438,6 +3575,11 @@ int main(int argc,char** argv) {
         // Fresh committed-source stages have no pre-existing build directory.
         std::filesystem::create_directories("build");
         if(argc==1){contract();return 0;}
+        if(argc==2&&std::string_view(argv[1])=="--bent-conversion") {
+            zima::kernel::OcctKernel kernel;bent_conversion_contract(kernel);
+            std::cout<<"Bent conversion: source updates, independent corrections, persistence, release and sheet states passed\n";
+            return 0;
+        }
         if (argc == 2 && std::string_view(argv[1]) == "--without-oblique-corners") {
             contract(false);
             return 0;
@@ -3445,7 +3587,12 @@ int main(int argc,char** argv) {
         if(argc<2||argc>5)return 2;
         std::vector<zima::kernel::BodyResult> cache;
         zima::document::PartDocument part;
-        try { part=zima::document::PartDocument::load(argv[1],&cache); }
+        try {
+            if(std::filesystem::path(argv[1]).extension()==".json") {
+                std::ifstream input(argv[1]);
+                part=zima::document::PartDocument::from_serialized(nlohmann::json::parse(input));
+            } else part=zima::document::PartDocument::load(argv[1],&cache);
+        }
         catch(const std::exception&) {
             // Diagnostic fixtures may intentionally carry a stale disposable
             // calculated cache. The authored native model remains the source
@@ -3483,6 +3630,88 @@ int main(int argc,char** argv) {
         }
         const std::string_view diagnostic=argc==3?std::string_view(argv[2]):
             std::string_view{};
+        if(diagnostic=="boundary-release") {
+            const auto parent=std::ranges::find_if(part.history,[](const auto& feature) {
+                return feature.feature_kind==document::FeatureKind::SheetFromBody;
+            });
+            check(parent!=part.history.end(),"Boundary release needs a conversion");
+            const auto conversion_id=parent->id;
+            workspace::Workspace live;live.add_part(part);
+            live.open_part(part.document_id)->session.update_calculated_boundaries(cache);
+            kernel::OcctKernel engine;
+            check(workspace::explode_sheet_from_body(live,engine,part.document_id,conversion_id),"Boundary release did not commit");
+            std::cout<<"Boundary release passed\n";
+            return 0;
+        }
+        if(diagnostic=="boundary-graph") {
+            std::filesystem::create_directories("build/sheet-boundary-graph");
+            kernel::OcctKernel engine;
+            workspace::PartCalculationPolicy policy;policy.publish_complete_history=true;policy.reject_errors=true;
+            cache=workspace::calculate_part(engine,part,&cache,policy);
+            const auto parent=std::ranges::find_if(part.history,[](const auto& feature) {
+                return feature.feature_kind==document::FeatureKind::SheetFromBody;
+            });
+            check(parent!=part.history.end(),"Boundary experiment needs a conversion");
+            const auto conversion_id=parent->id;
+            const auto body_id=part.body_owner_for_object(conversion_id)->scope.id;
+            const auto volume=measured_volume(engine,cache.back().body_outputs.at(body_id));
+            workspace::prepare_sheet_boundary_graph(part,cache,conversion_id);
+            std::cout<<"boundary_graph_bytes="<<part.find_container(conversion_id)->sheet_from_body.boundary_graph.size()<<std::endl;
+            std::ofstream("build/sheet-boundary-graph/box-boundary-authored.json")<<part.serialized().dump();
+            cache=workspace::calculate_part_with_resolved_references(engine,part,&cache,policy);
+            check(cache.back().calculation_errors.empty(),"Boundary graph invalidated initial material");
+            near(measured_volume(engine,cache.back().body_outputs.at(body_id)),volume,1e-6);
+            part.save("build/sheet-boundary-graph/box-boundary.prtz",cache);
+            const auto feature=std::ranges::find_if(part.history,[](const auto& row) {
+                return row.feature_kind==document::FeatureKind::Bend;
+            });
+            check(feature!=part.history.end(),"Boundary experiment needs a Bend");
+            const auto feature_id=feature->id;
+            for(const auto delta:{.25,.5,0.}) {
+                auto* current=part.find_container(feature_id);
+                auto sketch=std::ranges::find(part.sketches,current->bend.sketch_id,&sketcher::Sketch::id);
+                const auto dimension=std::ranges::find(sketch->dimensions,sketch->id+":position:first",&sketcher::SketchDimension::id);
+                check(dimension!=sketch->dimensions.end(),"Boundary experiment needs first correction");
+                dimension->value=delta;
+                const auto solved=sketch->solve().status;
+                check(solved!=sketcher::SolveStatus::Conflicting&&solved!=sketcher::SolveStatus::Invalid,"Correction conflict");
+                document::prepare_bend_sketches(*current,*sketch,document::sheet_metal_defaults(part));
+                const auto start=std::chrono::steady_clock::now();
+                cache=workspace::calculate_part_with_resolved_references(engine,part,&cache,policy);
+                check(cache.back().calculation_errors.empty(),"Boundary correction failed");
+                std::cout<<"correction="<<delta<<" ms="<<std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-start).count()<<std::endl;
+            }
+            const auto base=document::bend_profile_extensions(*part.find_container(feature_id));
+            for(const auto delta:{.25,.5,0.}) {
+                auto* current=part.find_container(feature_id);
+                document::set_bend_profile_extensions(*current,base[0]+delta,base[1]);
+                const auto sketch=std::ranges::find(part.sketches,current->bend.sketch_id,&sketcher::Sketch::id);
+                document::prepare_bend_sketches(*current,*sketch,document::sheet_metal_defaults(part));
+                const auto start=std::chrono::steady_clock::now();
+                cache=workspace::calculate_part_with_resolved_references(engine,part,&cache,policy);
+                check(cache.back().calculation_errors.empty(),"Boundary end correction failed");
+                std::cout<<"end_correction="<<delta<<" ms="<<std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-start).count()<<std::endl;
+            }
+            const auto flat=workspace::prepare_sheet_dxf(part,cache,engine);
+            std::cout<<"boundary_graph_unfold_volume="<<flat.volume<<std::endl;
+            {
+                auto* current=part.find_container(feature_id);
+                document::set_bend_profile_extensions(*current,base[0]+.35,base[1]);
+                const auto sketch=std::ranges::find(part.sketches,current->bend.sketch_id,&sketcher::Sketch::id);
+                document::prepare_bend_sketches(*current,*sketch,document::sheet_metal_defaults(part));
+                cache=workspace::calculate_part_with_resolved_references(engine,part,&cache,policy);
+                const auto before_release=measured_volume(engine,cache.back().body_outputs.at(body_id));
+                kernel::OcctKernel boundary_engine;
+                cache=workspace::sheet_from_body_release_inputs(part,boundary_engine);
+                check(workspace::release_sheet_from_body_bindings(part,conversion_id,&cache),"Boundary release failed");
+                kernel::OcctKernel released;
+                const auto result=workspace::calculate_part_with_resolved_references(released,part,nullptr,policy);
+                check(result.back().calculation_errors.empty(),"Released boundary graph did not regenerate");
+                near(measured_volume(released,result.back().body_outputs.at(body_id)),before_release,1e-6);
+                std::cout<<"boundary_graph_release=passed"<<std::endl;
+            }
+            return 0;
+        }
         if(diagnostic=="rebuild-conversion") {
             const auto parent=std::ranges::find_if(part.history,[](const auto& f){
                 return f.feature_kind==document::FeatureKind::SheetFromBody;});

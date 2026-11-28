@@ -9,6 +9,10 @@
 #include <zima/document/flat.hpp>
 #include <zima/document/sheet_rip.hpp>
 #include <zima/document/sheet_from_body.hpp>
+#include <zima/document/placement_reference_geometry.hpp>
+#include <zima/document/viewer_packet_json.hpp>
+#include <zima/workspace/operation_input.hpp>
+#include <nlohmann/json.hpp>
 #include <zima/kernel/boolean_face_ancestry.hpp>
 #include <zima/kernel/sheet_material.hpp>
 #include <zima/kernel/sheet_exchange.hpp>
@@ -42,6 +46,34 @@ struct SheetConversionAuthoringScope {
     SheetConversionAuthoringScope(){++sheet_conversion_authoring_depth;}
     ~SheetConversionAuthoringScope(){--sheet_conversion_authoring_depth;}
 };
+std::string sheet_boundary_source_inputs(const document::PartDocument& part,
+        const document::HistoryContainer& conversion) {
+    const auto operations=part.kernel_operations();
+    const auto boundary=std::ranges::find(operations,conversion.id,&kernel::HistoryOperation::owner_id);
+    if(boundary==operations.end())return {};
+    const auto* target=part.body_owner_for_object(conversion.id);
+    if(!target)return {};
+    const auto& definition=conversion.sheet_from_body;
+    const auto defaults=document::sheet_metal_defaults(part);
+    const auto translation=target->scope.translation(),rotation=target->scope.rotation_degrees();
+    nlohmann::json inputs={
+        {"source",kernel::history_fingerprint(operations,
+            static_cast<std::size_t>(boundary-operations.begin()))},
+        {"body",definition.source_body_id},
+        {"target",{translation.x,translation.y,translation.z,rotation.x,rotation.y,rotation.z}},
+        {"thickness",definition.thickness_override?definition.thickness:defaults.thickness_mm.value_or(1.)},
+        {"k_factor",defaults.k_factor},{"rips",nlohmann::json::array()}};
+    for(const auto& id:definition.rip_sketches) {
+        const auto sketch=std::ranges::find(part.sketches,id,&sketcher::Sketch::id);
+        if(sketch==part.sketches.end()||sketch->suppressed)return {};
+        const auto* owner=part.body_owner_for_object(sketch->owner_container_id);
+        if(!owner)return {};
+        const auto position=owner->scope.translation(),orientation=owner->scope.rotation_degrees();
+        inputs["rips"].push_back({{"sketch",sketch->serialized()},
+            {"body",{position.x,position.y,position.z,orientation.x,orientation.y,orientation.z}}});
+    }
+    return inputs.dump();
+}
 std::vector<kernel::BodyResult> calculate_ripped_source(
         const document::PartDocument& source,
         const std::vector<kernel::BodyResult>& cache,
@@ -3321,6 +3353,12 @@ SheetBodyConversion prepare_sheet_from_body(const document::PartDocument& source
             kernel,result.document,&result.calculated,policy);
     }
     capture_conversion_allowances(result);
+    prepare_sheet_boundary_graph(result.document,result.calculated,result.container_id);
+    {
+        PartCalculationPolicy policy;policy.reject_errors=true;
+        result.calculated=calculate_part_with_resolved_references(
+            kernel,result.document,&result.calculated,policy);
+    }
     result.document.validate_sheet_from_body();
     return result;
 }
@@ -3575,6 +3613,26 @@ void replace_generated_reference(document::ConstructionReference& reference,
             replace_generated_identity(field,replacements);
 }
 
+void retain_bend_start_identities(const sketcher::Sketch& generated,
+        const sketcher::Sketch& authored,
+        std::vector<std::pair<std::string,std::string>>& replacements) {
+    // The first section has one authored material segment. Its endpoint
+    // roles, rather than generated array positions or geometric proximity,
+    // define the identities retained by source reconstruction.
+    for(const auto suffix:{":position:first",":position:last"}) {
+        const auto next=std::ranges::find(generated.dimensions,generated.id+suffix,
+            &sketcher::SketchDimension::id);
+        const auto old=std::ranges::find(authored.dimensions,authored.id+suffix,
+            &sketcher::SketchDimension::id);
+        if(next!=generated.dimensions.end()&&old!=authored.dimensions.end())
+            replacements.emplace_back(next->second_point_id,old->second_point_id);
+    }
+    const auto next=std::ranges::find_if(generated.segments,[](const auto& line){return !line.construction;});
+    const auto old=std::ranges::find_if(authored.segments,[](const auto& line){return !line.construction;});
+    if(next!=generated.segments.end()&&old!=authored.segments.end())
+        replacements.emplace_back(next->id,old->id);
+}
+
 const sketcher::Sketch* owned_sketch(
         const document::PartDocument& source,const std::string& owner) {
     const auto found=std::ranges::find(source.sketches,owner,
@@ -3639,6 +3697,11 @@ bool refresh_sheet_from_body_associations(
         }
         if(std::ranges::none_of(conversion->sheet_from_body.child_bindings,
                 [](const auto& binding){return !binding.detached;}))continue;
+        const auto source_inputs=sheet_boundary_source_inputs(source,*conversion);
+        if(!source_inputs.empty()&&source_inputs==conversion->sheet_from_body.boundary_source_inputs&&
+                calculated.back().calculation_errors.empty()&&
+                std::ranges::all_of(conversion->sheet_from_body.child_bindings,
+                    [](const auto& binding){return binding.detached||binding.references_valid;}))continue;
         std::vector<kernel::BodyResult> ripped_source;
         if(!conversion->sheet_from_body.rip_sketches.empty()) {
             std::vector<const sketcher::Sketch*> rip_sources;
@@ -3721,7 +3784,14 @@ bool refresh_sheet_from_body_associations(
         }
         // Broken topology retains every last-valid Flat/Bend. A later source
         // repair is detected by the same stable references and can refresh it.
-        if(missing||!changed_source)continue;
+        if(missing)continue;
+        if(!changed_source) {
+            if(conversion->sheet_from_body.boundary_source_inputs!=source_inputs) {
+                conversion->sheet_from_body.boundary_source_inputs=source_inputs;
+                document_changed=true;
+            }
+            continue;
+        }
 
         const auto old_definition=conversion->sheet_from_body;
         const auto* target=source.body_owner_for_object(conversion_id);
@@ -3845,6 +3915,8 @@ bool refresh_sheet_from_body_associations(
                 const auto* old_sketch=owned_sketch(source,old_feature->id);
                 if(new_sketch&&old_sketch)
                     replacements.emplace_back(new_sketch->id,old_sketch->id);
+                if(new_sketch&&old_sketch&&new_binding->bend)
+                    retain_bend_start_identities(*new_sketch,*old_sketch,replacements);
             }
         }
 
@@ -3899,11 +3971,17 @@ bool refresh_sheet_from_body_associations(
 
         conversion=source.find_container(conversion_id);
         auto next_definition=conversion->sheet_from_body;
+        next_definition.boundary_source_inputs=source_inputs;
+        next_definition.boundary_graph=rebuilt_parent->sheet_from_body.boundary_graph;
+        replace_generated_identity(next_definition.boundary_graph,replacements);
         next_definition.generated_features=std::move(mapped_order);
         next_definition.child_bindings.clear();
         for(const auto& new_binding:
                 rebuilt_parent->sheet_from_body.child_bindings) {
             auto next=new_binding;
+            replace_generated_identity(next.parent_feature_id,replacements);
+            for(auto& reference:next.ordinary_attachment)
+                replace_generated_reference(reference,replacements);
             const auto* old_binding=old_regions.at(next.region_id);
             next.feature_id=old_binding->feature_id;
             next.detached=old_binding->detached;
@@ -3941,13 +4019,216 @@ bool refresh_sheet_from_body_associations(
     return document_changed;
 }
 
+void prepare_sheet_boundary_graph(document::PartDocument& part,
+        const std::vector<kernel::BodyResult>& calculated,const std::string& id) {
+    auto* conversion=part.find_container(id);
+    if(!conversion||conversion->feature_kind!=document::FeatureKind::SheetFromBody)
+        throw std::invalid_argument("Sheet from Body does not exist.");
+    if(!conversion->sheet_from_body.boundary_graph.empty())return;
+    kernel::ViewerReferenceGeometry graph;
+    const auto rename=[&](auto& reference) {
+        if(reference.owner_id.empty()||reference.semantic_key.empty())return;
+        reference.semantic_key="generated:sheet-boundary:"+reference.owner_id+":"+reference.semantic_key;
+        reference.owner_id=id;
+    };
+    for(auto& binding:conversion->sheet_from_body.child_bindings) {
+        if(binding.root||binding.detached)continue;
+        auto* feature=part.find_container(binding.feature_id);
+        if(!feature||feature->placement.references.empty())
+            throw std::runtime_error("The calculated sheet boundary is unavailable. Regenerate the model.");
+        if(!binding.bend)
+            if(auto* sketch=owned_sketch(part,feature->id))
+                initialize_converted_flat_corrections(*sketch);
+        binding.ordinary_attachment=feature->placement.references;
+        binding.parent_feature_id=feature->placement.references.front().owner_id;
+        const auto* input=calculated_operation_input(part,calculated,feature->id);
+        if(!input)throw std::runtime_error("The calculated sheet boundary is unavailable. Regenerate the model.");
+        auto source=input->mesh.original_references;
+        auto requests=feature->placement.references;
+        const auto* edge=document::current_sheet_attachment_edge(requests,source);
+        if(!edge) {
+            source=document::sheet_attachment_reference_geometry(input->mesh);
+            edge=document::current_sheet_attachment_edge(requests,source);
+        }
+        if(!edge||edge->points.size()<2||edge->edge_treatment_endpoint_references.size()!=2)
+            throw std::runtime_error("The calculated sheet boundary is unavailable. Regenerate the model.");
+        // Conversion attachment edges are exact straight boundaries. Retain
+        // their native endpoints and analytic joining plane, not a silhouette.
+        const auto along=unit(sub(edge->points.back(),edge->points.front()));
+        const auto straight=[&](V point) {
+            const auto deviation=cross(sub(point,edge->points.front()),along);
+            return dot(deviation,deviation)<=1e-14;
+        };
+        if(!std::ranges::all_of(edge->points,straight)||
+                (edge->exact_spline&&!std::ranges::all_of(edge->exact_spline->poles,straight)))
+            throw std::runtime_error("Sheet from Body requires exact straight attachment boundaries.");
+        bool exact_line=edge->exact_spline.has_value();
+        // Certify a straight native support independently of display samples:
+        // two intersecting planes, or a cylinder generatrix in a plane. The
+        // authored endpoint pair selects the finite interval and solution side.
+        for(const auto& a:edge->edge_treatment_side_references)
+            for(const auto& b:edge->edge_treatment_side_references) {
+                if(!a.surface||!b.surface||a.surface->kind!=kernel::SurfaceGeometry::Kind::Plane)continue;
+                const auto an=unit(a.surface->axis),bn=unit(b.surface->axis);
+                if(std::abs(dot(an,along))>1e-7)continue;
+                if(b.surface->kind==kernel::SurfaceGeometry::Kind::Plane) {
+                    const auto axis=cross(an,bn);
+                    if(dot(axis,axis)>1e-14&&std::abs(dot(unit(axis),along))>1-1e-7)exact_line=true;
+                } else if(b.surface->kind==kernel::SurfaceGeometry::Kind::Cylinder&&
+                        std::abs(dot(bn,along))>1-1e-7)exact_line=true;
+            }
+        if(!exact_line)throw std::runtime_error("Sheet from Body requires exact straight attachment boundaries.");
+        for(const auto& reference:edge->edge_treatment_endpoint_references)
+            requests.push_back({reference.instance_path,reference.owner_id,reference.semantic_key});
+        for(const auto& reference:edge->edge_treatment_side_references)
+            requests.push_back({reference.instance_path,reference.owner_id,reference.semantic_key});
+        auto selected=document::PlacementReferenceGeometryIndex(source).select(requests);
+        for(std::size_t endpoint=0;endpoint<2;++endpoint) {
+            const auto& reference=edge->edge_treatment_endpoint_references[endpoint];
+            if(std::ranges::none_of(selected.points,[&](const auto& point) {
+                    return point.reference==reference;
+                }))selected.points.push_back({endpoint?edge->points.back():edge->points.front(),reference});
+        }
+        for(auto& face:selected.triangle_references)rename(face);
+        for(auto& value:selected.edges) {
+            rename(value.reference);
+            for(auto& reference:value.edge_treatment_endpoint_references)rename(reference);
+            for(auto& reference:value.edge_treatment_side_references)rename(reference);
+        }
+        for(auto& value:selected.points)rename(value.reference);
+        for(auto& value:selected.axes)rename(value.reference);
+        document::history_reference_detail::append(graph,selected);
+        for(auto& reference:feature->placement.references)rename(reference);
+        if(auto* sketch=owned_sketch(part,feature->id))
+            for(auto& reference:sketch->external_references) {
+                const document::ConstructionReference current{reference.source_instance_path,
+                    reference.source_owner_id,reference.source_semantic_key};
+                if(std::ranges::none_of(requests,[&](const auto& wanted) {
+                    return wanted.owner_id==current.owner_id&&wanted.semantic_key==current.semantic_key&&
+                        wanted.instance_path==current.instance_path;
+                }))continue;
+                reference.source_semantic_key="generated:sheet-boundary:"+reference.source_owner_id+":"+
+                    reference.source_semantic_key;
+                reference.source_owner_id=id;
+            }
+    }
+    conversion->sheet_from_body.boundary_graph=
+        document::serialize_viewer_reference_geometry(graph).dump();
+    conversion->sheet_from_body.boundary_source_inputs=sheet_boundary_source_inputs(part,*conversion);
+}
+
+namespace {
+void restore_boundary_attachment(document::PartDocument& part,
+        document::SheetFromBodyChildBinding& binding,
+        const std::vector<kernel::BodyResult>& calculated) {
+    if(binding.ordinary_attachment.empty())return;
+    auto* feature=part.find_container(binding.feature_id);
+    auto* sketch=feature?owned_sketch(part,feature->id):nullptr;
+    const auto* input=calculated_operation_input(part,calculated,binding.feature_id);
+    if(!feature||!sketch||!input)throw std::runtime_error("The calculated sheet boundary is unavailable. Regenerate the model.");
+    const auto before=*sketch;
+    document::PartDocument carrier;
+    carrier.document_id=part.document_id;
+    carrier.history={*feature};carrier.sketches={before};
+    carrier.history.front().placement.references=binding.ordinary_attachment;
+    auto geometry=input->mesh.original_references;
+    const document::PlacementReferenceGeometryIndex original(geometry);
+    std::vector<document::ConstructionReference> missing;
+    for(const auto& reference:binding.ordinary_attachment)
+        if(!original.contains(reference))missing.push_back(reference);
+    const auto visible=document::sheet_attachment_reference_geometry(input->mesh);
+    document::history_reference_detail::append(geometry,
+        document::PlacementReferenceGeometryIndex(visible).select(missing));
+    if(const auto* edge=document::current_sheet_attachment_edge(binding.ordinary_attachment,geometry);
+            edge&&edge->points.size()>=2&&edge->edge_treatment_endpoint_references.size()==2)
+        for(std::size_t end=0;end<2;++end) {
+            const auto& reference=edge->edge_treatment_endpoint_references[end];
+            if(std::ranges::none_of(geometry.points,[&](const auto& point){return point.reference==reference;}))
+                geometry.points.push_back({end?edge->points.back():edge->points.front(),reference});
+        }
+    carrier.resolve_constructions(std::move(geometry));
+    auto restored=carrier.sketches.front();
+    auto& placed=carrier.history.front();
+    if(!placed.placement.reference_valid)
+        throw std::runtime_error("The calculated sheet boundary is unavailable. Regenerate the model.");
+    // Release rebases the two endpoint corrections to the current parent.
+    // Reproject every native point, including fixed construction guides, so
+    // changing the origin cannot move or shear the authored profile.
+    for(auto& point:restored.points) {
+        const auto* old=before.find_point(point.id);
+        if(!old)throw std::runtime_error("Sheet from Body cannot restore its attachments without changing the geometry.");
+        const auto world=before.world_point(old->x,old->y);
+        const auto local=restored.local_point(world);
+        if(std::abs(dot(sub(world,restored.resolved_origin),restored.resolved_normal))>1e-7)
+            throw std::runtime_error("Sheet from Body cannot restore its attachments without changing the geometry.");
+        point.x=local[0];point.y=local[1];
+    }
+    for(auto& dimension:restored.dimensions) {
+        const auto prefix=restored.id+(binding.bend?":position:":":flat-correction:");
+        if(dimension.id!=prefix+"first"&&dimension.id!=prefix+"last")continue;
+        const auto reference=std::ranges::find(restored.external_references,
+            dimension.first_point_id,&sketcher::SketchExternalReference::id);
+        const auto* point=restored.find_point(dimension.second_point_id);
+        if(reference==restored.external_references.end()||!point||reference->cached_points.size()!=1)
+            throw std::runtime_error("Sheet from Body cannot restore its attachments without changing the geometry.");
+        const double value=point->x-reference->cached_points.front()[0];
+        dimension.value=std::abs(value)<=1e-12?std::copysign(0.,dimension.value):value;
+        dimension.solution_side=std::signbit(dimension.value)?-1:1;
+    }
+    const auto solved=restored.solve().status;
+    if(solved==sketcher::SolveStatus::Conflicting||solved==sketcher::SolveStatus::Invalid)
+        throw std::runtime_error("Sheet from Body cannot restore its attachments without changing the geometry.");
+    for(const auto& point:restored.points) {
+        const auto* old=before.find_point(point.id);
+        const auto delta=sub(restored.world_point(point.x,point.y),before.world_point(old->x,old->y));
+        if(dot(delta,delta)>1e-12)
+            throw std::runtime_error("Sheet from Body cannot restore its attachments without changing the geometry.");
+    }
+    if(binding.bend)document::prepare_bend_sketches(placed,restored,document::sheet_metal_defaults(part));
+    *feature=std::move(placed);*sketch=std::move(restored);
+    binding.ordinary_attachment.clear();
+}
+}
+
+std::vector<kernel::BodyResult> sheet_from_body_release_inputs(
+        const document::PartDocument& part,const kernel::OcctKernel& kernel) {
+    auto requested=part;
+    for(const auto& conversion:part.history)
+        if(conversion.feature_kind==document::FeatureKind::SheetFromBody)
+            for(const auto& binding:conversion.sheet_from_body.child_bindings)
+                if(!binding.detached&&!binding.ordinary_attachment.empty())
+                    requested.find_container(binding.feature_id)->placement.references=binding.ordinary_attachment;
+    // Demand the actual current parent boundaries while retaining every
+    // resolved frame and native profile. This private packet plan must not
+    // resolve attachments or change a single material operation.
+    const auto actual=part.kernel_operations();
+    const auto planned=requested.kernel_operations();
+    if(kernel::history_fingerprint(actual,actual.size())!=kernel::history_fingerprint(planned,planned.size()))
+        throw std::runtime_error("Invalid Sheet from Body definition");
+    PartCalculationPolicy policy;policy.reject_errors=true;
+    return calculate_part(kernel,requested,nullptr,policy);
+}
+
 bool release_sheet_from_body_bindings(document::PartDocument& document,
-        const std::string& conversion_id) {
+        const std::string& conversion_id,
+        const std::vector<kernel::BodyResult>* complete_inputs) {
     auto* conversion=document.find_container(conversion_id);
     if(!conversion||conversion->feature_kind!=document::FeatureKind::SheetFromBody)
         throw std::invalid_argument("Sheet from Body does not exist.");
     const auto* owner=document.body_owner_for_object(conversion_id);
     if(!owner)throw std::invalid_argument("Sheet from Body is missing from Body history");
+    std::set<std::string> previously_detached;
+    for(const auto& binding:conversion->sheet_from_body.child_bindings)
+        if(binding.detached)previously_detached.insert(binding.feature_id);
+    std::set<std::string> restored_children;
+    if(!conversion->sheet_from_body.boundary_graph.empty()) {
+        if(!complete_inputs)throw std::runtime_error("The calculated sheet boundary is unavailable. Regenerate the model.");
+        for(auto& binding:conversion->sheet_from_body.child_bindings)
+            if(!binding.detached&&!binding.ordinary_attachment.empty()) {
+                restore_boundary_attachment(document,binding,*complete_inputs);
+                restored_children.insert(binding.feature_id);
+            }
+    }
     if(std::ranges::all_of(conversion->sheet_from_body.child_bindings,
             [](const auto& binding){return binding.detached;}))return false;
     const auto body=*document.body_history.find(owner->scope.id);
@@ -3987,12 +4268,14 @@ bool release_sheet_from_body_bindings(document::PartDocument& document,
     // association marker to resolve its placement again.
     for(const auto& generated:
             conversion->sheet_from_body.generated_features) {
+        if(previously_detached.contains(generated))continue;
         auto* child=document.find_container(generated);
         auto* sketch=child?owned_sketch(document,child->id):nullptr;
         if(!child||!sketch)continue;
         if(child->feature_kind==document::FeatureKind::Bend)
             document::rebase_bend_profile_extensions(*child,*sketch,std::nullopt,
                 document::sheet_metal_defaults(document));
+        if(restored_children.contains(child->id))continue;
         const auto origin=sketch->resolved_origin;
         const auto x=sketch->resolved_x_axis;
         const auto y=sketch->resolved_y_axis;
@@ -4013,6 +4296,8 @@ bool release_sheet_from_body_bindings(document::PartDocument& document,
     bool changed=false;
     for(auto& binding:conversion->sheet_from_body.child_bindings)
         changed|=!std::exchange(binding.detached,true);
+    conversion->sheet_from_body.boundary_graph.clear();
+    conversion->sheet_from_body.boundary_source_inputs.clear();
     if(!changed)return false;
     return true;
 }
@@ -4044,10 +4329,17 @@ bool explode_sheet_from_body(Workspace& live,const kernel::OcctKernel& kernel,
         if(binding->detached)return false;
         const auto descendants=part_history_dependency_closure(
             next,*child_id,true);
+        std::vector<kernel::BodyResult> complete;
+        if(!next_conversion->sheet_from_body.boundary_graph.empty()) {
+            kernel::OcctKernel inputs;
+            complete=sheet_from_body_release_inputs(next,inputs);
+        }
         bool changed=false;
         for(auto& candidate:
                 next_conversion->sheet_from_body.child_bindings)
             if(descendants.contains(candidate.feature_id)) {
+                if(!candidate.detached&&!candidate.ordinary_attachment.empty())
+                    restore_boundary_attachment(next,candidate,complete);
                 changed|=!std::exchange(candidate.detached,true);
                 auto* feature=next.find_container(candidate.feature_id);
                 if(feature&&feature->feature_kind==document::FeatureKind::Bend)
@@ -4055,15 +4347,21 @@ bool explode_sheet_from_body(Workspace& live,const kernel::OcctKernel& kernel,
                         std::nullopt,document::sheet_metal_defaults(next));
             }
         if(!changed)return false;
-        // Detaching changes only the association owner and Tree nesting. The
-        // selected native Flat/Bend and every generated consumer keep their
-        // calculated material byte-for-byte unchanged. Publishing the current
-        // cache avoids an unrelated OCCT replay and still creates exactly one
-        // Undo transaction for the complete released branch.
-        commit_part_document(live,id,std::move(next),
-            state->session.calculated_boundaries());
+        // Rebinding consumes exact current parent boundaries, then verifies
+        // the ordinary linked definitions in one explicit release transaction.
+        PartCalculationPolicy policy;policy.reject_errors=true;
+        auto calculated=calculate_part_with_resolved_references(kernel,next,
+            &state->session.calculated_boundaries(),policy);
+        commit_part_document(live,id,std::move(next),std::move(calculated));
         return true;
-    } else if(!release_sheet_from_body_bindings(next,conversion_id))return false;
+    } else {
+        std::vector<kernel::BodyResult> complete;
+        if(!next_conversion->sheet_from_body.boundary_graph.empty()) {
+            kernel::OcctKernel inputs;
+            complete=sheet_from_body_release_inputs(next,inputs);
+        }
+        if(!release_sheet_from_body_bindings(next,conversion_id,&complete))return false;
+    }
 
     PartCalculationPolicy policy;
     policy.reject_errors=true;

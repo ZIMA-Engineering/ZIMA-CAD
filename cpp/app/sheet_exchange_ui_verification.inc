@@ -699,6 +699,9 @@ int verify_sheet_exchange_ui(QApplication& application,const std::filesystem::pa
         const auto correction_owner=corrected_flat->id,correction_sketch=corrected_flat->flat.sketch_id;
         const auto& correction_profile=*std::ranges::find(saved.sketches,correction_sketch,&sketcher::Sketch::id);
         view->set_view_direction(correction_profile.resolved_normal);view->fit_all();flush();
+        // Resolve the mouse target after the camera transition, as for Bend
+        // inspection below. A changing projection invalidates its pixel label.
+        QEventLoop flat_camera;QTimer::singleShot(950,&flat_camera,&QEventLoop::quit);flat_camera.exec();
         const auto unchanged_corrections=save().serialized();
         for(const auto suffix:{":first",":last"})for(double value:{.5,-.25}) {
             const auto& original_dimension=*std::ranges::find(correction_profile.dimensions,correction_sketch+":flat-correction"+suffix,&sketcher::SketchDimension::id);

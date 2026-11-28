@@ -15,6 +15,12 @@ struct SheetBodyConversion {
     std::vector<std::string> created;
     std::size_t skipped{};
 };
+// Capture exact nominal attachment boundaries in the conversion's native
+// definition. Each generated region consumes this independent reference source.
+void prepare_sheet_boundary_graph(document::PartDocument&,
+    const std::vector<kernel::BodyResult>&,const std::string& conversion_id);
+[[nodiscard]] std::vector<kernel::BodyResult> sheet_from_body_release_inputs(
+    const document::PartDocument&,const kernel::OcctKernel&);
 // Stage the shared editor's transient RIP Sketches in a private document.
 // The caller publishes this together with the conversion in one transaction.
 [[nodiscard]] bool stage_sheet_from_body_rips(document::PartDocument&,
@@ -56,9 +62,11 @@ struct SheetFromBodySourceCache {
     document::PartDocument&,const std::vector<kernel::BodyResult>&,
     const kernel::OcctKernel&,SheetFromBodySourceCache* = nullptr);
 // Prepare the ordinary full release in a caller-owned transaction. Retains
-// the conversion boundary and freezes each child's last valid native frame.
+// the conversion boundary and each child's authored geometry. Reattach children
+// to their current ordinary parents; keep the root's resolved numeric frame.
 [[nodiscard]] bool release_sheet_from_body_bindings(
-    document::PartDocument&,const std::string& conversion_id);
+    document::PartDocument&,const std::string& conversion_id,
+    const std::vector<kernel::BodyResult>* complete_inputs=nullptr);
 // Detaches one generated native Flat/Bend when child_id is present. Without a
 // child, releases every generated feature and retains the conversion boundary.
 // Both forms are one calculated Undo transaction.

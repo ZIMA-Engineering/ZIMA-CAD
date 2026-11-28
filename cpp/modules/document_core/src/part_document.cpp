@@ -339,6 +339,8 @@ nlohmann::json serialize_sheet_source_binding(
         {"root",binding.root},
         {"detached",binding.detached},
         {"references_valid",binding.references_valid},
+        {"parent_feature_id",binding.parent_feature_id},
+        {"ordinary_attachment",binding.ordinary_attachment},
         {"faces",std::move(faces)},
         {"edges",std::move(edges)}};
 }
@@ -355,6 +357,8 @@ SheetFromBodyChildBinding load_sheet_source_binding(
     result.root=value.at("root").get<bool>();
     result.detached=value.at("detached").get<bool>();
     result.references_valid=value.at("references_valid").get<bool>();
+    result.parent_feature_id=value.at("parent_feature_id").get<std::string>();
+    result.ordinary_attachment=value.at("ordinary_attachment").get<std::vector<ConstructionReference>>();
     for(const auto& encoded:value.at("faces"))
         result.faces.push_back(load_sheet_source_face_binding(encoded));
     for(const auto& encoded:value.at("edges")) {
@@ -6454,6 +6458,15 @@ PartDocument::history_origin_reference_geometry_before(
             if(const auto* body=body_history.owner(container.id))end=transform_reference_geometry(std::move(end),body->scope.translation(),body->scope.rotation_degrees(),false);
             append_reference_geometry(result,std::move(end));
         }
+        if(container.feature_kind==FeatureKind::SheetFromBody&&
+                !container.sheet_from_body.boundary_graph.empty()) {
+            auto boundary=load_viewer_reference_geometry(
+                nlohmann::json::parse(container.sheet_from_body.boundary_graph));
+            if(const auto* body=body_history.owner(container.id))
+                boundary=transform_reference_geometry(std::move(boundary),
+                    body->scope.translation(),body->scope.rotation_degrees(),false);
+            append_reference_geometry(result,std::move(boundary));
+        }
 
     }
     append_reference_geometry(result,body_properties_reference_geometry(*this,container_id));
@@ -7818,6 +7831,10 @@ void PartDocument::resolve_constructions(
                 rotation, axis.direction);
         }
         append(source_geometry, local_origin);
+        if(container.feature_kind==FeatureKind::SheetFromBody&&
+                !container.sheet_from_body.boundary_graph.empty())
+            append(source_geometry,load_viewer_reference_geometry(
+                nlohmann::json::parse(container.sheet_from_body.boundary_graph)));
         reframe_owned_sketches(container.id);
         reframe_embedded_sketches(container);
         if(container.feature_kind==FeatureKind::Feature && container.feature.type==FeatureType::Axis) {
@@ -10992,6 +11009,18 @@ void PartDocument::validate_sheet_from_body() const {
     for(const auto& conversion:history) {
         if(conversion.feature_kind!=FeatureKind::SheetFromBody)continue;
         const auto& definition=conversion.sheet_from_body;
+        if(!definition.boundary_graph.empty()) {
+            const auto graph=load_viewer_reference_geometry(nlohmann::json::parse(definition.boundary_graph));
+            const auto valid=[&](const auto& reference) {
+                return reference.owner_id==conversion.id&&reference.instance_path.empty()&&
+                    reference.semantic_key.starts_with("generated:sheet-boundary:");
+            };
+            if(std::ranges::any_of(graph.triangle_references,[&](const auto& reference){return !valid(reference);})||
+                    std::ranges::any_of(graph.edges,[&](const auto& edge){return !valid(edge.reference);})||
+                    std::ranges::any_of(graph.points,[&](const auto& point){return !valid(point.reference);})||
+                    std::ranges::any_of(graph.axes,[&](const auto& axis){return !valid(axis.reference);}))
+                throw std::invalid_argument("Invalid Sheet from Body definition");
+        }
         if(definition.source_body_id.empty()||
            !std::isfinite(definition.thickness)||
            definition.thickness<.001||definition.thickness>1000000||
@@ -11136,6 +11165,15 @@ void PartDocument::validate_sheet_from_body() const {
             if(child_entry==owner->entries.end()||child_entry<=boundary)
                 throw std::invalid_argument(
                     "Sheet from Body child must follow its conversion");
+            if(!binding.detached&&!binding.parent_feature_id.empty()) {
+                const auto parent=std::ranges::find(owner->entries,binding.parent_feature_id,&PartHistoryEntry::id);
+                if(parent==owner->entries.end()||parent<=boundary||parent>=child_entry||
+                        !generated.contains(binding.parent_feature_id))
+                    throw std::invalid_argument("Invalid Sheet from Body child binding");
+            }
+            if(!definition.boundary_graph.empty()&&!binding.detached&&!binding.root&&
+                    (binding.parent_feature_id.empty()||binding.ordinary_attachment.size()!=3))
+                throw std::invalid_argument("Invalid Sheet from Body child binding");
             if(binding.root)++roots;
             std::set<std::tuple<std::string,std::string,std::string,
                 int,int,double,double,double,double,double,double,double,
@@ -12928,6 +12966,12 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
                     if(!material.parent_owner_id.empty())break;
                 }
             }
+            if(material.parent_owner_id.empty())
+                for(const auto& owner:history)
+                    if(owner.feature_kind==FeatureKind::SheetFromBody)
+                        for(const auto& binding:owner.sheet_from_body.child_bindings)
+                            if(!binding.detached&&binding.feature_id==container.id)
+                                material.parent_owner_id=binding.parent_feature_id;
             if(material.parent_owner_id.empty()&&
                     !container.sheet_profile_binding.parent_id.empty()) {
                 const auto* profile=find_container(
@@ -13787,11 +13831,23 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
             container.sheet_state.owners=definition.at("owners").get<std::vector<std::string>>();
         } else if (container.feature_kind == FeatureKind::SheetFromBody) {
             const auto& definition=source.at("sheet_from_body");
+            if(definition.value("version",0)!=2)
+                throw std::runtime_error("Invalid Sheet from Body definition");
+            container.sheet_from_body.boundary_source_inputs=
+                definition.at("boundary_source_inputs").get<std::string>();
+            if(!definition.at("boundary_graph").is_null()) {
+                static_cast<void>(load_viewer_reference_geometry(definition.at("boundary_graph")));
+                container.sheet_from_body.boundary_graph=definition.at("boundary_graph").dump();
+            }
             container.sheet_from_body.generated_features=
                 definition.at("generated_features").get<std::vector<std::string>>();
             for(const auto& binding:definition.at("child_bindings"))
                 container.sheet_from_body.child_bindings.push_back(
                     load_sheet_source_binding(binding));
+            if(container.sheet_from_body.boundary_graph.empty()&&
+                    std::ranges::any_of(container.sheet_from_body.child_bindings,[](const auto& binding) {
+                        return !binding.detached&&!binding.root;
+                    }))throw std::runtime_error("Invalid Sheet from Body definition");
             container.sheet_from_body.source_body_id=
                 definition.at("source_body_id").get<std::string>();
             container.sheet_from_body.source_face=
@@ -15319,6 +15375,10 @@ nlohmann::json PartDocument::serialized(
         } else if (container.feature_kind == FeatureKind::SheetFromBody) {
             const auto& conversion=container.sheet_from_body;
             serialized["sheet_from_body"]={
+                {"version",2},
+                {"boundary_source_inputs",conversion.boundary_source_inputs},
+                {"boundary_graph",conversion.boundary_graph.empty()?nlohmann::json(nullptr):
+                    nlohmann::json::parse(conversion.boundary_graph)},
                 {"generated_features",conversion.generated_features},
                 {"child_bindings",nlohmann::json::array()},
                 {"source_body_id",conversion.source_body_id},

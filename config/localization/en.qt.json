@@ -1,4 +1,7 @@
 {
+  "The calculated sheet boundary is unavailable. Regenerate the model.": "The calculated sheet boundary is unavailable. Regenerate the model.",
+  "Sheet from Body cannot restore its attachments without changing the geometry.": "Sheet from Body cannot restore its attachments without changing the geometry.",
+  "Sheet from Body requires exact straight attachment boundaries.": "Sheet from Body requires exact straight attachment boundaries.",
   "Hloubka": "Depth",
   "Žádné": "None",
   "Unsupported keyway definition version": "Unsupported keyway definition version",

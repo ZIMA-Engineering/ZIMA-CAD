@@ -82,6 +82,23 @@ ordinary Flat/Bend again and can be edited, suppressed, reordered or deleted
 through the normal history rules. Repeating an already completed release is a
 no-op and does not calculate geometry or create Undo.
 
+Converted children now obtain their nominal attachment frames from one exact
+boundary definition owned by the conversion, including boundaries introduced by
+RIPs. Correcting either endpoint of a Bend's first or second Sketch changes that
+feature without moving the nominal frame of its neighboring converted feature.
+The source Body still owns the nominal shape; an actual source change rebuilds
+the affected association. Exact source-operation and RIP/frame inputs determine
+reuse, not the order of a rendered or compacted geometry packet.
+
+Release restores ordinary feature-to-feature attachments and rebases endpoint
+corrections to the current parent while preserving native points in space. It
+checks the profile plane, equations and resulting point positions before commit.
+Already released branches retain their ordinary definitions on a later complete
+release. The Sheet from Body payload is version 2; earlier conversion definitions
+require reconstruction with the current native implementation. See the
+[boundary graph verification record](verification/20261128-sheet-boundary-graph.md)
+for format scope, finite tests and measured performance.
+
 This association applies to native-solid Sheet-from-Body conversion. A STEP
 import is reconstructed as the same ordinary Flat/Bend history used before this
 change: it is not locked by a Sheet-from-Body owner and remains independent of
