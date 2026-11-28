@@ -1,5 +1,15 @@
 # Native versioned distribution
 
+Signed Windows [2026112803](releases/2026112803.md#distribution-verification) was
+published at `2026-11-28T14:10:18Z` from immutable source `de735241c1553f636c561187c2648cfa4ce86803`.
+It adds exact boundary preparation before converted-sheet material, correct
+inherited thickness refresh, Automatic drawing dimensions, right-click dimension
+presentation and the projected-view context icon. Thirteen sheet gates, twenty
+packaged scenarios, factory verification, signed smoke, public downloads and
+trusted/current updater checks pass. No native format change is introduced.
+[Publication evidence](verification/20261128-windows-2803-publication.json) records
+the finite coverage and native Linux verification gap.
+
 Signed Windows [2026112802](releases/2026112802.md#distribution-verification) was
 published at `2026-11-28T09:06:15Z` from immutable source `e77cc6cf31a576163aae223b89f2defcd0c3539c`.
 It adds independent converted-sheet corrections, placement-owned keyway rotation,

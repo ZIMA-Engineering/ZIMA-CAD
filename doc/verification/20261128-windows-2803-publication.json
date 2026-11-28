@@ -1,0 +1,259 @@
+{
+  "version": "2026112803",
+  "commit": "de735241c1553f636c561187c2648cfa4ce86803",
+  "tag": "ZIMA-CAD-2026112803",
+  "release_url": "https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026112803",
+  "published_at": "2026-11-28T14:10:18Z",
+  "assets": [
+    {
+      "name": "ZIMA-CAD-2026112803.zip",
+      "size": 1085031898,
+      "sha256": "134292effef6865344d3199f041c77bcf77108d4affbadd31b30307f1d8a7677",
+      "github_digest_matches": true,
+      "anonymous_download_matches": true
+    },
+    {
+      "name": "update-manifest.json",
+      "size": 704,
+      "sha256": "a15bc42859e1f05e9121eb7d58baa7bfddb32c8a86a8bde77ca8cc416662a769",
+      "github_digest_matches": true,
+      "anonymous_download_matches": true
+    },
+    {
+      "name": "update-manifest.sig",
+      "size": 176,
+      "sha256": "83fd4179a70dc34d177a2693354d3d31fed410ebffde9dbf8337f829497b79fe",
+      "github_digest_matches": true,
+      "anonymous_download_matches": true
+    }
+  ],
+  "publisher_signature": {
+    "key_id": "zcp-8fa1f825cbde5d81",
+    "verification": "passed"
+  },
+  "safe_extraction": "passed",
+  "candidate_smoke": "passed",
+  "signed_smoke": "passed",
+  "sheet_branch_tests": {
+    "log_sha256": "408145609be19f3553a807ec5e785356937b7574b1b2d31dec5f04238a2ac85d",
+    "result": "passed",
+    "tests": [
+      "zima_cpp_bend_end_constraints_contract",
+      "zima_cpp_sheet_boundary_skeleton_contract",
+      "zima_cpp_sheet_branch_common-parent",
+      "zima_cpp_sheet_branch_contained",
+      "zima_cpp_sheet_branch_edge-contact",
+      "zima_cpp_sheet_branch_face-contact",
+      "zima_cpp_sheet_branch_gui",
+      "zima_cpp_sheet_branch_line-bend",
+      "zima_cpp_sheet_branch_overlap",
+      "zima_cpp_sheet_branch_point-contact",
+      "zima_cpp_sheet_branch_separated",
+      "zima_cpp_sheet_exchange_tests",
+      "zima_cpp_sheet_transition_command_tests"
+    ]
+  },
+  "factory": {
+    "version": "2026112803",
+    "commit": "de735241c1553f636c561187c2648cfa4ce86803",
+    "affected_factory_assets": 75,
+    "exact_verified_hashes": true,
+    "packaged_native_assets": 1250,
+    "packaged_native_loads_passed": true
+  },
+  "packaged_application": {
+    "version": "2026112803",
+    "commit": "de735241c1553f636c561187c2648cfa4ce86803",
+    "identities": {
+      "zima-cad-cpp.exe": {
+        "product": "ZIMA-CAD",
+        "version": "2026112803",
+        "commit": "de735241c1553f636c561187c2648cfa4ce86803",
+        "source_modified": false,
+        "platform": "windows-x64",
+        "qt": "6.11.0",
+        "occt": "8.0.1",
+        "compiler": "MSVC 19.51.36248.0",
+        "configuration": "Release"
+      },
+      "zima-cad-cli.exe": {
+        "product": "ZIMA-CAD",
+        "version": "2026112803",
+        "commit": "de735241c1553f636c561187c2648cfa4ce86803",
+        "source_modified": false,
+        "platform": "windows-x64",
+        "qt": "6.11.0",
+        "occt": "8.0.1",
+        "compiler": "MSVC 19.51.36248.0",
+        "configuration": "Release"
+      }
+    },
+    "cases": [
+      {
+        "name": "templates-mm",
+        "exit_code": 0,
+        "seconds": 49.335,
+        "log_sha256": "69ebd01be3949866b32a6ef80cbc62a92b9c28038751ae319b7db30bc814e8df"
+      },
+      {
+        "name": "templates-in",
+        "exit_code": 0,
+        "seconds": 51.079,
+        "log_sha256": "69ebd01be3949866b32a6ef80cbc62a92b9c28038751ae319b7db30bc814e8df"
+      },
+      {
+        "name": "mech-keyway",
+        "exit_code": 0,
+        "seconds": 15.772,
+        "log_sha256": "eca754544cdf5c960824ea6b0aac5345f008243c6bbab74b31b1d077a02d0c14"
+      },
+      {
+        "name": "flat-corrections",
+        "exit_code": 0,
+        "seconds": 24.607,
+        "log_sha256": "2f60c1c68ffa587c290273b50b17e9c5147412b4b9869f1b434b65363c41e217"
+      },
+      {
+        "name": "converted-box-corrections",
+        "exit_code": 0,
+        "seconds": 134.305,
+        "log_sha256": "50259cd2b78d93db304c23ee187d31888176413659d9e0480f2a8eec3edb6b87"
+      },
+      {
+        "name": "sheet-material-defaults",
+        "exit_code": 0,
+        "seconds": 54.001,
+        "log_sha256": "a9faa1f96ff46c13ad78e16d39bb56548e85af9bf0c2eb388fd85d4f8c8e48a9"
+      },
+      {
+        "name": "controllers",
+        "exit_code": 0,
+        "seconds": 4.891,
+        "log_sha256": "6f282a7d7cac7d4782beb589a35c59cf132e918e167161e41168f54a8df62a14"
+      },
+      {
+        "name": "sheet-exchange",
+        "exit_code": 0,
+        "seconds": 18.213,
+        "log_sha256": "044596d4fed974a8c758e5d8a3fc337025eefbbcad0f82fcec2d841f64534a23"
+      },
+      {
+        "name": "sheet-same-body",
+        "exit_code": 0,
+        "seconds": 19.359,
+        "log_sha256": "6696e23063323c5f7914c70bef1995bd5a135fd072868c546e3bb3afd8f3f988"
+      },
+      {
+        "name": "converted-selection",
+        "exit_code": 0,
+        "seconds": 57.053,
+        "log_sha256": "f6c7c788fd6361a33a6a4e8859976531bf2e1ca0caf699ea0a2fdab1654923ec"
+      },
+      {
+        "name": "sheet-profile",
+        "exit_code": 0,
+        "seconds": 14.016,
+        "log_sha256": "9466257e7b70dc630b24f70145f342077fadd023dbaa38012b0031f76a65366b"
+      },
+      {
+        "name": "sweep2d",
+        "exit_code": 0,
+        "seconds": 26.911,
+        "log_sha256": "3961e8ef15c2f679a2c75dc21c7947faf6367d1185094fd75b0805b23fec71f5"
+      },
+      {
+        "name": "file-manager",
+        "exit_code": 0,
+        "seconds": 15.462,
+        "log_sha256": "ba5ca09e6659c1b27866fe3bd319e33031d71843b2513f9287c0fa1f6a0ebff4"
+      },
+      {
+        "name": "curved-point",
+        "exit_code": 0,
+        "seconds": 31.212,
+        "log_sha256": "4438e9e0bd21ba9ebd362dbca082727814a5cea8f7db56615b72fc8f5789ac36"
+      },
+      {
+        "name": "wrap",
+        "exit_code": 0,
+        "seconds": 25.611,
+        "log_sha256": "6ad1f0c4f13c7b04bea9e0d562a1e268a2eac08fae406863ff664eb3319a87da"
+      },
+      {
+        "name": "edge-treatment",
+        "exit_code": 0,
+        "seconds": 49.501,
+        "log_sha256": "04cf538139ae9c89a9ec8215119941238114a6e7dca0e24460db0bc7179141ce"
+      },
+      {
+        "name": "helical",
+        "exit_code": 0,
+        "seconds": 35.13,
+        "log_sha256": "39b9abfc7370973e811e4d2b8eb76428c5ce9ae038787f591c6249f61f73ad03"
+      },
+      {
+        "name": "loft",
+        "exit_code": 0,
+        "seconds": 32.827,
+        "log_sha256": "d55ef64f38ec96aebe978526891167b31d373d3880966a8280790f572ce01352"
+      },
+      {
+        "name": "documentation",
+        "exit_code": 0,
+        "seconds": 15.337,
+        "log_sha256": "8bb08ae6f29d09443ae310d84d15f618a473c96deb53a8ee21894063d7d1d5ce"
+      },
+      {
+        "name": "browser",
+        "exit_code": 0,
+        "seconds": 6.798,
+        "log_sha256": "42c916d9275ae134e9337f61e161203c785703c9da9a65919c9ec93a00c948fe"
+      }
+    ],
+    "binary_sha256": {
+      "zima-cad-cpp.exe": "66f8b889dc26b894be8b7daa073eef4124148db77da0bdf2bae148792b0a40c1",
+      "zima-cad-cli.exe": "4a61030bcc20dd9f52b1ecb8c434cc638ff83b6b3cfb7ea537c09b702e52062b",
+      "zima-cad-update.exe": "7d8ce61da3b98735d0f3bb0921d3a799e7d15d12c20bf3c7ff2c00461e775ce0"
+    }
+  },
+  "packaged_documentation": {
+    "commit": "de735241c1553f636c561187c2648cfa4ce86803",
+    "version": "2026112803",
+    "public_files": 1943,
+    "exact_web_copy": true,
+    "five_language_context_ui": "passed",
+    "private_browser_tree_absent": true
+  },
+  "updater": {
+    "status": {
+      "event": "result",
+      "installedVersion": "2026112803",
+      "schemaVersion": 1,
+      "status": "idle",
+      "trusted": true
+    },
+    "check": {
+      "event": "result",
+      "installedVersion": "2026112803",
+      "schemaVersion": 1,
+      "status": "current"
+    }
+  },
+  "local_sheet_properties": {
+    "exit_code": 0,
+    "seconds": 48.08889800000179,
+    "scope": "Actual Sheet Properties buttons, Cancel, changed and unchanged OK, view material, Undo/Redo, save",
+    "fixture": "isolated copy of the user model"
+  },
+  "user_sheet_review": "User confirmed final manual sheet review complete and instructed publication after remaining tests.",
+  "local_material_contract_log_sha256": "00ea5b69bbbb92a9c8fa058a5c470c69ae2f80fcc64df63e5a58bc5cc7d10822",
+  "geometry_record": "doc/verification/20261128-sheet-material-defaults.md",
+  "performance_record": "doc/performance/20261128-skeleton-first-conversion.md",
+  "drawing_record": "doc/verification/20261128-drawing-dimension-placement.md",
+  "limits": [
+    "Native Linux execution was not available.",
+    "Finite regression coverage, not exhaustive geometry certification.",
+    "The aggregate metadata test has an existing Assembly fixture that tries forbidden material creation; its run is not claimed as passing.",
+    "No document-format or shared placement-solver change in this release."
+  ]
+}
